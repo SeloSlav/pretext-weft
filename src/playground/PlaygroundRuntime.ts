@@ -708,10 +708,12 @@ export class PlaygroundRuntime {
     switch (this.quality) {
       case 'low':
         if (kind === 'grass') return 3
+        if (kind === 'sky') return 3
         if (kind === 'glass') return 3
         return 2
       case 'medium':
         if (kind === 'grass') return 2
+        if (kind === 'sky') return 3
         if (kind === 'glass') return 3
         return 2
       case 'high':
@@ -1214,10 +1216,12 @@ export class PlaygroundRuntime {
     const fishCadence = this.cadenceFor('fish')
     let shutterCpuMs = 0
     let ivyCpuMs = 0
-    if (this.shouldRunCadencedUpdate(fishCadence, 1)) {
+    if (this.shouldRunCadencedUpdate(fishCadence, 0)) {
       const tShutter0 = now()
       this.shutterEffect.update(elapsed)
       shutterCpuMs = now() - tShutter0
+    }
+    if (this.shouldRunCadencedUpdate(fishCadence, 1)) {
       const tIvy0 = now()
       this.ivyEffect.update(elapsed)
       ivyCpuMs = now() - tIvy0
@@ -1256,7 +1260,7 @@ export class PlaygroundRuntime {
       neonCpuMs = now() - tNeon0
     }
     let skyCpuMs = 0
-    if (this.shouldRunCadencedUpdate(this.cadenceFor('sky'), 1)) {
+    if (this.shouldRunCadencedUpdate(this.cadenceFor('sky'), 2)) {
       const tSky0 = now()
       this.starSkyEffect.update(elapsed)
       skyCpuMs = now() - tSky0

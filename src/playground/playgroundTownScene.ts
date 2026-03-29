@@ -11,8 +11,6 @@ import {
 
 /** Lamp foot positions (world XZ); used by the playground for Weft lamp targets. */
 export const STREET_LIGHT_XZ = [
-  { x: -9, z: 9 },
-  { x: 9, z: 9 },
   { x: -9, z: -9 },
   { x: 9, z: -9 },
 ] as const
