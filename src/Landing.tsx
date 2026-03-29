@@ -63,6 +63,25 @@ export function Landing({ onEnterEditor }: LandingProps) {
           constants.
         </p>
 
+        <section className="landing__hero-media" aria-label="Hero gameplay demo">
+          <div className="landing__hero-video-shell">
+            <video
+              className="landing__hero-video"
+              src="/landing-hero-fire-wall.mp4"
+              muted
+              loop
+              playsInline
+              autoPlay
+              controls
+              preload="metadata"
+            />
+          </div>
+          <p className="landing__hero-caption">
+            The player shoots through the fire wall, runs through the opening, and the surface closes again
+            behind them using the same reactive layout logic.
+          </p>
+        </section>
+
         <div className="landing__actions">
           <button type="button" className="btn btn--primary" onClick={onEnterEditor}>
             Open engine playground
@@ -112,6 +131,25 @@ export function getPreparedMySurface() {
 }`}</pre>
         </div>
 
+        <section className="landing__demo-media" aria-label="Density tuning demo">
+          <div className="landing__demo-video-shell">
+            <video
+              className="landing__demo-video"
+              src="/landing-density-tuning.mp4"
+              muted
+              loop
+              playsInline
+              autoPlay
+              controls
+              preload="metadata"
+            />
+          </div>
+          <p className="landing__demo-caption">
+            The same controls can tune grass, rock, and star densities live without switching to a different
+            placement workflow for each surface.
+          </p>
+        </section>
+
         <p className="landing__lead">
           Need more control? The same API also accepts explicit entries like
           <code className="landing__code-inline">{` { id, glyph, weight, meta } `}</code>
@@ -151,6 +189,25 @@ this.driver.forEachLaidOutLine({
           different world states, with no separate damage texture or compute pass.
         </p>
 
+        <section className="landing__demo-media" aria-label="Gameplay response demo">
+          <div className="landing__demo-video-shell">
+            <video
+              className="landing__demo-video"
+              src="/landing-grass-shooting.mp4"
+              muted
+              loop
+              playsInline
+              autoPlay
+              controls
+              preload="metadata"
+            />
+          </div>
+          <p className="landing__demo-caption">
+            Shoot the grass and the same layout system thins the surface in place. No separate damage
+            texture, scatter rebuild, or custom effect pipeline.
+          </p>
+        </section>
+
         <div className="landing__code-block">
           <pre className="landing__pre">{`getMaxWidth: (slot) => {
   const damage = this.getDamageAt(slot.spanCenter, slot.lineCoord)
@@ -165,20 +222,15 @@ this.driver.forEachLaidOutLine({
         </p>
 
         <section className="landing__state-showcase" aria-label="Surface state transitions">
+          <p className="landing__state-kicker">Same surface, different world states</p>
           <figure className="landing__state-hero">
-            <img
-              className="landing__state-hero-image"
-              src={selectedState.imageSrc}
-              alt={selectedState.alt}
-            />
+            <img className="landing__state-hero-image" src={selectedState.imageSrc} alt={selectedState.alt} />
             <figcaption className="landing__state-hero-copy">
-              <span className="landing__state-kicker">Same surface, different world state</span>
               <strong className="landing__state-title">{selectedState.label}</strong>
               <span className="landing__state-description">{selectedState.description}</span>
             </figcaption>
           </figure>
-
-          <div className="landing__state-grid" role="list" aria-label="Choose a surface state preview">
+          <div className="landing__state-grid" role="list" aria-label="Surface state previews">
             {SURFACE_STATES.map((state) => {
               const isSelected = state.id === selectedState.id
 
@@ -191,7 +243,10 @@ this.driver.forEachLaidOutLine({
                   aria-pressed={isSelected}
                 >
                   <img className="landing__state-card-image" src={state.imageSrc} alt="" />
-                  <span className="landing__state-card-label">{state.label}</span>
+                  <span className="landing__state-card-copy">
+                    <strong className="landing__state-card-label">{state.label}</strong>
+                    <span className="landing__state-card-description">{state.description}</span>
+                  </span>
                 </button>
               )
             })}

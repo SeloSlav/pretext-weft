@@ -174,6 +174,34 @@ body,
   color: rgba(232, 237, 244, 0.82);
 }
 
+.landing__hero-media {
+  margin: 0 0 40px;
+}
+
+.landing__hero-video-shell {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.22);
+}
+
+.landing__hero-video {
+  display: block;
+  width: 100%;
+  max-height: 460px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #05070c;
+}
+
+.landing__hero-caption {
+  margin: 12px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: rgba(232, 237, 244, 0.7);
+}
+
 .landing__actions {
   display: flex;
   flex-wrap: wrap;
@@ -322,6 +350,33 @@ body,
   border-radius: 4px;
 }
 
+.landing__demo-media {
+  margin: 0 0 24px;
+}
+
+.landing__demo-video-shell {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.landing__demo-video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #05070c;
+}
+
+.landing__demo-caption {
+  margin: 12px 0 0;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: rgba(232, 237, 244, 0.68);
+}
+
 .landing__state-showcase {
   margin: 0 0 48px;
   display: flex;
@@ -363,7 +418,7 @@ body,
 .landing__state-title {
   font-size: 1.05rem;
   font-weight: 650;
-  color: #f4f7fc;
+  color: #f0f4fa;
 }
 
 .landing__state-description {
@@ -374,22 +429,23 @@ body,
 
 .landing__state-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
 .landing__state-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 10px;
+  margin: 0;
+  padding: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.025);
-  cursor: pointer;
   text-align: left;
   color: inherit;
+  cursor: pointer;
   transition:
     border-color 0.15s,
     background 0.15s,
@@ -417,10 +473,22 @@ body,
   background: #05070c;
 }
 
+.landing__state-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .landing__state-card-label {
   font-size: 0.82rem;
   font-weight: 600;
-  color: rgba(232, 237, 244, 0.88);
+  color: #f0f4fa;
+}
+
+.landing__state-card-description {
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: rgba(232, 237, 244, 0.66);
 }
 
 .landing__features {
@@ -468,7 +536,7 @@ body,
   }
 
   .landing__state-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 }
 
