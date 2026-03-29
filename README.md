@@ -8,7 +8,7 @@ Reactive surface-layout SDK for Three.js/WebGPU. Build gameplay-responsive grass
 
 > Start here for SDK integration guidance and agent-ready context: [`weft.md`](./weft.md)
 
-![Playground screenshot](public/readme-playground-screenshot.png)
+![Playground screenshot](https://raw.githubusercontent.com/SeloSlav/weft/main/public/readme-playground-screenshot.png)
 
 The site has two faces:
 
