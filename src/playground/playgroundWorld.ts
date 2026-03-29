@@ -100,10 +100,10 @@ export const ROOF_WALKABLE_SURFACES: RoofWalkableSurface[] = [
 export const PLAYER_COLLISION_RADIUS = 0.34
 
 /** Minimum fish-scale damage (0–1) at a point to pass through shutter/ivy breach zones. */
-export const FACADE_BREACH_DAMAGE_THRESHOLD = 0.38
+export const FACADE_BREACH_DAMAGE_THRESHOLD = 0.32
 
 /** Lateral offset (m) for multi-sample breach checks; ~player radius for fair hole width. */
-export const FACADE_BREACH_SAMPLE_OFFSET = 0.28
+export const FACADE_BREACH_SAMPLE_OFFSET = 0.22
 
 /**
  * Wound recovery for shopfront + ivy fish facades only (lower = holes stay open longer).
@@ -143,6 +143,8 @@ export type BreachZoneKind = 'shutter' | 'ivy' | 'neon'
 export type BreachZone = {
   kind: BreachZoneKind
   bounds: SolidAabb
+  /** When open, nearby overlapping wall AABBs inside this corridor should not block the player. */
+  passageBounds?: SolidAabb
   /** Index into `NEON_BARRIERS` / `neonSignEffects` when `kind === 'neon'`. */
   neonIndex?: number
 }
@@ -154,10 +156,12 @@ export const BREACHABLE_FACADE_ZONES: BreachZone[] = [
   {
     kind: 'shutter',
     bounds: { minX: -4.55, maxX: 4.55, minZ: -15.72, maxZ: -14.95, maxY: 8.7 },
+    passageBounds: { minX: -5.15, maxX: 5.15, minZ: -16.18, maxZ: -14.55, maxY: 8.7 },
   },
   {
     kind: 'ivy',
     bounds: { minX: -13.24, maxX: -11.56, minZ: -2.72, maxZ: 6.72, maxY: 6.9 },
+    passageBounds: { minX: -13.62, maxX: -11.18, minZ: -3.18, maxZ: 7.18, maxY: 6.9 },
   },
   {
     kind: 'neon',
@@ -186,10 +190,11 @@ export function isInsideRubbleZone(x: number, z: number): boolean {
 /** Sum of wound strengths (each capped 1) before the lamp reads as fully broken; heals with fish-scale recovery. */
 export const STREET_LAMP_GLASS_BREAK_THRESHOLD = 3.65
 
-export const STREET_LAMP_POINT_INTENSITY_MAX = 2.35
+/** Healthy street lamp point-light intensity; runtime scales this down as the glass breaks. */
+export const STREET_LAMP_POINT_INTENSITY_MAX = 7.5
 
-/** Globe material emissive intensity when the lamp is intact. */
-export const STREET_LAMP_GLOBE_EMISSIVE_MAX = 0.88
+/** Globe emissive intensity when the lamp is intact so working bulbs read clearly at a distance. */
+export const STREET_LAMP_GLOBE_EMISSIVE_MAX = 3.4
 
 /** Shared glass tuning for lamps and building windows. */
 export const DEFAULT_GLASS_SURFACE_PARAMS = {

@@ -745,6 +745,10 @@ export class PlaygroundRuntime {
     return maxY == null || probeY < maxY - PlaygroundRuntime.WALL_TOP_CLEARANCE
   }
 
+  private aabbOverlaps(a: { minX: number; maxX: number; minZ: number; maxZ: number }, b: { minX: number; maxX: number; minZ: number; maxZ: number }): boolean {
+    return a.minX <= b.maxX && a.maxX >= b.minX && a.minZ <= b.maxZ && a.maxZ >= b.minZ
+  }
+
   /** Solid building AABBs plus breach zones: pass only through Weft holes when sampled points are open enough. */
   private readonly resolveHorizontalMove: ResolveHorizontalMove = (prevX, prevZ, nextX, nextZ) => {
     const r = PLAYER_COLLISION_RADIUS
@@ -760,12 +764,21 @@ export class PlaygroundRuntime {
 
     const o = FACADE_BREACH_SAMPLE_OFFSET
     const breachOffsets = [0, o, -o] as const
+    const openPassages = BREACHABLE_FACADE_ZONES.filter((zone) => {
+      const passage = zone.passageBounds ?? zone.bounds
+      return (
+        this.blocksAtProbeHeight(passage.maxY, probeY) &&
+        circleOverlapsAabb(x, z, r, passage) &&
+        this.isBreachZoneOpen(zone, x, z, perpX, perpZ, breachOffsets)
+      )
+    }).map((zone) => zone.passageBounds ?? zone.bounds)
 
     for (let iter = 0; iter < 5; iter++) {
       let changed = false
 
       for (const wall of SOLID_BUILDING_WALLS) {
         if (!this.blocksAtProbeHeight(wall.maxY, probeY)) continue
+        if (openPassages.some((passage) => this.aabbOverlaps(wall, passage))) continue
         const p = pushCircleOutOfAabb(x, z, r, wall)
         if (p.x !== x || p.z !== z) changed = true
         x = p.x
@@ -798,31 +811,34 @@ export class PlaygroundRuntime {
   ): boolean {
     const gy = this.getGroundHeightAtWorld(x, z)
     const sampleY = gy + 1.55
+    const minOpenSamples = Math.max(1, Math.ceil(breachOffsets.length * 0.5))
 
     if (zone.kind === 'shutter') {
       // Project onto the shopfront plane so damage matches from either side of the wall (world Z is the façade anchor).
       const wallZ = SHUTTER_WALL_LAYOUT.z
+      let openSamples = 0
       for (const off of breachOffsets) {
         const sx = x + perpX * off
         this.collisionSample.set(sx, sampleY, wallZ)
-        if (this.shutterEffect.getSurfaceDamage01AtWorldPoint(this.collisionSample) < FACADE_BREACH_DAMAGE_THRESHOLD) {
-          return false
+        if (this.shutterEffect.getSurfaceDamage01AtWorldPoint(this.collisionSample) >= FACADE_BREACH_DAMAGE_THRESHOLD) {
+          openSamples++
         }
       }
-      return true
+      return openSamples >= minOpenSamples
     }
 
     if (zone.kind === 'ivy') {
       // Ivy faces ±X; project onto the wall plane so interior-side samples use the same patch coords as outside.
       const wallX = IVY_WALL_LAYOUT.x
+      let openSamples = 0
       for (const off of breachOffsets) {
         const sz = z + perpZ * off
         this.collisionSample.set(wallX, sampleY, sz)
-        if (this.ivyEffect.getSurfaceDamage01AtWorldPoint(this.collisionSample) < FACADE_BREACH_DAMAGE_THRESHOLD) {
-          return false
+        if (this.ivyEffect.getSurfaceDamage01AtWorldPoint(this.collisionSample) >= FACADE_BREACH_DAMAGE_THRESHOLD) {
+          openSamples++
         }
       }
-      return true
+      return openSamples >= minOpenSamples
     }
 
     if (zone.kind === 'neon') {

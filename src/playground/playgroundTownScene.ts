@@ -4,6 +4,8 @@ import { CROSS_EXTENT, CROSS_HALF_WIDTH, TOWN_ROAD_SURFACE_Y } from './townRoadM
 import {
   HOLLOW_BUILDING_WALL_THICKNESS,
   INTERIOR_FLOOR_Y,
+  STREET_LAMP_GLOBE_EMISSIVE_MAX,
+  STREET_LAMP_POINT_INTENSITY_MAX,
   IVY_WALL_LAYOUT,
   SHUTTER_WALL_LAYOUT,
   WINDOW_GLASS_LAYOUTS,
@@ -551,7 +553,7 @@ export function createTownIntersectionScene(): TownIntersectionScene {
   const lampMat = new THREE.MeshStandardMaterial({
     color: '#ffe8b8',
     emissive: '#ffd080',
-    emissiveIntensity: 0.85,
+    emissiveIntensity: STREET_LAMP_GLOBE_EMISSIVE_MAX,
     roughness: 0.35,
   })
 
@@ -565,7 +567,7 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     root.add(lamp)
     lampGlobes.push(lamp)
 
-    const glow = new THREE.PointLight('#fff6e8', 2.35, 17, 1.65)
+    const glow = new THREE.PointLight('#fff6e8', STREET_LAMP_POINT_INTENSITY_MAX, 22, 1.65)
     glow.position.set(x, bulbY, z)
     root.add(glow)
     lampLights.push(glow)
