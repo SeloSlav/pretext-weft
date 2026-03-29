@@ -15,6 +15,8 @@ import {
   type FishTokenMeta,
 } from './fishScaleSource'
 
+export type FishScaleAppearance = 'fish' | 'shutter' | 'ivy' | 'glass' | 'glassBulb'
+
 export type FishScaleParams = {
   woundRadius: number
   woundNarrow: number
@@ -42,8 +44,16 @@ const LAYOUT_PX_PER_WORLD = 33
 const BASE_SCALE_LIFT = 0.055
 const WOUND_MERGE_RADIUS = 0.46
 const WOUND_MAX_STRENGTH = 2.1
+const GLASS_GLOBE_RADIUS = 2.5
+const GLASS_POLAR_MARGIN = 0.16
+const GLASS_PANE_CELL_X = 1.35
+const GLASS_PANE_CELL_Y = 1.2
 
 const tmpPos = new THREE.Vector3()
+const tmpPosX0 = new THREE.Vector3()
+const tmpPosX1 = new THREE.Vector3()
+const tmpPosY0 = new THREE.Vector3()
+const tmpPosY1 = new THREE.Vector3()
 const tmpTangentX = new THREE.Vector3()
 const tmpTangentY = new THREE.Vector3()
 const tmpNormal = new THREE.Vector3()
@@ -53,6 +63,9 @@ const tmpLocalPoint = new THREE.Vector3()
 const tmpLocalDirection = new THREE.Vector3()
 const tmpWorldMatrix = new THREE.Matrix4()
 const dummy = new THREE.Object3D()
+const DAMAGE_TINT_FISH = new THREE.Color('#3f332f')
+const DAMAGE_TINT_IVY = new THREE.Color('#2a1810')
+const DAMAGE_TINT_GLASS = new THREE.Color('#1a2838')
 
 type Wound = {
   x: number
@@ -104,6 +117,39 @@ function createScaleGeometry(): THREE.ExtrudeGeometry {
   return geometry
 }
 
+function createGlassShardGeometry(): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape()
+  shape.moveTo(-0.52, 0.46)
+  shape.lineTo(-0.14, 0.62)
+  shape.lineTo(0.34, 0.5)
+  shape.lineTo(0.56, 0.08)
+  shape.lineTo(0.28, -0.58)
+  shape.lineTo(-0.18, -0.66)
+  shape.lineTo(-0.58, -0.16)
+  shape.lineTo(-0.46, 0.22)
+  shape.closePath()
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: 0.05,
+    bevelEnabled: true,
+    bevelSegments: 2,
+    bevelThickness: 0.012,
+    bevelSize: 0.018,
+    curveSegments: 1,
+  })
+
+  geometry.center()
+  geometry.rotateX(Math.PI)
+  geometry.computeVertexNormals()
+  return geometry
+}
+
+function createGlyphGeometry(appearance: FishScaleAppearance): THREE.ExtrudeGeometry {
+  return appearance === 'glass' || appearance === 'glassBulb'
+    ? createGlassShardGeometry()
+    : createScaleGeometry()
+}
+
 function createScaleMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: '#c8dde8',
@@ -130,7 +176,7 @@ export class FishScaleEffect {
   readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
 
   private readonly scaleMesh: THREE.InstancedMesh
-  private readonly scaleGeometry = createScaleGeometry()
+  private readonly scaleGeometry: THREE.ExtrudeGeometry
   private readonly scaleMaterial = createScaleMaterial()
   private readonly patchGeometry = new THREE.PlaneGeometry(PATCH_WIDTH, PATCH_HEIGHT, 44, 32)
   private readonly patchMaterial = createPatchMaterial()
@@ -141,13 +187,17 @@ export class FishScaleEffect {
   private patchUpdateAccumulator = 1
   private patchNormalAccumulator = 1
   private params: FishScaleParams
+  private readonly appearance: FishScaleAppearance
 
   constructor(
     surface: PreparedSurfaceSource<FishTokenId, FishTokenMeta>,
     seedCursor: SeedCursorFactory,
     initialParams: FishScaleParams,
+    appearance: FishScaleAppearance = 'fish',
   ) {
     this.params = { ...initialParams }
+    this.appearance = appearance
+    this.scaleGeometry = createGlyphGeometry(appearance)
     this.layoutDriver = new SurfaceLayoutDriver({
       surface,
       rows: ROWS,
@@ -160,6 +210,8 @@ export class FishScaleEffect {
 
     this.scaleMesh = new THREE.InstancedMesh(this.scaleGeometry, this.scaleMaterial, MAX_INSTANCES)
     this.scaleMesh.frustumCulled = false
+
+    this.applyAppearanceMaterials()
 
     this.interactionMesh = new THREE.Mesh(this.patchGeometry, this.patchMaterial)
     this.interactionMesh.renderOrder = -1
@@ -176,13 +228,30 @@ export class FishScaleEffect {
     this.wounds.length = 0
   }
 
+  /**
+   * Normalized aggregate wound strength (0 = intact, 1 = at or past `breakThreshold`).
+   * Useful for gameplay tied to recoverable fish-scale damage (e.g. lamp outage while glass heals).
+   */
+  getWoundLoad01(breakThreshold = 4): number {
+    if (breakThreshold <= 0) return 0
+    let sum = 0
+    for (const w of this.wounds) {
+      sum += THREE.MathUtils.clamp(w.strength, 0, 1)
+    }
+    return THREE.MathUtils.clamp(sum / breakThreshold, 0, 1)
+  }
+
   addWoundFromWorldPoint(worldPoint: THREE.Vector3, worldDirection: THREE.Vector3): void {
     tmpLocalPoint.copy(worldPoint)
     this.group.worldToLocal(tmpLocalPoint)
 
-    const x = THREE.MathUtils.clamp(tmpLocalPoint.x, -PATCH_WIDTH * 0.48, PATCH_WIDTH * 0.48)
-    const y = THREE.MathUtils.clamp(tmpLocalPoint.y, -PATCH_HEIGHT * 0.48, PATCH_HEIGHT * 0.48)
-    const side = this.impactSideFromWorldDirection(worldDirection)
+    const { x, y } = this.isSphericalGlassSurface()
+      ? this.glassParamsFromLocalPoint(tmpLocalPoint)
+      : {
+          x: THREE.MathUtils.clamp(tmpLocalPoint.x, -PATCH_WIDTH * 0.48, PATCH_WIDTH * 0.48),
+          y: THREE.MathUtils.clamp(tmpLocalPoint.y, -PATCH_HEIGHT * 0.48, PATCH_HEIGHT * 0.48),
+        }
+    const side = this.isSphericalGlassSurface() ? 1 : this.impactSideFromWorldDirection(worldDirection)
     const mergeIndex = this.findNearbyWoundIndex(x, y, side)
 
     if (mergeIndex >= 0) {
@@ -211,6 +280,37 @@ export class FishScaleEffect {
     this.updateScales(elapsedTime)
   }
 
+  private applyAppearanceMaterials(): void {
+    if (this.appearance === 'shutter') {
+      this.scaleMaterial.color.set('#9aa8b8')
+      this.scaleMaterial.emissive.set('#223040')
+      this.scaleMaterial.emissiveIntensity = 0.35
+      this.scaleMaterial.metalness = 0.62
+      this.scaleMaterial.roughness = 0.38
+      this.patchMaterial.color.set('#3d4a5c')
+      this.patchMaterial.emissive.set('#121a24')
+      this.patchMaterial.emissiveIntensity = 0.22
+    } else if (this.appearance === 'ivy') {
+      this.scaleMaterial.color.set('#4a8f52')
+      this.scaleMaterial.emissive.set('#1a3020')
+      this.scaleMaterial.emissiveIntensity = 0.18
+      this.scaleMaterial.metalness = 0.12
+      this.scaleMaterial.roughness = 0.62
+      this.patchMaterial.color.set('#2d4a32')
+      this.patchMaterial.emissive.set('#0f1a12')
+      this.patchMaterial.emissiveIntensity = 0.12
+    } else if (this.appearance === 'glass' || this.appearance === 'glassBulb') {
+      this.scaleMaterial.color.set('#cfeef8')
+      this.scaleMaterial.emissive.set('#7ec8e8')
+      this.scaleMaterial.emissiveIntensity = 0.38
+      this.scaleMaterial.metalness = 0.06
+      this.scaleMaterial.roughness = 0.09
+      this.patchMaterial.color.set('#5a7a8c')
+      this.patchMaterial.emissive.set('#2a4558')
+      this.patchMaterial.emissiveIntensity = 0.2
+    }
+  }
+
   dispose(): void {
     this.scaleGeometry.dispose()
     this.scaleMaterial.dispose()
@@ -222,7 +322,7 @@ export class FishScaleEffect {
     let damage = 0
 
     for (const wound of this.wounds) {
-      const dx = x - wound.x
+      const dx = this.paramDeltaX(x, wound.x)
       const dy = (y - wound.y) * 1.14
       const normalized = Math.sqrt(dx * dx + dy * dy) / Math.max(0.0001, this.woundRadiusFor(wound))
       const woundStrength = THREE.MathUtils.lerp(1, 1.2, this.woundIntensity01(wound))
@@ -244,8 +344,8 @@ export class FishScaleEffect {
 
     for (let i = 0; i < this.wounds.length; i++) {
       const wound = this.wounds[i]!
-      if (wound.side !== side) continue
-      const dx = x - wound.x
+      if (!this.isSphericalGlassSurface() && wound.side !== side) continue
+      const dx = this.paramDeltaX(x, wound.x)
       const dy = y - wound.y
       if (dx * dx + dy * dy <= mergeRadiusSq) {
         return i
@@ -275,7 +375,79 @@ export class FishScaleEffect {
     updateRecoveringImpacts(this.wounds, this.params.recoveryRate, delta)
   }
 
+  private isSphericalGlassSurface(): boolean {
+    return this.appearance === 'glassBulb'
+  }
+
+  private paramDeltaX(a: number, b: number): number {
+    const dx = a - b
+    if (!this.isSphericalGlassSurface()) return dx
+    const wrapped = ((dx + PATCH_WIDTH * 0.5) % PATCH_WIDTH + PATCH_WIDTH) % PATCH_WIDTH - PATCH_WIDTH * 0.5
+    return wrapped
+  }
+  private glassPaneWarp(x: number, y: number): number {
+    const gx = (x + PATCH_WIDTH * 0.5) * GLASS_PANE_CELL_X
+    const gy = (y + PATCH_HEIGHT * 0.5) * GLASS_PANE_CELL_Y
+    const cellX = Math.floor(gx)
+    const cellY = Math.floor(gy)
+    let nearest = Number.POSITIVE_INFINITY
+    let second = Number.POSITIVE_INFINITY
+
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const cx = cellX + ox
+        const cy = cellY + oy
+        const px = cx + 0.18 + uhash(cx * 92821 + cy * 68917 + 17) * 0.64
+        const py = cy + 0.18 + uhash(cx * 12553 + cy * 45307 + 29) * 0.64
+        const dx = gx - px
+        const dy = gy - py
+        const d = dx * dx + dy * dy
+        if (d < nearest) {
+          second = nearest
+          nearest = d
+        } else if (d < second) {
+          second = d
+        }
+      }
+    }
+
+    const nearestDist = Math.sqrt(nearest)
+    const secondDist = Math.sqrt(second)
+    const edge = THREE.MathUtils.clamp((secondDist - nearestDist) * 3.2, 0, 1)
+    const seam = 1 - edge
+    const centerGlow = Math.max(0, 1 - nearestDist * 1.7)
+    return centerGlow * 0.05 - seam * 0.09
+  }
+
+
+  private glassAnglesFromParams(x: number, y: number): { theta: number; phi: number } {
+    const xNorm = THREE.MathUtils.clamp(x / (PATCH_WIDTH * 0.5), -1, 1)
+    const yNorm = THREE.MathUtils.clamp(y / (PATCH_HEIGHT * 0.5), -1, 1)
+    const theta = xNorm * Math.PI
+    const tY = yNorm * 0.5 + 0.5
+    const phi = THREE.MathUtils.lerp(Math.PI - GLASS_POLAR_MARGIN, GLASS_POLAR_MARGIN, tY)
+    return { theta, phi }
+  }
+
+  private glassParamsFromLocalPoint(localPoint: THREE.Vector3): { x: number; y: number } {
+    const dir = tmpLocalDirection.copy(localPoint).normalize()
+    const theta = Math.atan2(dir.x, dir.z)
+    const phi = Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1))
+    const x = THREE.MathUtils.clamp((theta / Math.PI) * (PATCH_WIDTH * 0.5), -PATCH_WIDTH * 0.5, PATCH_WIDTH * 0.5)
+    const tY = THREE.MathUtils.clamp(
+      (Math.PI - GLASS_POLAR_MARGIN - phi) / (Math.PI - GLASS_POLAR_MARGIN * 2),
+      0,
+      1,
+    )
+    const y = (tY * 2 - 1) * (PATCH_HEIGHT * 0.5)
+    return { x, y }
+  }
+
   private surfaceZ(x: number, y: number, elapsedTime: number): number {
+    if (this.appearance === 'glass') {
+      return this.glassPaneZ(x, y, elapsedTime)
+    }
+
     const xNorm = x / (PATCH_WIDTH * 0.5)
     const yNorm = y / (PATCH_HEIGHT * 0.5)
     const baseBulge = 0.34 * Math.cos(xNorm * Math.PI * 0.5) - 0.06 * yNorm * yNorm
@@ -310,19 +482,91 @@ export class FishScaleEffect {
     return baseBulge + sway + woundOffset
   }
 
+  private glassPaneZ(x: number, y: number, elapsedTime: number): number {
+    const paneWarp = this.glassPaneWarp(x, y) * (0.75 + this.params.surfaceFlex * 0.85)
+    const sway =
+      this.params.surfaceFlex *
+      (0.014 * Math.sin(elapsedTime * 0.7 + x * 1.1) + 0.01 * Math.cos(elapsedTime * 0.45 + y * 1.35))
+
+    let woundOffset = 0
+    for (const wound of this.wounds) {
+      const dx = x - wound.x
+      const dy = (y - wound.y) * 1.16
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      const radius = Math.max(0.0001, this.woundRadiusFor(wound))
+      const n = dist / radius
+      if (n >= 1.22) continue
+
+      const crater = smoothPulse(Math.min(n, 1))
+      const intensity = this.woundIntensity01(wound)
+      const presence = this.woundPresence01(wound)
+      woundOffset += -crater * this.params.woundDepth * THREE.MathUtils.lerp(0.18, 0.32, intensity) * presence
+
+      const ridgeT = THREE.MathUtils.clamp(1 - Math.abs(n - 0.9) / 0.2, 0, 1)
+      woundOffset += ridgeT * ridgeT * this.params.woundDepth * THREE.MathUtils.lerp(0.03, 0.07, intensity) * presence
+    }
+
+    return paneWarp + sway + woundOffset
+  }
+
+  private glassRadius(x: number, y: number, elapsedTime: number): number {
+    const sway =
+      this.params.surfaceFlex *
+      (0.018 * Math.sin(elapsedTime * 0.8 + x * 1.15) + 0.012 * Math.cos(elapsedTime * 0.5 + y * 1.35))
+
+    let woundOffset = 0
+    for (const wound of this.wounds) {
+      const dx = this.paramDeltaX(x, wound.x)
+      const dy = (y - wound.y) * 1.14
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      const radius = Math.max(0.0001, this.woundRadiusFor(wound))
+      const n = dist / radius
+      if (n >= 1.25) continue
+
+      const crater = smoothPulse(Math.min(n, 1))
+      const intensity = this.woundIntensity01(wound)
+      const presence = this.woundPresence01(wound)
+      woundOffset += -crater * this.params.woundDepth * THREE.MathUtils.lerp(0.12, 0.2, intensity) * presence
+
+      const ridgeT = THREE.MathUtils.clamp(1 - Math.abs(n - 0.92) / 0.22, 0, 1)
+      woundOffset += ridgeT * ridgeT * this.params.woundDepth * THREE.MathUtils.lerp(0.03, 0.06, intensity) * presence
+    }
+
+    return GLASS_GLOBE_RADIUS + sway + woundOffset
+  }
+
+  private sampleSurfacePosition(target: THREE.Vector3, x: number, y: number, elapsedTime: number): THREE.Vector3 {
+    if (!this.isSphericalGlassSurface()) {
+      return target.set(x, y, this.surfaceZ(x, y, elapsedTime))
+    }
+
+    const { theta, phi } = this.glassAnglesFromParams(x, y)
+    const radius = this.glassRadius(x, y, elapsedTime)
+    const sinPhi = Math.sin(phi)
+    return target.set(
+      Math.sin(theta) * sinPhi * radius,
+      Math.cos(phi) * radius,
+      Math.cos(theta) * sinPhi * radius,
+    )
+  }
+
   private sampleSurface(x: number, y: number, elapsedTime: number): SurfaceFrame {
     const eps = 0.02
 
-    const z = this.surfaceZ(x, y, elapsedTime)
-    const zx0 = this.surfaceZ(x - eps, y, elapsedTime)
-    const zx1 = this.surfaceZ(x + eps, y, elapsedTime)
-    const zy0 = this.surfaceZ(x, y - eps, elapsedTime)
-    const zy1 = this.surfaceZ(x, y + eps, elapsedTime)
+    this.sampleSurfacePosition(tmpPos, x, y, elapsedTime)
+    this.sampleSurfacePosition(tmpPosX0, x - eps, y, elapsedTime)
+    this.sampleSurfacePosition(tmpPosX1, x + eps, y, elapsedTime)
+    this.sampleSurfacePosition(tmpPosY0, x, y - eps, elapsedTime)
+    this.sampleSurfacePosition(tmpPosY1, x, y + eps, elapsedTime)
 
-    tmpPos.set(x, y, z)
-    tmpTangentX.set(2 * eps, 0, zx1 - zx0).normalize()
-    tmpTangentY.set(0, 2 * eps, zy1 - zy0).normalize()
-    tmpNormal.crossVectors(tmpTangentX, tmpTangentY).normalize()
+    tmpTangentX.copy(tmpPosX1).sub(tmpPosX0).normalize()
+    if (this.isSphericalGlassSurface()) {
+      tmpNormal.copy(tmpPos).normalize()
+      tmpTangentY.crossVectors(tmpNormal, tmpTangentX).normalize()
+    } else {
+      tmpTangentY.copy(tmpPosY1).sub(tmpPosY0).normalize()
+      tmpNormal.crossVectors(tmpTangentX, tmpTangentY).normalize()
+    }
 
     return {
       position: tmpPos,
@@ -338,7 +582,8 @@ export class FishScaleEffect {
     for (let i = 0; i < position.count; i++) {
       const x = this.basePatchPositions[i * 3]
       const y = this.basePatchPositions[i * 3 + 1]
-      position.setXYZ(i, x, y, this.surfaceZ(x, y, elapsedTime))
+      this.sampleSurfacePosition(tmpPos, x, y, elapsedTime)
+      position.setXYZ(i, tmpPos.x, tmpPos.y, tmpPos.z)
     }
 
     position.needsUpdate = true
@@ -370,6 +615,12 @@ export class FishScaleEffect {
   }
 
   private getSlotMaxWidth(slot: SurfaceLayoutSlot, elapsedTime: number): number {
+    if (this.isSphericalGlassSurface()) {
+      const { phi } = this.glassAnglesFromParams(slot.spanCenter, slot.lineCoord)
+      const radius = this.glassRadius(slot.spanCenter, slot.lineCoord, elapsedTime)
+      const arcWorld = slot.spanSize * ((Math.PI * 2 * radius * Math.max(0.12, Math.sin(phi))) / PATCH_WIDTH)
+      return arcWorld * LAYOUT_PX_PER_WORLD
+    }
     const surface = this.sampleSurface(slot.spanCenter, slot.lineCoord, elapsedTime)
     const arcWorld = slot.spanSize * Math.max(1, surface.tangentX.length())
     return arcWorld * LAYOUT_PX_PER_WORLD
@@ -396,34 +647,68 @@ export class FishScaleEffect {
       const hashPresence = glyphHash(identity, slot.row * 131 + slot.sector, k)
       if (hashPresence > localCoverage) continue
       const frame = this.sampleSurface(x, y, elapsedTime)
-      const scaleWidth = 0.145 + meta.widthBias + (identity % 5) * 0.012
-      const scaleHeight = 0.2 + meta.heightBias + (identity % 7) * 0.014
-      const scaleDepth = 0.05 + meta.depthBias + (identity % 4) * 0.004
+      const isGlassLike = this.appearance === 'glass' || this.appearance === 'glassBulb'
+      const scaleWidth = isGlassLike
+        ? 0.11 + meta.widthBias * 0.65 + (identity % 5) * 0.02
+        : 0.145 + meta.widthBias + (identity % 5) * 0.012
+      const scaleHeight = isGlassLike
+        ? 0.16 + meta.heightBias * 0.55 + (identity % 7) * 0.022
+        : 0.2 + meta.heightBias + (identity % 7) * 0.014
+      const scaleDepth = isGlassLike
+        ? 0.018 + meta.depthBias * 0.3 + (identity % 4) * 0.003
+        : 0.05 + meta.depthBias + (identity % 4) * 0.004
       const lift = BASE_SCALE_LIFT + localDamage * this.params.scaleLift * 0.18
 
       dummy.position.copy(frame.position).addScaledVector(frame.normal, lift)
 
       tmpMatrix.makeBasis(frame.tangentX, frame.tangentY, frame.normal)
       dummy.quaternion.setFromRotationMatrix(tmpMatrix)
-      dummy.rotateX(0.28 + localDamage * 0.5)
-      dummy.rotateZ((((identity % 17) / 17) - 0.5) * 0.24)
+      const isPaneGlass = this.appearance === 'glass'
+      dummy.rotateX(
+        this.isSphericalGlassSurface()
+          ? 0.08 + localDamage * 0.2
+          : isPaneGlass
+            ? 0.12 + localDamage * 0.18
+            : 0.28 + localDamage * 0.5,
+      )
+      dummy.rotateZ(
+        (((identity % 17) / 17) - 0.5) * (this.isSphericalGlassSurface() ? 0.14 : isPaneGlass ? 0.08 : 0.24),
+      )
       dummy.scale.set(
-        scaleWidth * (1 - localDamage * 0.08),
-        scaleHeight * (1 - localDamage * 0.12),
-        scaleDepth * (1 + localDamage * 0.28),
+        scaleWidth * (1 - localDamage * (isGlassLike ? 0.04 : 0.08)),
+        scaleHeight * (1 - localDamage * (isGlassLike ? 0.08 : 0.12)),
+        scaleDepth * (1 + localDamage * (isGlassLike ? 0.22 : 0.28)),
       )
       dummy.updateMatrix()
       this.scaleMesh.setMatrixAt(instanceIndex, dummy.matrix)
 
-      const hue = 0.44 + slot.row * 0.008 + meta.hueBias + (identity % 11) * 0.0025
-      const saturation = THREE.MathUtils.lerp(0.22, 0.46, 1 - localDamage)
+      const hueBase =
+        this.appearance === 'ivy'
+          ? 0.28 + slot.row * 0.006 + meta.hueBias
+          : this.appearance === 'glass' || this.appearance === 'glassBulb'
+            ? 0.52 + slot.row * 0.004 + meta.hueBias * 0.015
+            : 0.44 + slot.row * 0.008 + meta.hueBias
+      const hue = hueBase + (identity % 11) * 0.0025
+      const saturation = THREE.MathUtils.lerp(
+        this.appearance === 'glass' || this.appearance === 'glassBulb' ? 0.28 : 0.22,
+        this.appearance === 'glass' || this.appearance === 'glassBulb' ? 0.55 : 0.46,
+        1 - localDamage,
+      )
       const lightness = THREE.MathUtils.lerp(
-        0.28,
-        0.56,
+        this.appearance === 'glass' || this.appearance === 'glassBulb' ? 0.42 : 0.28,
+        this.appearance === 'glass' || this.appearance === 'glassBulb' ? 0.78 : 0.56,
         0.5 + Math.sin(slot.row * 0.35 + k * 0.3) * 0.25,
       )
       tmpColor.setHSL(hue, saturation, lightness)
-      tmpColor.lerp(new THREE.Color('#3f332f'), localDamage * 0.72)
+      const damageTint =
+        this.appearance === 'ivy'
+          ? DAMAGE_TINT_IVY
+          : this.appearance === 'glass' || this.appearance === 'glassBulb'
+            ? DAMAGE_TINT_GLASS
+            : DAMAGE_TINT_FISH
+      const damageMix =
+        this.appearance === 'glass' || this.appearance === 'glassBulb' ? localDamage * 0.88 : localDamage * 0.72
+      tmpColor.lerp(damageTint, damageMix)
       this.scaleMesh.setColorAt(instanceIndex, tmpColor)
 
       instanceIndex++
@@ -437,15 +722,21 @@ export type CreateFishScaleEffectOptions = {
   seedCursor: SeedCursorFactory
   surface?: PreparedSurfaceSource<FishTokenId, FishTokenMeta>
   initialParams?: FishScaleParams
+  /** Visual preset for storefront slats vs ivy vs lamp glass vs default fish metal. */
+  appearance?: FishScaleAppearance
+  /** Unique id when multiple fish-scale walls exist in one scene. */
+  effectId?: string
 }
 
 export function createFishScaleEffect({
   seedCursor,
   surface = getPreparedFishSurface(),
   initialParams = DEFAULT_FISH_SCALE_PARAMS,
+  appearance = 'fish',
+  effectId = 'fish-scale',
 }: CreateFishScaleEffectOptions): FishScaleEffect {
   const effect = createSurfaceEffect({
-    id: 'fish-scale',
+    id: effectId,
     source: surface,
     layout: wallLayout({
       rows: ROWS,
@@ -464,5 +755,5 @@ export function createFishScaleEffect({
     seedCursor,
   })
 
-  return new FishScaleEffect(effect.source, seedCursor, initialParams)
+  return new FishScaleEffect(effect.source, seedCursor, initialParams, appearance)
 }

@@ -73,19 +73,23 @@ export function applyPlaygroundAtmosphere(scene: THREE.Scene): THREE.Mesh {
     scene.environment = skyMaterial.map
   }
   scene.add(skybox)
-  scene.fog = new THREE.Fog('#050a1a', 40, 300)
+  scene.fog = new THREE.Fog('#0a1022', 28, 260)
   return skybox
 }
 
 export function addPlaygroundLighting(scene: THREE.Scene): void {
-  scene.add(new THREE.AmbientLight('#c2d4f0', 0.62))
-  scene.add(new THREE.HemisphereLight('#6d8fd4', '#111111', 0.58))
+  scene.add(new THREE.AmbientLight('#8fa8e8', 0.38))
+  scene.add(new THREE.HemisphereLight('#4a6ab8', '#151820', 0.72))
 
-  const moonLight = new THREE.DirectionalLight('#cce0ff', 1.25)
-  moonLight.position.set(-15, 30, 20)
+  const moonLight = new THREE.DirectionalLight('#b8d4ff', 0.55)
+  moonLight.position.set(-22, 34, 14)
   scene.add(moonLight)
 
-  const frontFill = new THREE.DirectionalLight('#ffe8cc', 0.42)
-  frontFill.position.set(0, 8, 30)
+  const frontFill = new THREE.DirectionalLight('#ffd9a8', 0.55)
+  frontFill.position.set(8, 14, 28)
   scene.add(frontFill)
+
+  const rim = new THREE.DirectionalLight('#6080ff', 0.28)
+  rim.position.set(18, 6, -16)
+  scene.add(rim)
 }

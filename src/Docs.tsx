@@ -171,6 +171,8 @@ export function Docs({ onEnterEditor }: DocsProps) {
         <p className="docs__lead">
           This page documents the current SDK surface that ships in the package today. It is guide-first,
           but every section maps back to the real exports from <code className="docs__code-inline">weft-sdk/three</code>.
+          The live playground is an edge-of-town intersection: shutter and ivy facades, a neon sign wall, roadside
+          grass, rubble in a corner lot, and star sky — all driven by the same layout presets.
         </p>
 
         <div className="docs__actions">

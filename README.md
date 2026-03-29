@@ -13,7 +13,7 @@ Reactive surface-layout SDK for Three.js/WebGPU. Build gameplay-responsive grass
 The site has two faces:
 
 - `Overview`: explains the engine argument and compares it to traditional scatter workflows
-- `Playground`: a live WebGPU scene where multiple surface types share the same layout driver and Weft presets
+- `Playground`: a stylized **edge-of-town intersection** (asphalt, markings, curbs, buildings) where multiple Weft surfaces share one runtime
 
 ## Core idea
 
@@ -36,7 +36,7 @@ The repo includes these `Weft` layers:
 
 - `weft-sdk/core`: source preparation, deterministic seed cursors, and `SurfaceLayoutDriver`
 - `weft-sdk/runtime`: shared recovery/state primitives
-- `weft-sdk/three`: Three.js-first helpers plus shipped presets for `grass`, `fish scale`, `rock field`, `fire wall`, and `star sky`
+- `weft-sdk/three`: Three.js-first helpers plus shipped presets for `grass`, `fish scale` walls (used here as shutter + ivy facades), `rock field` (rubble lot), `fire wall` (neon sign mode), and `star sky`
 
 Install the package with Three.js:
 
@@ -112,16 +112,16 @@ Shipped preset entrypoints:
 
 ## Current playground
 
-The current `Editor` is no longer a single fish demo. It hosts one shared runtime scene with controls for:
+The `Editor` hosts a **town-edge intersection** built from static meshes (asphalt with yellow stripes, curbs, building blocks, streetlights) plus these reactive surfaces:
 
-- grass field: trampling, disturbance radius, wind, seasonal palette, density, recovery
-- fish wall: wound radius, retained width, crater depth, scale lift, surface flex, recovery
-- rock field: layout density and overall rock scale
-- fire wall: bullet-hole size and recovery
-- star sky: density and sky-wound recovery
-- scene actions: clear grass, fish wall, fire, sky, or everything at once
+- **Grass**: trampling, disturbance, wind, seasonal palette, density, recovery — blades skip the road mask; verge strips read a bit denser
+- **Shutter facade** + **ivy facade**: two `createFishScaleEffect()` instances (metal slats vs vine palette) on building walls
+- **Rubble lot**: `createRockFieldEffect()` instances only inside a defined lot zone (layout-driven “fracture” density, not physics explosions)
+- **Neon sign**: `createFireWallEffect()` with `appearance: 'neon'` (magenta/cyan particles, no log prop)
+- **Star sky**: density and sky-wound recovery
+- Scene actions: clear facades, grass, neon, sky, or everything
 
-All of those surfaces are mounted together inside one plain TypeScript `PlaygroundRuntime`, and the playground now instantiates them through `src/weft/three` rather than bespoke sample classes.
+All of this is wired through one `PlaygroundRuntime` using `src/weft/three` presets.
 
 ## Runtime interaction
 

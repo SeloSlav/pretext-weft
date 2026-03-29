@@ -42,14 +42,13 @@ export default function App() {
         </nav>
 
         <div className="site-nav__meta">
-          <a
-            className="site-nav__external"
-            href="https://www.npmjs.com/package/@chenglou/pretext"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            className="btn btn--primary site-nav__cta"
+            onClick={() => setPage('editor')}
           >
-            Pretext
-          </a>
+            Enter playground
+          </button>
         </div>
       </header>
 

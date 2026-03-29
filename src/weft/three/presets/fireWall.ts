@@ -16,8 +16,8 @@ import {
   type FireTokenMeta,
 } from './fireWallSource'
 
-const WALL_WIDTH = 14
-const WALL_HEIGHT = 4.5
+const DEFAULT_WALL_WIDTH = 14
+const DEFAULT_WALL_HEIGHT = 4.5
 const WALL_DEPTH = 0.55
 const ROWS = 18
 const SECTORS = 40
@@ -32,11 +32,20 @@ const PARTICLE_SIZE_VARIANCE = 0.14
 export type FireWallParams = {
   recoveryRate: number
   holeSize: number
+  /** Campfire-style embers vs magenta/cyan neon sign particles. */
+  appearance?: 'campfire' | 'neon'
+  /** World-space wall span along layout X (set at effect creation). */
+  wallWidth?: number
+  /** World-space wall height (set at effect creation). */
+  wallHeight?: number
 }
 
 export const DEFAULT_FIRE_WALL_PARAMS: FireWallParams = {
   recoveryRate: 0.35,
   holeSize: 1.0,
+  appearance: 'campfire',
+  wallWidth: DEFAULT_WALL_WIDTH,
+  wallHeight: DEFAULT_WALL_HEIGHT,
 }
 
 const dummy = new THREE.Object3D()
@@ -65,7 +74,21 @@ function lineSignature(text: string): number {
   return (hash >>> 0) / 4294967296
 }
 
-function fireColor(age01: number, rowNorm: number, identity: number, meta: FireTokenMeta): THREE.Color {
+function fireColor(
+  age01: number,
+  rowNorm: number,
+  identity: number,
+  meta: FireTokenMeta,
+  neon: boolean,
+): THREE.Color {
+  if (neon) {
+    const heat = (1 - age01) * (1 - rowNorm * 0.45) + meta.heatBias * 0.06
+    const hue = THREE.MathUtils.lerp(0.78, 0.92, Math.pow(heat, 0.55))
+    const sat = 0.85
+    const light = THREE.MathUtils.clamp(0.35 + heat * 0.45, 0.25, 0.92)
+    const nudge = (uhash(identity * 2654435761) - 0.5) * 0.04
+    return tmpColor.setHSL(hue + nudge, sat, light).clone()
+  }
   const heat = (1 - age01) * (1 - rowNorm * 0.55) + meta.heatBias * 0.08
   const hue = THREE.MathUtils.lerp(0.0, 0.14, Math.pow(heat, 0.6))
   const sat = 1.0
@@ -107,17 +130,15 @@ function makeParticleTexture(): THREE.CanvasTexture {
   return tex
 }
 
-function makeInteractionGeometry(): THREE.BufferGeometry {
-  return new THREE.PlaneGeometry(WALL_WIDTH, WALL_HEIGHT)
-}
-
 export class FireWallEffect {
   readonly group = new THREE.Group()
   readonly interactionMesh: THREE.Mesh
 
   private readonly particleGeometry = makeParticleGeometry()
   private readonly particleTexture = makeParticleTexture()
-  private readonly interactionGeometry = makeInteractionGeometry()
+  private readonly interactionGeometry: THREE.BufferGeometry
+  private readonly wallWidth: number
+  private readonly wallHeight: number
 
   private readonly particleMaterial = new THREE.MeshBasicMaterial({
     map: this.particleTexture,
@@ -154,7 +175,15 @@ export class FireWallEffect {
   private readonly particlePhase = new Float32Array(MAX_PARTICLES)
   private lastElapsed = 0
 
-  constructor(surface: PreparedSurfaceSource<FireTokenId, FireTokenMeta>, seedCursor: SeedCursorFactory) {
+  constructor(
+    surface: PreparedSurfaceSource<FireTokenId, FireTokenMeta>,
+    seedCursor: SeedCursorFactory,
+    wallWidth: number,
+    wallHeight: number,
+  ) {
+    this.wallWidth = wallWidth
+    this.wallHeight = wallHeight
+    this.interactionGeometry = new THREE.PlaneGeometry(wallWidth, wallHeight)
     this.layoutDriver = new SurfaceLayoutDriver({
       surface,
       rows: ROWS,
@@ -177,7 +206,7 @@ export class FireWallEffect {
 
     this.baseMesh.position.y = 0.12
     this.interactionMesh = new THREE.Mesh(this.interactionGeometry, this.interactionMaterial)
-    this.interactionMesh.position.y = WALL_HEIGHT * 0.5
+    this.interactionMesh.position.y = wallHeight * 0.5
 
     this.group.add(this.baseMesh)
     this.group.add(this.particleMesh)
@@ -186,6 +215,13 @@ export class FireWallEffect {
 
   setParams(params: Partial<FireWallParams>): void {
     this.params = { ...this.params, ...params }
+    const appearance = this.params.appearance ?? 'campfire'
+    this.baseMesh.visible = appearance !== 'neon'
+    if (appearance === 'neon') {
+      this.baseMaterial.color.set('#1a1a2e')
+      this.baseMaterial.emissive.set('#2a1a4a')
+      this.baseMaterial.emissiveIntensity = 0.15
+    }
   }
 
   addWoundFromWorldPoint(worldPoint: THREE.Vector3): void {
@@ -244,9 +280,9 @@ export class FireWallEffect {
     let instanceIndex = 0
 
     this.layoutDriver.forEachLaidOutLine({
-      spanMin: -WALL_WIDTH * 0.5,
-      spanMax: WALL_WIDTH * 0.5,
-      lineCoordAtRow: (row) => (row / (ROWS - 1)) * WALL_HEIGHT,
+      spanMin: -this.wallWidth * 0.5,
+      spanMax: this.wallWidth * 0.5,
+      lineCoordAtRow: (row) => (row / (ROWS - 1)) * this.wallHeight,
       getMaxWidth: () => LAYOUT_PX_PER_SLOT,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         const lineSeed = lineSignature(tokenLineKey)
@@ -272,7 +308,7 @@ export class FireWallEffect {
           const hashR = glyphHash(identity + 3, slot.row ^ slot.sector, k ^ 0x1f)
 
           const px = slot.spanStart + (hashLat * 0.84 + 0.08) * slot.spanSize
-          const driftRange = (WALL_HEIGHT / ROWS) * (0.7 + slot.row / (ROWS - 1) * 0.5)
+          const driftRange = (this.wallHeight / ROWS) * (0.7 + slot.row / (ROWS - 1) * 0.5)
           const py = slot.lineCoord + age01 * driftRange * (0.5 + hashDep * 0.9)
           if (this.woundSuppresses(px, py)) continue
 
@@ -297,7 +333,10 @@ export class FireWallEffect {
           dummy.scale.setScalar(size)
           dummy.updateMatrix()
           this.particleMesh.setMatrixAt(instanceIndex, dummy.matrix)
-          this.particleMesh.setColorAt(instanceIndex, fireColor(age01, rowNorm, identity, token.meta))
+          this.particleMesh.setColorAt(
+            instanceIndex,
+            fireColor(age01, rowNorm, identity, token.meta, (this.params.appearance ?? 'campfire') === 'neon'),
+          )
 
           instanceIndex++
         }
@@ -323,6 +362,10 @@ export function createFireWallEffect({
   surface = getPreparedFireSurface(),
   initialParams = DEFAULT_FIRE_WALL_PARAMS,
 }: CreateFireWallEffectOptions): FireWallEffect {
+  const merged = { ...DEFAULT_FIRE_WALL_PARAMS, ...initialParams }
+  const wallWidth = merged.wallWidth ?? DEFAULT_WALL_WIDTH
+  const wallHeight = merged.wallHeight ?? DEFAULT_WALL_HEIGHT
+
   const effect = createSurfaceEffect({
     id: 'fire-wall',
     source: surface,
@@ -335,15 +378,15 @@ export function createFireWallEffect({
     }),
     behaviors: [
       recoverableDamage({
-        radius: 2.2 * initialParams.holeSize,
-        recoveryRate: initialParams.recoveryRate,
+        radius: 2.2 * merged.holeSize,
+        recoveryRate: merged.recoveryRate,
         strength: 1,
       }),
     ],
     seedCursor,
   })
 
-  const fireWall = new FireWallEffect(effect.source, seedCursor)
-  fireWall.setParams(initialParams)
+  const fireWall = new FireWallEffect(effect.source, seedCursor, wallWidth, wallHeight)
+  fireWall.setParams(merged)
   return fireWall
 }

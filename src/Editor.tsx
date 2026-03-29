@@ -7,6 +7,7 @@ import {
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
 } from "./weft/three";
+import { DEFAULT_GLASS_SURFACE_PARAMS } from "./playground/playgroundWorld";
 
 type ControlSectionProps = {
   title: string;
@@ -54,6 +55,12 @@ export function Editor() {
   );
   const [fishRecoveryRate, setFishRecoveryRate] = useState(
     DEFAULT_FISH_SCALE_PARAMS.recoveryRate,
+  );
+  const [glassWoundRadius, setGlassWoundRadius] = useState<number>(
+    DEFAULT_GLASS_SURFACE_PARAMS.woundRadius,
+  );
+  const [glassRecoveryRate, setGlassRecoveryRate] = useState<number>(
+    DEFAULT_GLASS_SURFACE_PARAMS.recoveryRate,
   );
   const [disturbanceRadius, setDisturbanceRadius] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.disturbanceRadius,
@@ -115,6 +122,10 @@ export function Editor() {
           surfaceFlex,
           recoveryRate: fishRecoveryRate,
         });
+        runtime.setGlassSurfaceParams({
+          woundRadius: glassWoundRadius,
+          recoveryRate: glassRecoveryRate,
+        });
         runtime.setGrassFieldParams({
           disturbanceRadius,
           disturbanceStrength,
@@ -166,6 +177,13 @@ export function Editor() {
     woundNarrow,
     woundRadius,
   ]);
+
+  useEffect(() => {
+    runtimeRef.current?.setGlassSurfaceParams({
+      woundRadius: glassWoundRadius,
+      recoveryRate: glassRecoveryRate,
+    });
+  }, [glassRecoveryRate, glassWoundRadius]);
 
   useEffect(() => {
     runtimeRef.current?.setGrassFieldParams({
@@ -245,7 +263,7 @@ export function Editor() {
             <section className="sample-detail">
               <div className="sample-controls">
                 <ControlSection
-                  title="Grass Controls"
+                  title="Roadside grass"
                   summary="Ground response and world-state swap"
                 >
                   <label className="control">
@@ -344,7 +362,7 @@ export function Editor() {
                 </ControlSection>
 
                 <ControlSection
-                  title="Fish Surface Controls"
+                  title="Shutter & ivy facades"
                   summary="Wall wounds"
                 >
                   <label className="control">
@@ -423,8 +441,40 @@ export function Editor() {
                 </ControlSection>
 
                 <ControlSection
-                  title="Rock Field Controls"
-                  summary="Layout density and scale"
+                  title="Glass windows & lamps"
+                  summary="Shared glass distortion and self-healing"
+                >
+                  <label className="control">
+                    <span>
+                      Destruction radius ({glassWoundRadius.toFixed(2)} world units) — how wide each glass hit spreads
+                    </span>
+                    <input
+                      type="range"
+                      min={0.12}
+                      max={1.4}
+                      step={0.02}
+                      value={glassWoundRadius}
+                      onChange={(e) => setGlassWoundRadius(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Renewal rate ({glassRecoveryRate.toFixed(2)}) — how fast windows and lamp bulbs self-heal
+                    </span>
+                    <input
+                      type="range"
+                      min={0.02}
+                      max={0.8}
+                      step={0.02}
+                      value={glassRecoveryRate}
+                      onChange={(e) => setGlassRecoveryRate(Number(e.target.value))}
+                    />
+                  </label>
+                </ControlSection>
+
+                <ControlSection
+                  title="Rubble lot"
+                  summary="Rocks only spawn in the empty corner zone"
                 >
                   <label className="control">
                     <span>
@@ -458,7 +508,7 @@ export function Editor() {
                   </label>
                 </ControlSection>
 
-                <ControlSection title="Fire Wall Controls" summary="Shoot the wall to punch holes">
+                <ControlSection title="Neon sign" summary="Shoot the sign to punch holes in the glow field">
                   <label className="control">
                     <span>
                       Recovery rate ({fireRecoveryRate.toFixed(3)}) — how fast holes close
@@ -532,14 +582,21 @@ export function Editor() {
                       className="btn btn--secondary"
                       onClick={() => runtimeRef.current?.clearFishWounds()}
                     >
-                      Clear fish wall
+                      Clear facades
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => runtimeRef.current?.clearGlassWounds()}
+                    >
+                      Clear glass
                     </button>
                     <button
                       type="button"
                       className="btn btn--secondary"
                       onClick={() => runtimeRef.current?.clearFireWounds()}
                     >
-                      Clear fire
+                      Clear neon
                     </button>
                     <button
                       type="button"

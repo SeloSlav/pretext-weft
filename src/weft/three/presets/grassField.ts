@@ -13,6 +13,7 @@ import {
   recoverableDamage,
 } from '../api'
 import { PLAYGROUND_BOUNDS } from '../../../playground/playgroundWorld'
+import { isCrossRoadAsphalt, isVergeStrip } from '../../../playground/townRoadMask'
 import { smoothPulse } from '../../../playground/mathUtils'
 import {
   buildGrassStateSurface,
@@ -353,7 +354,8 @@ export class GrassFieldEffect {
     this.interactionMesh = new THREE.Mesh(this.groundGeometry, this.interactionMaterial)
     this.interactionMesh.rotation.x = -Math.PI / 2
     this.groundSurfaceMesh.rotation.x = -Math.PI / 2
-    this.groundSurfaceMesh.position.y = 0.01
+    /** Below road quads so asphalt fully occludes the green ground texture on the cross. */
+    this.groundSurfaceMesh.position.y = -0.055
     this.groundSurfaceMesh.renderOrder = -1
     this.groundMaterial.color.copy(STATE_GROUND_TINT[this.stateIndex()])
 
@@ -579,13 +581,17 @@ export class GrassFieldEffect {
           (hashDep - 0.5) * rowStep * 0.52 +
           weftScatter * rowStep * 0.12
         const localZ = slot.lineCoord + lineDepthShift + zJitter
+        if (isCrossRoadAsphalt(x, localZ)) continue
         const localDisturbance = this.disturbanceAt(x, localZ)
         const stateIndex = this.stateIndex()
-        const localCoverage = THREE.MathUtils.lerp(
+        let localCoverage = THREE.MathUtils.lerp(
           STATE_PRESENCE[stateIndex]!,
           Math.max(0.02, STATE_PRESENCE[stateIndex]! * (1 - this.params.disturbanceStrength * 0.98)),
           localDisturbance,
         )
+        if (isVergeStrip(x, localZ)) {
+          localCoverage *= 1.14
+        }
         if (hashPresence > localCoverage) continue
         const baseY = this.baseGroundY(x, localZ)
         const organicNoise = organicField(x + hashOrganic * 0.4, localZ + hashOrganic * 0.3)

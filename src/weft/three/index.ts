@@ -7,58 +7,59 @@ export {
   skyLayout,
   threeInstancedMeshRenderer,
   wallLayout,
-} from './api'
+} from './api.ts'
 export type {
   RecoverableDamageConfig,
   SurfaceEffectConfig,
-} from './api'
+} from './api.ts'
 
-export { createInstancedMesh } from './helpers/instancing'
-export type { ThreeInstancedMeshRendererConfig } from './helpers/instancing'
+export { createInstancedMesh } from './helpers/instancing.ts'
+export type { ThreeInstancedMeshRendererConfig } from './helpers/instancing.ts'
 
 export {
   createFishScaleEffect,
   DEFAULT_FISH_SCALE_PARAMS,
   FishScaleEffect,
-} from './presets/fishScale'
-export type { CreateFishScaleEffectOptions, FishScaleParams } from './presets/fishScale'
-export { getPreparedFishSurface } from './presets/fishScaleSource'
+} from './presets/fishScale.ts'
+export type { CreateFishScaleEffectOptions, FishScaleAppearance, FishScaleParams } from './presets/fishScale.ts'
+export { getPreparedFishSurface } from './presets/fishScaleSource.ts'
+export { getPreparedIvySurface } from './presets/ivyScaleSource.ts'
 
 export {
   createFireWallEffect,
   DEFAULT_FIRE_WALL_PARAMS,
   FireWallEffect,
-} from './presets/fireWall'
-export type { CreateFireWallEffectOptions, FireWallParams } from './presets/fireWall'
-export { getPreparedFireSurface } from './presets/fireWallSource'
+} from './presets/fireWall.ts'
+export type { CreateFireWallEffectOptions, FireWallParams } from './presets/fireWall.ts'
+export { getPreparedFireSurface } from './presets/fireWallSource.ts'
 
 export {
   createGrassEffect,
   DEFAULT_GRASS_FIELD_PARAMS,
   GrassFieldEffect,
-} from './presets/grassField'
+} from './presets/grassField.ts'
 export type {
   CreateGrassEffectOptions,
   GrassDisturbanceOptions,
   GrassFieldParams,
-} from './presets/grassField'
+} from './presets/grassField.ts'
 export {
   buildGrassStateSurface,
   getPreparedGrassSurface,
-} from './presets/grassFieldSource'
+} from './presets/grassFieldSource.ts'
 
 export {
   createRockFieldEffect,
   DEFAULT_ROCK_FIELD_PARAMS,
   RockFieldEffect,
-} from './presets/rockField'
-export type { CreateRockFieldEffectOptions, RockFieldParams } from './presets/rockField'
-export { getPreparedRockSurface } from './presets/rockFieldSource'
+} from './presets/rockField.ts'
+export type { CreateRockFieldEffectOptions, RockFieldParams } from './presets/rockField.ts'
+export { getPreparedRockSurface } from './presets/rockFieldSource.ts'
 
 export {
   createStarSkyEffect,
   DEFAULT_STAR_SKY_PARAMS,
   StarSkyEffect,
-} from './presets/starSky'
-export type { CreateStarSkyEffectOptions, StarSkyParams } from './presets/starSky'
-export { getPreparedStarSurface } from './presets/starSkySource'
+} from './presets/starSky.ts'
+export type { CreateStarSkyEffectOptions, StarSkyParams } from './presets/starSky.ts'
+export { getPreparedStarSurface } from './presets/starSkySource.ts'

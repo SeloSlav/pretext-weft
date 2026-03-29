@@ -77,8 +77,8 @@ export function Landing({ onEnterEditor }: LandingProps) {
             />
           </div>
           <p className="landing__hero-caption">
-            The player shoots through the fire wall, runs through the opening, and the surface closes again
-            behind them using the same reactive layout logic.
+            The town-edge playground shoots through neon and facade surfaces; openings recover using the same
+            reactive layout logic.
           </p>
         </section>
 
@@ -176,7 +176,7 @@ scene.add(grass.group)`}</pre>
         <p className="landing__lead">
           Weft gives you an SDK path built around sources, behaviors, and presets instead of hand-wiring
           every sample from scratch. The current repo already ships public preset factories for grass,
-          fish, rock, fire, and sky while still exposing the layout core directly when you want lower-level
+          grass, wall facades, rubble, neon, and sky while still exposing the layout core directly when you want lower-level
           control.
         </p>
 
@@ -257,7 +257,7 @@ scene.add(grass.group)`}</pre>
           <li>
             <strong>One driver, every surface type</strong>
             <span>
-              Grass, fish scales, rock fields, fire, sky, coral, ornament. All share{' '}
+              Grass, wall scales, rock fields, glow surfaces, sky, coral, ornament. All share{' '}
               <code>SurfaceLayoutDriver</code> and <code>forEachLaidOutLine</code>. You only write the
               glyph source and the per-token matrix placement.
             </span>

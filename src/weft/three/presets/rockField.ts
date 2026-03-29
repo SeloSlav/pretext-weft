@@ -7,7 +7,7 @@ import type {
 } from '../../core'
 import { SurfaceLayoutDriver } from '../../core'
 import { createSurfaceEffect, fieldLayout } from '../api'
-import { PLAYGROUND_BOUNDS } from '../../../playground/playgroundWorld'
+import { isInsideRubbleZone, PLAYGROUND_BOUNDS } from '../../../playground/playgroundWorld'
 import {
   getPreparedRockSurface,
   type RockTokenId,
@@ -208,6 +208,7 @@ export class RockFieldEffect {
         (hashLat - 0.5) * slot.sectorStep * 0.42
       const zJitter = (hashDep - 0.5) * rowStep * 0.58 + lineDepthShift
       const z = slot.lineCoord + zJitter
+      if (!isInsideRubbleZone(x, z)) continue
       const noise = organicField(x + hashOrg * 0.3, z + hashOrg * 0.2)
 
       const groundY = getGroundHeight(x, z)
