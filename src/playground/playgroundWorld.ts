@@ -187,8 +187,8 @@ export function isInsideRubbleZone(x: number, z: number): boolean {
   return x >= RUBBLE_ZONE.minX && x <= RUBBLE_ZONE.maxX && z >= RUBBLE_ZONE.minZ && z <= RUBBLE_ZONE.maxZ
 }
 
-/** Sum of wound strengths (each capped 1) before the lamp reads as fully broken; heals with fish-scale recovery. */
-export const STREET_LAMP_GLASS_BREAK_THRESHOLD = 3.65
+/** Sum of wound strengths (each capped 1) before the lamp reads as fully broken; tuned to break early. */
+export const STREET_LAMP_GLASS_BREAK_THRESHOLD = 0.8
 
 /** Healthy street lamp point-light intensity; runtime scales this down as the glass breaks. */
 export const STREET_LAMP_POINT_INTENSITY_MAX = 7.5
