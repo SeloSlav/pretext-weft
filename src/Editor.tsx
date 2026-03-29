@@ -1,32 +1,73 @@
-import { Canvas } from '@react-three/fiber'
-import { OrbitControls, PerspectiveCamera } from '@react-three/drei'
-import { useMemo, useState } from 'react'
-import { createWebGPUGl } from './createWebGPUGl'
-import { TopologySkin } from './TopologySkin'
-import { RibbonPlaneSkin } from './samples/RibbonPlaneSkin'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { PlaygroundRuntime } from './playground/PlaygroundRuntime'
+import { DEFAULT_RIBBON_PARAMS, DEFAULT_TORUS_PARAMS } from './playground/types'
 import { SAMPLE_LIST, type SampleId } from './samples/sampleMeta'
 
 export function Editor() {
   const [sampleId, setSampleId] = useState<SampleId>('torus-wound')
+  const hostRef = useRef<HTMLDivElement>(null)
+  const runtimeRef = useRef<PlaygroundRuntime | null>(null)
+  const [runtimeState, setRuntimeState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
 
-  const [woundHalfAngle, setWoundHalfAngle] = useState(0.55)
-  const [woundNarrow, setWoundNarrow] = useState(0.22)
-  const [deform, setDeform] = useState(1)
+  const [woundHalfAngle, setWoundHalfAngle] = useState(DEFAULT_TORUS_PARAMS.woundHalfAngle)
+  const [woundNarrow, setWoundNarrow] = useState(DEFAULT_TORUS_PARAMS.woundNarrow)
+  const [deform, setDeform] = useState(DEFAULT_TORUS_PARAMS.deform)
 
-  const [obstacleHalfWidth, setObstacleHalfWidth] = useState(0.65)
-  const [ribbonNarrow, setRibbonNarrow] = useState(0.2)
-  const [wave, setWave] = useState(1)
+  const [obstacleHalfWidth, setObstacleHalfWidth] = useState(DEFAULT_RIBBON_PARAMS.obstacleHalfWidth)
+  const [ribbonNarrow, setRibbonNarrow] = useState(DEFAULT_RIBBON_PARAMS.obstacleNarrow)
+  const [wave, setWave] = useState(DEFAULT_RIBBON_PARAMS.wave)
 
   const activeMeta = SAMPLE_LIST.find((s) => s.id === sampleId) ?? SAMPLE_LIST[0]!
 
   const woundDeg = useMemo(() => Math.round((woundHalfAngle * 180) / Math.PI), [woundHalfAngle])
 
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) return
+
+    const runtime = new PlaygroundRuntime(host)
+    runtimeRef.current = runtime
+
+    let cancelled = false
+
+    runtime
+      .initialize()
+      .then(() => {
+        if (cancelled) return
+        setRuntimeState('ready')
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        setRuntimeState('error')
+        setRuntimeError(error instanceof Error ? error.message : 'Failed to initialize WebGPU renderer.')
+      })
+
+    return () => {
+      cancelled = true
+      runtimeRef.current = null
+      runtime.dispose()
+    }
+  }, [])
+
+  useEffect(() => {
+    runtimeRef.current?.setSample(sampleId)
+  }, [sampleId])
+
+  useEffect(() => {
+    runtimeRef.current?.setTorusParams({ woundHalfAngle, woundNarrow, deform })
+  }, [deform, woundHalfAngle, woundNarrow])
+
+  useEffect(() => {
+    runtimeRef.current?.setRibbonParams({ obstacleHalfWidth, obstacleNarrow: ribbonNarrow, wave })
+  }, [obstacleHalfWidth, ribbonNarrow, wave])
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <header className="sidebar-header">
-          <h1>Samples</h1>
-          <p className="tagline">Interactive scenes — orbit to inspect</p>
+          <h1>Engine playground</h1>
+          <p className="tagline">Plain TypeScript + Three.js WebGPU runtime — orbit to inspect</p>
         </header>
 
         <nav className="sample-nav" aria-label="Samples">
@@ -125,26 +166,17 @@ export function Editor() {
       </aside>
 
       <main className="viewport">
-        <Canvas className="canvas" dpr={[1, 2]} gl={createWebGPUGl}>
-          <PerspectiveCamera makeDefault position={[4.2, 2.4, 4.8]} fov={42} near={0.22} far={36} />
-          <color attach="background" args={['#0a0d12']} />
-          <ambientLight intensity={0.48} />
-          <hemisphereLight args={['#e4eaf5', '#2a323c', 0.62]} />
-          <directionalLight position={[6, 8, 4]} intensity={1.85} />
-          <directionalLight position={[-4, -2, -6]} intensity={0.42} color="#b8ccff" />
-          <directionalLight position={[0, 1.5, 7]} intensity={0.55} color="#fff5eb" />
-          {sampleId === 'torus-wound' && (
-            <TopologySkin woundHalfAngle={woundHalfAngle} woundNarrow={woundNarrow} deform={deform} />
-          )}
-          {sampleId === 'plane-ribbon' && (
-            <RibbonPlaneSkin
-              obstacleHalfWidth={obstacleHalfWidth}
-              obstacleNarrow={ribbonNarrow}
-              wave={wave}
-            />
-          )}
-          <OrbitControls enableDamping dampingFactor={0.06} minDistance={1.8} maxDistance={16} />
-        </Canvas>
+        <div ref={hostRef} className="viewport-host" />
+        {runtimeState !== 'ready' && (
+          <div className="viewport-status" role="status">
+            <strong>{runtimeState === 'loading' ? 'Starting WebGPU runtime...' : 'WebGPU unavailable'}</strong>
+            <span>
+              {runtimeState === 'loading'
+                ? 'This playground now runs on plain TypeScript + Three.js instead of React Three Fiber.'
+                : runtimeError ?? 'This playground requires a WebGPU-capable browser and adapter.'}
+            </span>
+          </div>
+        )}
       </main>
     </div>
   )

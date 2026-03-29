@@ -6,38 +6,49 @@ export function Landing({ onEnterEditor }: LandingProps) {
   return (
     <div className="landing">
       <div className="landing__inner">
-        <p className="landing__eyebrow">Layout engine · Three.js playground</p>
+        <p className="landing__eyebrow">Surface layout engine · WebGPU playground</p>
         <h1 className="landing__title">
-          Typesetting on <span className="landing__title-accent">geometry</span>
+          Layout, not scatter, on <span className="landing__title-accent">geometry</span>
         </h1>
         <p className="landing__lead">
-          In 3D, decoration is usually scatter, noise, or baked textures: it looks fine, but it is not
-          line-by-line layout. Pretext Weft treats bands and paths on a mesh like lines with changing
-          width: you measure a stream once, then reflow when the surface bends, cuts, or obstacles move.
-          This playground is the reference build: batched Pretext measurement, a fast numeric layout pass,
-          and samples you can drive in the browser.
+          Pretext Weft is a prototype for authored surface decoration in games. Instead of spraying meshes,
+          decals, or textures across a model, it turns bands and paths on a surface into changing line
+          widths, feeds those widths into Pretext, and places the chosen units back onto geometry with plain
+          TypeScript and Three.js WebGPU.
+        </p>
+        <p className="landing__lead">
+          The bet is that text-layout ideas can become a new runtime primitive for web games: inscriptions,
+          ornament, scales, symbols, or modular skin that reflows deterministically when a creature deforms,
+          armor opens, or gameplay creates damage and obstacles.
         </p>
 
         <div className="landing__actions">
           <button type="button" className="btn btn--primary" onClick={onEnterEditor}>
-            Open playground
+            Open engine playground
           </button>
         </div>
 
         <ul className="landing__features" aria-label="What you get">
           <li>
-            <strong>Prepare &amp; measure</strong>
-            <span>Pretext-backed streams with cached segment widths for reflow without per-frame DOM work.</span>
-          </li>
-          <li>
-            <strong>Surface-aware layout</strong>
-            <span>Walk bands with a layout cursor; variable sector width models wounds, vents, and obstacles.</span>
-          </li>
-          <li>
-            <strong>WebGPU rendering</strong>
+            <strong>Pretext as the layout core</strong>
             <span>
-              The scene uses Three.js <code>WebGPURenderer</code> so instancing and shading run on the modern
-              graphics API your browser exposes for compute-friendly, efficient GPU work.
+              Measure once, cache segment widths, then reuse deterministic line breaking against surface-derived
+              widths instead of rebuilding ad hoc packing logic for every effect.
+            </span>
+          </li>
+          <li>
+            <strong>Surface-aware width fields</strong>
+            <span>
+              Geometry, wounds, vents, and obstacles become width constraints. The surface behaves like a page
+              whose available line width changes across space.
+            </span>
+          </li>
+          <li>
+            <strong>Plain TypeScript runtime</strong>
+            <span>
+              The playground UI uses React, but the actual demo renderer no longer depends on React Three
+              Fiber. The scene is plain Three.js, WebGPU, and imperative runtime code so the engine ideas can
+              travel beyond React.
             </span>
           </li>
         </ul>
