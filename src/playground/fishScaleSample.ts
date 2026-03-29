@@ -63,25 +63,23 @@ function createScaleGeometry(): THREE.ExtrudeGeometry {
   return geometry
 }
 
-function createScaleMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
-    color: '#86aaa0',
-    roughness: 0.62,
-    metalness: 0.03,
-    clearcoat: 0.42,
-    clearcoatRoughness: 0.54,
-    sheen: 0.18,
-    sheenRoughness: 0.5,
-    iridescence: 0.16,
-    iridescenceIOR: 1.22,
+function createScaleMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: '#c8dde8',
+    emissive: '#334455',
+    emissiveIntensity: 0.4,
+    roughness: 0.28,
+    metalness: 0.55,
   })
 }
 
 function createPatchMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
-    color: '#475a62',
-    roughness: 0.88,
-    metalness: 0.02,
+    color: '#4a6070',
+    emissive: '#1a2a35',
+    emissiveIntensity: 0.3,
+    roughness: 0.7,
+    metalness: 0.2,
     side: THREE.DoubleSide,
   })
 }
@@ -93,12 +91,14 @@ export class FishScaleSample {
   private readonly scaleMesh: THREE.InstancedMesh
   private readonly scaleGeometry = createScaleGeometry()
   private readonly scaleMaterial = createScaleMaterial()
-  private readonly patchGeometry = new THREE.PlaneGeometry(PATCH_WIDTH, PATCH_HEIGHT, 72, 54)
+  private readonly patchGeometry = new THREE.PlaneGeometry(PATCH_WIDTH, PATCH_HEIGHT, 44, 32)
   private readonly patchMaterial = createPatchMaterial()
   private readonly basePatchPositions = Float32Array.from(this.patchGeometry.attributes.position.array as ArrayLike<number>)
   private readonly layoutDriver: SurfaceLayoutDriver
   private readonly wounds: Wound[] = []
   private lastElapsedTime = 0
+  private patchUpdateAccumulator = 1
+  private patchNormalAccumulator = 1
 
   private params: FishScaleParams
 
@@ -161,7 +161,13 @@ export class FishScaleSample {
     const delta = this.lastElapsedTime === 0 ? 0 : Math.max(0, elapsedTime - this.lastElapsedTime)
     this.lastElapsedTime = elapsedTime
     this.updateWounds(delta)
-    this.updatePatch(elapsedTime)
+    this.patchUpdateAccumulator += delta
+    this.patchNormalAccumulator += delta
+    if (this.patchUpdateAccumulator >= 1 / 30) {
+      this.updatePatch(elapsedTime, this.patchNormalAccumulator >= 1 / 12)
+      this.patchUpdateAccumulator = 0
+      if (this.patchNormalAccumulator >= 1 / 12) this.patchNormalAccumulator = 0
+    }
     this.updateScales(elapsedTime)
   }
 
@@ -286,7 +292,7 @@ export class FishScaleSample {
     }
   }
 
-  private updatePatch(elapsedTime: number): void {
+  private updatePatch(elapsedTime: number, recomputeNormals: boolean): void {
     const position = this.patchGeometry.attributes.position
 
     for (let i = 0; i < position.count; i++) {
@@ -296,7 +302,9 @@ export class FishScaleSample {
     }
 
     position.needsUpdate = true
-    this.patchGeometry.computeVertexNormals()
+    if (recomputeNormals) {
+      this.patchGeometry.computeVertexNormals()
+    }
   }
 
   private updateScales(elapsedTime: number): void {

@@ -2,7 +2,7 @@ import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
 import { PLAYGROUND_BOUNDS } from './playgroundWorld'
 import { smoothPulse } from './mathUtils'
-import { updateRecoveringImpacts } from './recovery'
+import { decayRecoveringStrength } from './recovery'
 import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
 import type { GrassFieldParams, SeedCursorFactory } from './types'
 
@@ -14,6 +14,7 @@ const FIELD_WIDTH = PLAYGROUND_BOUNDS.maxX - PLAYGROUND_BOUNDS.minX
 const FIELD_DEPTH = PLAYGROUND_BOUNDS.maxZ - PLAYGROUND_BOUNDS.minZ
 const LAYOUT_PX_PER_WORLD = 16
 const DISTURBANCE_RADIUS_MULTIPLIER = 2.35
+const MAX_ACTIVE_DISTURBANCES = 72
 
 const tmpPos = new THREE.Vector3()
 const tmpColor = new THREE.Color()
@@ -40,16 +41,21 @@ type Disturbance = {
   z: number
   radius: number
   strength: number
+  deformGround: boolean
+  recoveryRate?: number  // overrides global params.recoveryRate when set
 }
 
 type DisturbanceOptions = {
   radiusScale?: number
   strength?: number
+  deformGround?: boolean
+  recoveryRate?: number
+  mergeRadius?: number
 }
 
 /** Chunky stem, soft mid, long tapered tip — reads closer to hand-painted / Ghibli grass cards. */
 function makeBladeGeometry(): THREE.BufferGeometry {
-  const bladeHeight = 1.58
+  const bladeHeight = 0.79
   const baseHalfWidth = 0.19
   const geometry = new THREE.PlaneGeometry(baseHalfWidth * 2, bladeHeight, 4, 18)
   const position = geometry.attributes.position
@@ -262,22 +268,17 @@ export class GrassFieldSample {
   readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
 
   private readonly bladeGeometry = makeBladeGeometry()
-  private readonly bladeMaterial = new THREE.MeshPhysicalMaterial({
+  private readonly bladeMaterial = new THREE.MeshStandardMaterial({
     color: '#c9f288',
     emissive: '#3d5a28',
     emissiveIntensity: 0.09,
     side: THREE.DoubleSide,
     roughness: 0.52,
     metalness: 0,
-    clearcoat: 0.14,
-    clearcoatRoughness: 0.55,
-    sheen: 0.35,
-    sheenRoughness: 0.62,
-    sheenColor: new THREE.Color('#e8ffc8'),
   })
   private readonly bladeMesh = new THREE.InstancedMesh(this.bladeGeometry, this.bladeMaterial, MAX_INSTANCES)
   private readonly groundTexture = createGroundTexture()
-  private readonly groundGeometry = new THREE.PlaneGeometry(FIELD_WIDTH, FIELD_DEPTH, 64, 52)
+  private readonly groundGeometry = new THREE.PlaneGeometry(FIELD_WIDTH, FIELD_DEPTH, 40, 32)
   private readonly groundMaterial = new THREE.MeshBasicMaterial({
     color: '#ffffff',
     map: this.groundTexture,
@@ -321,6 +322,7 @@ export class GrassFieldSample {
     this.groundSurfaceMesh.position.y = 0.01
     this.groundSurfaceMesh.renderOrder = -1
 
+    this.updateGround()
     this.group.add(this.groundSurfaceMesh)
     this.group.add(this.interactionMesh)
     this.group.add(this.bladeMesh)
@@ -340,18 +342,53 @@ export class GrassFieldSample {
   addDisturbanceFromWorldPoint(worldPoint: THREE.Vector3, options: DisturbanceOptions = {}): void {
     tmpLocalPoint.copy(worldPoint)
     this.group.worldToLocal(tmpLocalPoint)
+    const x = THREE.MathUtils.clamp(tmpLocalPoint.x, -FIELD_WIDTH * 0.46, FIELD_WIDTH * 0.46)
+    const z = THREE.MathUtils.clamp(tmpLocalPoint.z, -FIELD_DEPTH * 0.46, FIELD_DEPTH * 0.46)
+    const radius = this.params.disturbanceRadius * DISTURBANCE_RADIUS_MULTIPLIER * (options.radiusScale ?? 1)
+    const strength = options.strength ?? 1
+    const deformGround = options.deformGround ?? true
+    const recoveryRate = options.recoveryRate
+    const mergeRadius = options.mergeRadius ?? 0
+
+    if (mergeRadius > 0) {
+      const mergeRadiusSq = mergeRadius * mergeRadius
+      for (const disturbance of this.disturbances) {
+        if (disturbance.deformGround !== deformGround) continue
+        if ((disturbance.recoveryRate ?? null) !== (recoveryRate ?? null)) continue
+        const dx = disturbance.x - x
+        const dz = disturbance.z - z
+        if (dx * dx + dz * dz > mergeRadiusSq) continue
+        disturbance.x = THREE.MathUtils.lerp(disturbance.x, x, 0.35)
+        disturbance.z = THREE.MathUtils.lerp(disturbance.z, z, 0.35)
+        disturbance.radius = Math.max(disturbance.radius, radius)
+        disturbance.strength = Math.max(disturbance.strength, strength)
+        return
+      }
+    }
+
     this.disturbances.unshift({
-      x: THREE.MathUtils.clamp(tmpLocalPoint.x, -FIELD_WIDTH * 0.46, FIELD_WIDTH * 0.46),
-      z: THREE.MathUtils.clamp(tmpLocalPoint.z, -FIELD_DEPTH * 0.46, FIELD_DEPTH * 0.46),
-      radius: this.params.disturbanceRadius * DISTURBANCE_RADIUS_MULTIPLIER * (options.radiusScale ?? 1),
-      strength: options.strength ?? 1,
+      x,
+      z,
+      radius,
+      strength,
+      deformGround,
+      recoveryRate,
     })
+    if (this.disturbances.length > MAX_ACTIVE_DISTURBANCES) {
+      this.disturbances.length = MAX_ACTIVE_DISTURBANCES
+    }
+  }
+
+  getDisturbanceAtWorld(x: number, z: number): number {
+    tmpLocalPoint.set(x, 0, z)
+    this.group.worldToLocal(tmpLocalPoint)
+    return this.disturbanceAt(tmpLocalPoint.x, tmpLocalPoint.z)
   }
 
   getGroundHeightAtWorld(x: number, z: number): number {
     tmpLocalPoint.set(x, 0, z)
     this.group.worldToLocal(tmpLocalPoint)
-    tmpLocalPoint.set(tmpLocalPoint.x, this.groundY(tmpLocalPoint.x, tmpLocalPoint.z), tmpLocalPoint.z)
+    tmpLocalPoint.set(tmpLocalPoint.x, this.baseGroundY(tmpLocalPoint.x, tmpLocalPoint.z), tmpLocalPoint.z)
     this.group.localToWorld(tmpLocalPoint)
     return tmpLocalPoint.y
   }
@@ -368,7 +405,6 @@ export class GrassFieldSample {
     const delta = this.lastElapsedTime === 0 ? 0 : Math.max(0, elapsedTime - this.lastElapsedTime)
     this.lastElapsedTime = elapsedTime
     this.updateDisturbances(delta)
-    this.updateGround()
     this.updateBlades(elapsedTime)
   }
 
@@ -393,36 +429,28 @@ export class GrassFieldSample {
   }
 
   private updateDisturbances(delta: number): void {
-    updateRecoveringImpacts(this.disturbances, this.params.recoveryRate, delta)
+    if (delta <= 0 || this.disturbances.length === 0) return
+    for (let i = this.disturbances.length - 1; i >= 0; i--) {
+      const d = this.disturbances[i]!
+      const rate = d.recoveryRate ?? this.params.recoveryRate
+      d.strength = decayRecoveringStrength(d.strength, rate, delta)
+      if (d.strength <= 0.015) this.disturbances.splice(i, 1)
+    }
   }
 
   private baseGroundY(x: number, z: number): number {
     return 0.12 * Math.sin(x * 0.22) * Math.cos(z * 0.18) + 0.03 * Math.sin((x + z) * 0.65)
   }
 
-  private groundY(x: number, z: number): number {
-    let depth = this.baseGroundY(x, z)
-    for (const hit of this.disturbances) {
-      const dx = x - hit.x
-      const dz = z - hit.z
-      const n = Math.sqrt(dx * dx + dz * dz) / Math.max(hit.radius, 0.0001)
-      depth -= Math.pow(smoothPulse(n), 0.55) * this.params.trampleDepth * 0.44 * hit.strength
-    }
-    return depth
-  }
-
   private updateGround(): void {
     const position = this.groundGeometry.attributes.position
     for (let i = 0; i < position.count; i++) {
       const x = this.baseGroundPositions[i * 3]
-      // PlaneGeometry lies in XY (normal +Z); depth of the field is local Y, not Z (Z is always 0).
-      // After rotation.x = -π/2, local Y becomes world -Z, so height samples use groundY(x, -yPlane).
       const yPlane = this.baseGroundPositions[i * 3 + 1]
-      const h = this.groundY(x, -yPlane)
+      const h = this.baseGroundY(x, -yPlane)
       position.setXYZ(i, x, yPlane, h)
     }
     position.needsUpdate = true
-    this.groundGeometry.computeVertexNormals()
   }
 
   private updateBlades(elapsedTime: number): void {
@@ -452,6 +480,7 @@ export class GrassFieldSample {
     return (
       slot.spanSize *
       LAYOUT_PX_PER_WORLD *
+      this.params.layoutDensity *
       THREE.MathUtils.lerp(1, 1 - this.params.disturbanceStrength * 0.98, disturbance)
     )
   }
@@ -504,7 +533,7 @@ export class GrassFieldSample {
           pretextScatter * rowStep * 0.12
         const localZ = slot.lineCoord + lineDepthShift + zJitter
         const localDisturbance = this.disturbanceAt(x, localZ)
-        const baseY = this.groundY(x, localZ)
+        const baseY = this.baseGroundY(x, localZ)
         // organicNoise: world-scale variation from the hash grid, not sine waves.
         const organicNoise = organicField(x + hashOrganic * 0.4, localZ + hashOrganic * 0.3)
 
@@ -530,7 +559,7 @@ export class GrassFieldSample {
         const windYaw = gust * this.params.wind * 0.14
         const windBend = (0.24 + Math.abs(gust) * 0.18) * this.params.wind
         const trampleBend = localDisturbance * 1.15
-        const height = 0.88 + (code % 7) * 0.1 + organicNoise * 0.14 + blade * 0.07
+        const height = (0.88 + (code % 7) * 0.1 + organicNoise * 0.14 + blade * 0.07) * 0.5
         const width = 0.072 + ((code >> 2) % 5) * 0.01 + organicNoise * 0.015 + blade * 0.006
 
         tmpPos.set(

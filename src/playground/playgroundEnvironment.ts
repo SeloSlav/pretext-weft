@@ -1,11 +1,5 @@
 import * as THREE from 'three'
 
-const PLAYGROUND_DIRECTIONALS: ReadonlyArray<[number, number, number, number]> = [
-  [0.85, 1.35, 0.35, 1.9],
-  [-0.35, 0.8, 0.9, 0.46],
-  [0.25, 0.55, -1, 0.22],
-]
-
 function createSkyTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 2048
@@ -15,51 +9,40 @@ function createSkyTexture(): THREE.CanvasTexture {
   if (!ctx) {
     const fallback = new THREE.CanvasTexture(canvas)
     fallback.colorSpace = THREE.SRGBColorSpace
+    fallback.mapping = THREE.EquirectangularReflectionMapping
     return fallback
   }
 
-  const skyGradient = ctx.createLinearGradient(0, 0, 0, canvas.height)
-  skyGradient.addColorStop(0, '#5ea8ff')
-  skyGradient.addColorStop(0.32, '#88c6ff')
-  skyGradient.addColorStop(0.62, '#bfe1ff')
-  skyGradient.addColorStop(1, '#e9f4ff')
-  ctx.fillStyle = skyGradient
+  const grad = ctx.createLinearGradient(0, 0, 0, canvas.height)
+  grad.addColorStop(0, '#040916')
+  grad.addColorStop(0.38, '#0b1730')
+  grad.addColorStop(0.72, '#13284c')
+  grad.addColorStop(1, '#24446c')
+  ctx.fillStyle = grad
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  const sunX = canvas.width * 0.78
-  const sunY = canvas.height * 0.22
-  const sunGlow = ctx.createRadialGradient(sunX, sunY, 10, sunX, sunY, canvas.width * 0.12)
-  sunGlow.addColorStop(0, 'rgba(255, 250, 220, 0.98)')
-  sunGlow.addColorStop(0.12, 'rgba(255, 239, 182, 0.96)')
-  sunGlow.addColorStop(0.35, 'rgba(255, 231, 166, 0.46)')
-  sunGlow.addColorStop(1, 'rgba(255, 231, 166, 0)')
-  ctx.fillStyle = sunGlow
+  const moonX = canvas.width * 0.18
+  const moonY = canvas.height * 0.2
+  const moonGlow = ctx.createRadialGradient(moonX, moonY, 6, moonX, moonY, canvas.width * 0.09)
+  moonGlow.addColorStop(0, 'rgba(225,240,255,0.95)')
+  moonGlow.addColorStop(0.18, 'rgba(190,220,255,0.5)')
+  moonGlow.addColorStop(1, 'rgba(120,170,255,0)')
+  ctx.fillStyle = moonGlow
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  for (let layer = 0; layer < 3; layer++) {
-    const count = layer === 0 ? 18 : layer === 1 ? 14 : 9
-    for (let i = 0; i < count; i++) {
-      const x = Math.random() * canvas.width
-      const y = canvas.height * (0.08 + Math.random() * 0.34) + layer * 18
-      const width = 180 + Math.random() * 360
-      const height = 42 + Math.random() * 68
-      const alpha = 0.08 + Math.random() * 0.18 - layer * 0.025
-      const cloud = ctx.createRadialGradient(x, y, width * 0.08, x, y, width * 0.6)
-      cloud.addColorStop(0, `rgba(255,255,255,${alpha})`)
-      cloud.addColorStop(0.65, `rgba(255,255,255,${alpha * 0.68})`)
-      cloud.addColorStop(1, 'rgba(255,255,255,0)')
-      ctx.fillStyle = cloud
-      ctx.beginPath()
-      ctx.ellipse(x, y, width, height, Math.random() * 0.2, 0, Math.PI * 2)
-      ctx.fill()
-    }
+  ctx.fillStyle = '#dff0ff'
+  ctx.beginPath()
+  ctx.arc(moonX, moonY, canvas.width * 0.022, 0, Math.PI * 2)
+  ctx.fill()
+
+  for (let i = 0; i < 10; i++) {
+    const y = canvas.height * (0.55 + i * 0.03)
+    const haze = ctx.createLinearGradient(0, y, 0, y + canvas.height * 0.08)
+    haze.addColorStop(0, 'rgba(130,170,255,0)')
+    haze.addColorStop(1, `rgba(130,170,255,${0.015 + i * 0.003})`)
+    ctx.fillStyle = haze
+    ctx.fillRect(0, y, canvas.width, canvas.height * 0.08)
   }
-
-  const horizonGlow = ctx.createLinearGradient(0, canvas.height * 0.62, 0, canvas.height)
-  horizonGlow.addColorStop(0, 'rgba(255,255,255,0)')
-  horizonGlow.addColorStop(1, 'rgba(255,245,228,0.35)')
-  ctx.fillStyle = horizonGlow
-  ctx.fillRect(0, canvas.height * 0.62, canvas.width, canvas.height * 0.38)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -67,18 +50,42 @@ function createSkyTexture(): THREE.CanvasTexture {
   return texture
 }
 
-export function applyPlaygroundAtmosphere(scene: THREE.Scene): void {
-  scene.background = createSkyTexture()
-  scene.fog = new THREE.Fog('#d2e6f8', 130, 270)
+function createSkyboxMesh(): THREE.Mesh {
+  const tex = createSkyTexture()
+  const geometry = new THREE.SphereGeometry(400, 24, 16)
+  const material = new THREE.MeshBasicMaterial({
+    map: tex,
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+  })
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.frustumCulled = false
+  mesh.renderOrder = -1
+  return mesh
+}
+
+export function applyPlaygroundAtmosphere(scene: THREE.Scene): THREE.Mesh {
+  const skybox = createSkyboxMesh()
+  const skyMaterial = skybox.material as THREE.MeshBasicMaterial
+  if (skyMaterial.map) {
+    skyMaterial.map.mapping = THREE.EquirectangularReflectionMapping
+    scene.environment = skyMaterial.map
+  }
+  scene.add(skybox)
+  scene.fog = new THREE.Fog('#050a1a', 40, 300)
+  return skybox
 }
 
 export function addPlaygroundLighting(scene: THREE.Scene): void {
-  scene.add(new THREE.AmbientLight('#f6efde', 1.08))
-  scene.add(new THREE.HemisphereLight('#a8d7ff', '#a4865d', 1.34))
+  scene.add(new THREE.AmbientLight('#c2d4f0', 0.62))
+  scene.add(new THREE.HemisphereLight('#6d8fd4', '#111111', 0.58))
 
-  for (const [x, y, z, intensity] of PLAYGROUND_DIRECTIONALS) {
-    const light = new THREE.DirectionalLight('#fff1c4', intensity)
-    light.position.set(x, y, z).normalize().multiplyScalar(28)
-    scene.add(light)
-  }
+  const moonLight = new THREE.DirectionalLight('#cce0ff', 1.25)
+  moonLight.position.set(-15, 30, 20)
+  scene.add(moonLight)
+
+  const frontFill = new THREE.DirectionalLight('#ffe8cc', 0.42)
+  frontFill.position.set(0, 8, 30)
+  scene.add(frontFill)
 }

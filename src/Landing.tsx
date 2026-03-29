@@ -90,7 +90,7 @@ this.driver.forEachLaidOutLine({
         </div>
 
         <p className="landing__lead">
-          That's the entire API. No spatial index, no noise function, no custom packing loop.
+          That's the entire API. Forget spatial indexing, noise functions, and custom packing loops.
           Line-breaking, row seeding, stagger, and slot clipping are all handled by the driver.
         </p>
 
@@ -111,7 +111,7 @@ this.driver.forEachLaidOutLine({
 
         <p className="landing__lead">
           In a traditional scatter pipeline, making density respond to gameplay is a non-trivial
-          engineering task. Here it is one multiplication inside one callback.
+          engineering task. Here it's just one multiplication inside one callback.
         </p>
 
         <ul className="landing__features" aria-label="Engine properties">

@@ -3,6 +3,7 @@ import { PlaygroundRuntime } from "./playground/PlaygroundRuntime";
 import {
   DEFAULT_FISH_SCALE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
+  DEFAULT_ROCK_FIELD_PARAMS,
 } from "./playground/types";
 
 type ControlSectionProps = {
@@ -63,6 +64,18 @@ export function Editor() {
   const [recoveryRate, setRecoveryRate] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.recoveryRate,
   );
+  const [grassLayoutDensity, setGrassLayoutDensity] = useState(
+    DEFAULT_GRASS_FIELD_PARAMS.layoutDensity,
+  );
+  const [rockLayoutDensity, setRockLayoutDensity] = useState(
+    DEFAULT_ROCK_FIELD_PARAMS.layoutDensity,
+  );
+  const [rockSizeScale, setRockSizeScale] = useState(
+    DEFAULT_ROCK_FIELD_PARAMS.sizeScale,
+  );
+  const [flowerDensity, setFlowerDensity] = useState(0);
+  const [fireRecoveryRate, setFireRecoveryRate] = useState(0.35);
+  const [fireHoleSize, setFireHoleSize] = useState(1.0);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -77,6 +90,28 @@ export function Editor() {
       .initialize()
       .then(() => {
         if (cancelled) return;
+        // Apply current slider values now that the runtime exists.
+        // The change-driven useEffects fire on mount but runtimeRef is null then,
+        // so we push the initial state here after initialization completes.
+        runtime.setFishScaleParams({
+          woundRadius,
+          woundNarrow,
+          woundDepth,
+          scaleLift,
+          surfaceFlex,
+          recoveryRate: fishRecoveryRate,
+        });
+        runtime.setGrassFieldParams({
+          disturbanceRadius,
+          disturbanceStrength,
+          trampleDepth,
+          wind,
+          recoveryRate,
+          layoutDensity: grassLayoutDensity,
+        });
+        runtime.setRockFieldParams({ layoutDensity: rockLayoutDensity, sizeScale: rockSizeScale });
+        runtime.setFlowerLayoutDensity(flowerDensity);
+        runtime.setFireWallParams({ recoveryRate: fireRecoveryRate, holeSize: fireHoleSize });
         setRuntimeState("ready");
       })
       .catch((error: unknown) => {
@@ -121,14 +156,31 @@ export function Editor() {
       trampleDepth,
       wind,
       recoveryRate,
+      layoutDensity: grassLayoutDensity,
     });
   }, [
     disturbanceRadius,
     disturbanceStrength,
+    grassLayoutDensity,
     recoveryRate,
     trampleDepth,
     wind,
   ]);
+
+  useEffect(() => {
+    runtimeRef.current?.setRockFieldParams({
+      layoutDensity: rockLayoutDensity,
+      sizeScale: rockSizeScale,
+    });
+  }, [rockLayoutDensity, rockSizeScale]);
+
+  useEffect(() => {
+    runtimeRef.current?.setFlowerLayoutDensity(flowerDensity);
+  }, [flowerDensity]);
+
+  useEffect(() => {
+    runtimeRef.current?.setFireWallParams({ recoveryRate: fireRecoveryRate, holeSize: fireHoleSize });
+  }, [fireRecoveryRate, fireHoleSize]);
 
   return (
     <div className="app-shell">
@@ -161,9 +213,9 @@ export function Editor() {
                 </button>
               </div>
               <p className="tagline">
-                Pretext Weft uses Pretext for measurement and deterministic
-                layout on changing width fields, rendered in TypeScript with
-                Three.js WebGPU.
+                Typographic line-breaking as a 3D placement engine. Each
+                surface runs the same layout driver — density, variation, and
+                gameplay response all flow from one callback.
               </p>
             </header>
 
@@ -191,8 +243,7 @@ export function Editor() {
                   </label>
                   <label className="control">
                     <span>
-                      Field compression ({Math.round(disturbanceStrength * 100)}
-                      %)
+                      Layout narrowing under disturbance ({Math.round(disturbanceStrength * 100)}%)
                     </span>
                     <input
                       type="range"
@@ -225,6 +276,22 @@ export function Editor() {
                       step={0.02}
                       value={wind}
                       onChange={(e) => setWind(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Layout density ({grassLayoutDensity.toFixed(2)}x) — how many
+                      grass glyphs fit in each layout cell
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={12}
+                      step={0.05}
+                      value={grassLayoutDensity}
+                      onChange={(e) =>
+                        setGrassLayoutDensity(Number(e.target.value))
+                      }
                     />
                   </label>
                   <label className="control">
@@ -319,6 +386,90 @@ export function Editor() {
                   </label>
                 </ControlSection>
 
+                <ControlSection
+                  title="Rock Field Controls"
+                  summary="Layout density and scale"
+                >
+                  <label className="control">
+                    <span>
+                      Glyphs per slot ({rockLayoutDensity.toFixed(2)}x) — how many rocks fit in each layout cell
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={12}
+                      step={0.05}
+                      value={rockLayoutDensity}
+                      onChange={(e) =>
+                        setRockLayoutDensity(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Rock size ({rockSizeScale.toFixed(2)}x)
+                    </span>
+                    <input
+                      type="range"
+                      min={0.2}
+                      max={2.2}
+                      step={0.05}
+                      value={rockSizeScale}
+                      onChange={(e) =>
+                        setRockSizeScale(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                </ControlSection>
+
+                <ControlSection
+                  title="Flower Field Controls"
+                  summary="Density"
+                >
+                  <label className="control">
+                    <span>
+                      Glyphs per slot ({flowerDensity.toFixed(2)}x) — how many flowers fit in each layout cell
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={12}
+                      step={0.05}
+                      value={flowerDensity}
+                      onChange={(e) => setFlowerDensity(Number(e.target.value))}
+                    />
+                  </label>
+                </ControlSection>
+
+                <ControlSection title="Fire Wall Controls" summary="Shoot the wall to punch holes">
+                  <label className="control-row">
+                    <span>
+                      Recovery rate ({fireRecoveryRate.toFixed(3)}) — how fast holes close
+                    </span>
+                    <input
+                      type="range"
+                      min={0.005}
+                      max={0.35}
+                      step={0.005}
+                      value={fireRecoveryRate}
+                      onChange={(e) => setFireRecoveryRate(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control-row">
+                    <span>
+                      Hole size ({fireHoleSize.toFixed(2)}x) — radius of each bullet hole
+                    </span>
+                    <input
+                      type="range"
+                      min={0.3}
+                      max={2.5}
+                      step={0.05}
+                      value={fireHoleSize}
+                      onChange={(e) => setFireHoleSize(Number(e.target.value))}
+                    />
+                  </label>
+                </ControlSection>
+
                 <ControlSection title="Scene Actions" summary="Reset effects">
                   <div className="control-actions">
                     <button
@@ -340,6 +491,20 @@ export function Editor() {
                     <button
                       type="button"
                       className="btn btn--secondary"
+                      onClick={() => runtimeRef.current?.clearFireWounds()}
+                    >
+                      Clear fire
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => runtimeRef.current?.clearSkyWounds()}
+                    >
+                      Clear sky
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
                       onClick={() => runtimeRef.current?.clearAllEffects()}
                     >
                       Clear all
@@ -354,12 +519,6 @@ export function Editor() {
 
       <main className="viewport">
         <div ref={hostRef} className="viewport-host" />
-        {runtimeState === "ready" && (
-          <div className="viewport-hint" role="note">
-            WASD move. RMB steers, wheel zooms, and LMB shoots into the grass or
-            fish wall depending on the reticle.
-          </div>
-        )}
         {runtimeState !== "ready" && (
           <div className="viewport-status" role="status">
             <strong>

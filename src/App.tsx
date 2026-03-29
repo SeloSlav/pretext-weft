@@ -12,7 +12,7 @@ export default function App() {
       <header className="site-nav">
         <div className="site-nav__brand">
           <button type="button" className="site-nav__logo" onClick={() => setPage('home')}>
-            Pretext Weft
+            Weft
           </button>
         </div>
 

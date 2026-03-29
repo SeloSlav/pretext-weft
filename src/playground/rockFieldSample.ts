@@ -2,7 +2,7 @@ import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
 import { PLAYGROUND_BOUNDS } from './playgroundWorld'
 import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
-import type { SeedCursorFactory } from './types'
+import type { RockFieldParams, SeedCursorFactory } from './types'
 
 // Sparse grid — rocks are infrequent, so fewer rows/sectors than grass.
 const ROWS = 18
@@ -10,8 +10,8 @@ const SECTORS = 22
 const MAX_INSTANCES = 2_400
 const FIELD_WIDTH = PLAYGROUND_BOUNDS.maxX - PLAYGROUND_BOUNDS.minX
 const FIELD_DEPTH = PLAYGROUND_BOUNDS.maxZ - PLAYGROUND_BOUNDS.minZ
-// Rocks use a narrower layout width so fewer glyphs fit per slot — naturally sparse.
-const LAYOUT_PX_PER_WORLD = 6.5
+// Base layout width — multiplied by layoutDensity param at runtime.
+const BASE_LAYOUT_PX_PER_WORLD = 6.5
 
 const tmpColor = new THREE.Color()
 const dummy = new THREE.Object3D()
@@ -85,20 +85,17 @@ function glyphStoneColor(code: number, noise: number): THREE.Color {
 }
 
 function makeRockGeometry(): THREE.BufferGeometry {
-  // Flat dodecahedron-ish disc — looks like a stone lying on the ground.
-  // We use a low-poly cylinder (flat top/bottom) for a chunky faceted silhouette.
-  return new THREE.CylinderGeometry(0.5, 0.42, 0.18, 7, 1)
+  // More faceted, irregular rock shape.
+  return new THREE.DodecahedronGeometry(0.5, 0)
 }
 
 export class RockFieldSample {
   readonly group = new THREE.Group()
 
   private readonly rockGeometry = makeRockGeometry()
-  private readonly rockMaterial = new THREE.MeshPhysicalMaterial({
-    roughness: 0.88,
-    metalness: 0.02,
-    clearcoat: 0.04,
-    clearcoatRoughness: 0.9,
+  private readonly rockMaterial = new THREE.MeshStandardMaterial({
+    roughness: 0.95,
+    metalness: 0.05,
   })
   private readonly rockMesh = new THREE.InstancedMesh(
     this.rockGeometry,
@@ -106,11 +103,14 @@ export class RockFieldSample {
     MAX_INSTANCES,
   )
   private readonly layoutDriver: SurfaceLayoutDriver
+  private params: RockFieldParams
 
   constructor(
     prepared: PreparedTextWithSegments,
     seedCursor: SeedCursorFactory,
+    initialParams: RockFieldParams,
   ) {
+    this.params = { ...initialParams }
     this.layoutDriver = new SurfaceLayoutDriver({
       prepared,
       rows: ROWS,
@@ -127,6 +127,10 @@ export class RockFieldSample {
     this.group.add(this.rockMesh)
   }
 
+  setParams(params: Partial<RockFieldParams>): void {
+    this.params = { ...this.params, ...params }
+  }
+
   // Called every frame after the ground geometry has been updated for this tick.
   // getGroundHeight must reflect the current deformed terrain (including disturbances).
   update(getGroundHeight: (x: number, z: number) => number): void {
@@ -139,7 +143,7 @@ export class RockFieldSample {
   }
 
   private getSlotMaxWidth(slot: SurfaceLayoutSlot): number {
-    return slot.spanSize * LAYOUT_PX_PER_WORLD
+    return slot.spanSize * BASE_LAYOUT_PX_PER_WORLD * this.params.layoutDensity
   }
 
   private updateRocks(getGroundHeight: (x: number, z: number) => number): void {
@@ -202,7 +206,7 @@ export class RockFieldSample {
 
       const groundY = getGroundHeight(x, z)
       const sizeBase = glyphSizeIdentity(code)
-      const size = sizeBase * (0.28 + noise * 0.38)
+      const size = sizeBase * (0.28 + noise * 0.38) * this.params.sizeScale
       // Slight random yaw so rocks don't all face the same way
       const yaw = lineSeed * Math.PI * 2 + k * 1.17 + noise * 0.9
       // Tilt slightly into the ground for a settled look

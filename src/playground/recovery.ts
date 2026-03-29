@@ -18,7 +18,7 @@ export function updateRecoveringImpacts<T extends RecoveringImpact>(
 ): void {
   if (delta <= 0 || impacts.length === 0) return
 
-  const safeRate = Math.max(0.02, recoveryRate)
+  const safeRate = Math.max(0.001, recoveryRate)
   for (let i = impacts.length - 1; i >= 0; i--) {
     const impact = impacts[i]!
     impact.strength = decayRecoveringStrength(impact.strength, safeRate, delta)

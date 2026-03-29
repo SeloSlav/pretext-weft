@@ -145,7 +145,9 @@ export class SurfaceLayoutDriver {
           rowOffset,
         }
 
-        const maxWidth = Math.max(this.minLayoutWidth, getMaxWidth(slot))
+        const requestedWidth = getMaxWidth(slot)
+        if (requestedWidth <= 0) continue
+        const maxWidth = Math.max(this.minLayoutWidth, requestedWidth)
         const cursorStart = cloneCursor(cursor)
         const laidOut = layoutNextLineOrRewind(this.prepared, cursorStart, maxWidth)
         if (laidOut === null) continue

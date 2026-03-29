@@ -5,9 +5,15 @@ import * as THREE from 'three'
 import { FishScaleSample } from './fishScaleSample'
 import { GrassFieldSample } from './grassFieldSample'
 import { RockFieldSample } from './rockFieldSample'
+import { FlowerFieldSample } from './flowerFieldSample'
+import { FireParticleSample, type FireWallParams } from './fireParticleSample'
+import { StarSkySample } from './starSkySample'
 import { getPreparedFishSurface } from './fishSurfaceText'
 import { getPreparedGrassSurface } from './grassSurfaceText'
 import { getPreparedRockSurface } from './rockSurfaceText'
+import { getPreparedFlowerSurface } from './flowerSurfaceText'
+import { getPreparedFireSurface } from './fireSurfaceText'
+import { getPreparedStarSurface } from './starSurfaceText'
 import { applyPlaygroundAtmosphere, addPlaygroundLighting } from './playgroundEnvironment'
 import {
   type PlayerAnimationState,
@@ -17,10 +23,13 @@ import {
 import {
   DEFAULT_FISH_SCALE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
+  DEFAULT_ROCK_FIELD_PARAMS,
   type FishScaleParams,
   type GrassFieldParams,
+  type RockFieldParams,
 } from './types'
 import {
+  FIRE_POSITION,
   FISH_SURFACE_LAYOUT,
   PLAYGROUND_BOUNDS,
   PLAYGROUND_CONTROLLER,
@@ -29,7 +38,7 @@ import {
 } from './playgroundWorld'
 
 type ReticleHit = THREE.Intersection & {
-  targetKind: 'fish' | 'grass'
+  targetKind: 'fish' | 'grass' | 'fire'
 }
 
 export class PlaygroundRuntime {
@@ -37,7 +46,7 @@ export class PlaygroundRuntime {
   private readonly canvas = document.createElement('canvas')
   private readonly timer = new Timer()
   private readonly scene = new THREE.Scene()
-  private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.2, 140)
+  private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.2, 600)
   private readonly cameraFill = new THREE.PointLight('#fff4dc', 1.65, 26, 2)
   private readonly raycaster = new THREE.Raycaster()
   private readonly grassAimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
@@ -58,6 +67,19 @@ export class PlaygroundRuntime {
   private readonly rockFieldSample = new RockFieldSample(
     getPreparedRockSurface(),
     seedCursor,
+    DEFAULT_ROCK_FIELD_PARAMS,
+  )
+  private readonly flowerFieldSample = new FlowerFieldSample(
+    getPreparedFlowerSurface(),
+    seedCursor,
+  )
+  private readonly fireParticleSample = new FireParticleSample(
+    getPreparedFireSurface(),
+    seedCursor,
+  )
+  private readonly starSkySample = new StarSkySample(
+    getPreparedStarSurface(),
+    seedCursor,
   )
   private readonly controller = new ThirdPersonController()
   private readonly shotAudio = new Audio('/gun_shot.mp3')
@@ -77,6 +99,7 @@ export class PlaygroundRuntime {
   private rafId = 0
   private disposed = false
   private lastElapsed = 0
+  private readonly skybox: THREE.Mesh
   private walkStampDistance = 0
   private pendingShoot = false
   private pendingJump = false
@@ -85,6 +108,7 @@ export class PlaygroundRuntime {
 
   private fishScaleParams: FishScaleParams = { ...DEFAULT_FISH_SCALE_PARAMS }
   private grassFieldParams: GrassFieldParams = { ...DEFAULT_GRASS_FIELD_PARAMS }
+  private rockFieldParams: RockFieldParams = { ...DEFAULT_ROCK_FIELD_PARAMS }
   private zoomDistance = PLAYGROUND_ZOOM.current
 
   constructor(host: HTMLElement) {
@@ -93,7 +117,7 @@ export class PlaygroundRuntime {
     this.canvas.tabIndex = 0
     this.camera.position.set(0, 2.2, 10.8)
 
-    applyPlaygroundAtmosphere(this.scene)
+    this.skybox = applyPlaygroundAtmosphere(this.scene)
     addPlaygroundLighting(this.scene)
 
     this.shotAudio.preload = 'auto'
@@ -113,6 +137,14 @@ export class PlaygroundRuntime {
     this.scene.add(this.grassFieldSample.group)
     this.scene.add(this.fishScaleSample.group)
     this.scene.add(this.rockFieldSample.group)
+    this.scene.add(this.flowerFieldSample.group)
+    this.scene.add(this.starSkySample.group)
+
+    // Position the campfire on the ground surface.
+    const fireGroundY = this.grassFieldSample.getGroundHeightAtWorld(FIRE_POSITION.x, FIRE_POSITION.z)
+    this.fireParticleSample.group.position.set(FIRE_POSITION.x, fireGroundY, FIRE_POSITION.z)
+    this.scene.add(this.fireParticleSample.group)
+
     this.scene.add(this.controller.player.group)
     this.camera.add(this.controller.player.reticle)
     this.controller.player.setReticleVisible(true)
@@ -160,6 +192,19 @@ export class PlaygroundRuntime {
     this.grassFieldSample.setParams(this.grassFieldParams)
   }
 
+  setRockFieldParams(params: Partial<RockFieldParams>): void {
+    this.rockFieldParams = { ...this.rockFieldParams, ...params }
+    this.rockFieldSample.setParams(this.rockFieldParams)
+  }
+
+  setFlowerLayoutDensity(density: number): void {
+    this.flowerFieldSample.setLayoutDensity(density)
+  }
+
+  setFireWallParams(params: Partial<FireWallParams>): void {
+    this.fireParticleSample.setParams(params)
+  }
+
   clearFishWounds(): void {
     this.fishScaleSample.clearWounds()
   }
@@ -168,9 +213,19 @@ export class PlaygroundRuntime {
     this.grassFieldSample.clearDisturbances()
   }
 
+  clearFireWounds(): void {
+    this.fireParticleSample.clearWounds()
+  }
+
+  clearSkyWounds(): void {
+    this.starSkySample.clearWounds()
+  }
+
   clearAllEffects(): void {
     this.clearFishWounds()
     this.clearGrassDisturbances()
+    this.clearFireWounds()
+    this.clearSkyWounds()
   }
 
   dispose(): void {
@@ -191,11 +246,17 @@ export class PlaygroundRuntime {
     this.scene.remove(this.grassFieldSample.group)
     this.scene.remove(this.fishScaleSample.group)
     this.scene.remove(this.rockFieldSample.group)
+    this.scene.remove(this.flowerFieldSample.group)
+    this.scene.remove(this.starSkySample.group)
+    this.scene.remove(this.fireParticleSample.group)
     this.scene.remove(this.controller.player.group)
     this.camera.remove(this.controller.player.reticle)
     this.fishScaleSample.dispose()
     this.grassFieldSample.dispose()
     this.rockFieldSample.dispose()
+    this.flowerFieldSample.dispose()
+    this.starSkySample.dispose()
+    this.fireParticleSample.dispose()
     this.controller.player.dispose()
     this.shotAudio.pause()
     this.shotAudio.src = ''
@@ -253,6 +314,9 @@ export class PlaygroundRuntime {
 
   private getGroundHeightAtWorld = (x: number, z: number): number =>
     this.grassFieldSample.getGroundHeightAtWorld(x, z)
+
+  private getDisturbanceAtWorld = (x: number, z: number): number =>
+    this.grassFieldSample.getDisturbanceAtWorld(x, z)
 
   private handlePointerDown = (event: PointerEvent): void => {
     this.canvas.focus()
@@ -370,7 +434,7 @@ export class PlaygroundRuntime {
     }
 
     this.walkStampDistance += frame.movedDistance
-    if (this.walkStampDistance < 0.4) return
+    if (this.walkStampDistance < 0.55) return
     this.walkStampDistance = 0
 
     this.controller.player.group.getWorldDirection(this.playerForward)
@@ -385,7 +449,9 @@ export class PlaygroundRuntime {
     this.footstepPoint.y = this.grassFieldSample.getGroundHeightAtWorld(this.footstepPoint.x, this.footstepPoint.z)
     this.grassFieldSample.addDisturbanceFromWorldPoint(this.footstepPoint, {
       radiusScale: 0.42,
-      strength: 0.38,
+      strength: 1.0,
+      recoveryRate: 0.001,  // effectively persistent footprints
+      mergeRadius: 0.95,
     })
   }
 
@@ -394,16 +460,22 @@ export class PlaygroundRuntime {
     this.raycaster.far = 140
 
     const hits = this.raycaster.intersectObjects(
-      [this.fishScaleSample.interactionMesh, this.grassFieldSample.interactionMesh],
+      [
+        this.fishScaleSample.interactionMesh,
+        this.grassFieldSample.interactionMesh,
+        this.fireParticleSample.interactionMesh,
+      ],
       false,
     )
     const hit = hits[0]
     if (!hit?.point) return null
 
-    return {
-      ...hit,
-      targetKind: hit.object === this.fishScaleSample.interactionMesh ? 'fish' : 'grass',
-    }
+    let targetKind: ReticleHit['targetKind']
+    if (hit.object === this.fishScaleSample.interactionMesh) targetKind = 'fish'
+    else if (hit.object === this.fireParticleSample.interactionMesh) targetKind = 'fire'
+    else targetKind = 'grass'
+
+    return { ...hit, targetKind }
   }
 
   private getGrassFallbackHit(): ReticleHit | null {
@@ -422,15 +494,35 @@ export class PlaygroundRuntime {
 
   private fireShot(): void {
     this.playShotAudio()
-    const hit = this.getCenterRayHit() ?? this.getGrassFallbackHit()
-    if (!hit) return
+    const hit = this.getCenterRayHit()
 
-    if (hit.targetKind === 'fish') {
+    if (hit?.targetKind === 'fish') {
       this.fishScaleSample.addWoundFromWorldPoint(hit.point, this.raycaster.ray.direction)
       return
     }
 
-    this.grassFieldSample.addDisturbanceFromWorldPoint(hit.point, { radiusScale: 1.15, strength: 1.45 })
+    if (hit?.targetKind === 'fire') {
+      this.fireParticleSample.addWoundFromWorldPoint(hit.point)
+      return
+    }
+
+    if (!hit && this.raycaster.ray.direction.y > 0.02) {
+      this.starSkySample.addWoundFromWorldDirection(this.raycaster.ray.direction)
+      return
+    }
+
+    if (!hit) {
+      const grassHit = this.getGrassFallbackHit()
+      if (!grassHit) return
+      this.grassFieldSample.addDisturbanceFromWorldPoint(grassHit.point, {
+        radiusScale: 1.15,
+        strength: 1.45,
+        deformGround: false,
+      })
+      return
+    }
+
+    this.grassFieldSample.addDisturbanceFromWorldPoint(hit.point, { radiusScale: 1.15, strength: 1.45, deformGround: false })
   }
 
   private playShotAudio(): void {
@@ -484,11 +576,14 @@ export class PlaygroundRuntime {
     this.shootAnimationTimeRemaining = Math.max(0, this.shootAnimationTimeRemaining - delta)
     this.controller.player.update(delta, this.getPlayerAnimationState(this.activeFrame))
     this.fishScaleSample.update(elapsed)
-    // Grass update first — it deforms the ground geometry and advances disturbances.
+    // Grass update first so later samples read the current flattened field state.
     this.grassFieldSample.update(elapsed)
-    // Rocks sample ground height after grass has settled for this frame, so they
-    // sit flush on the deformed terrain including trample depressions.
     this.rockFieldSample.update(this.getGroundHeightAtWorld)
+    this.flowerFieldSample.update(elapsed, this.getGroundHeightAtWorld, this.getDisturbanceAtWorld)
+    this.fireParticleSample.update(elapsed)
+    this.starSkySample.update(elapsed)
+    this.skybox.position.copy(this.camera.position)
+    this.starSkySample.group.position.copy(this.camera.position)
     this.updateReticleFromCamera()
     this.renderer.render(this.scene, this.camera)
     this.rafId = requestAnimationFrame(this.frame)

@@ -26,7 +26,7 @@ export const PLAYGROUND_CONTROLLER: ThirdPersonControllerConfig = {
 
 export const PLAYGROUND_ZOOM = {
   min: 4.8,
-  max: 13.5,
+  max: 25,
   current: 6.7,
 }
 
@@ -44,4 +44,11 @@ export const FISH_SURFACE_LAYOUT = {
   wallWidth: 8.8,
   wallHeight: 7.2,
   wallDepth: 0.85,
+}
+
+// Fire wall stands across the field in front of the player spawn.
+// Player spawns at z=10.5 facing -Z, so the wall at z=2 fills their view.
+export const FIRE_POSITION = {
+  x: 0,
+  z: 2,
 }

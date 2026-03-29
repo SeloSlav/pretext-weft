@@ -55,11 +55,13 @@ const tmpMove = new THREE.Vector3()
 const tmpLookTarget = new THREE.Vector3()
 const tmpDesiredCamera = new THREE.Vector3()
 const tmpShoulder = new THREE.Vector3()
+const tmpCameraGroundProbe = new THREE.Vector3()
 const tmpModelSize = new THREE.Vector3()
 const tmpModelCenter = new THREE.Vector3()
 const tmpModelBox = new THREE.Box3()
 const RETICLE_LOCAL_DISTANCE = 1.8
 const RETICLE_LOCAL_SCALE = 0.18
+const CAMERA_GROUND_CLEARANCE = 0.22
 
 const ANIMATION_ASSET_BY_STATE: Record<PlayerAnimationState, string> = {
   idle: '/Meshy_AI_WarHero_biped_Animation_Idle_withSkin.glb',
@@ -356,6 +358,11 @@ export class ThirdPersonController {
     tmpDesiredCamera.y += config.cameraHeight
     tmpDesiredCamera.add(tmpShoulder)
     tmpDesiredCamera.addScaledVector(this.frame.aimDirection, -config.cameraDistance)
+    tmpCameraGroundProbe.copy(tmpDesiredCamera)
+    tmpDesiredCamera.y = Math.max(
+      tmpDesiredCamera.y,
+      groundHeightAt(tmpCameraGroundProbe.x, tmpCameraGroundProbe.z) + CAMERA_GROUND_CLEARANCE,
+    )
 
     if (input.lookActive) {
       camera.position.copy(tmpDesiredCamera)
@@ -363,6 +370,10 @@ export class ThirdPersonController {
       const followAlpha = Math.min(1, config.cameraFollowLerp * delta)
       camera.position.lerp(tmpDesiredCamera, followAlpha)
     }
+    camera.position.y = Math.max(
+      camera.position.y,
+      groundHeightAt(camera.position.x, camera.position.z) + CAMERA_GROUND_CLEARANCE,
+    )
     tmpLookTarget.copy(this.position)
     tmpLookTarget.y += config.cameraHeight * 0.86
     tmpLookTarget.addScaledVector(this.frame.aimDirection, config.reticleDistance * 0.42)
