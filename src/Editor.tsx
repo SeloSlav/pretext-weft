@@ -109,6 +109,7 @@ export function Editor() {
   );
   /** Set when `?perf=1` — last effect-update block time (ms). */
   const [perfEffectMs, setPerfEffectMs] = useState<number | null>(null);
+  const [perfFps, setPerfFps] = useState<number | null>(null);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -178,11 +179,9 @@ export function Editor() {
   }, [quality, runtimeState]);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("perf") !== "1") {
-      return;
-    }
     let id = 0;
     const tick = () => {
+      setPerfFps(runtimeRef.current?.fps ?? 0);
       setPerfEffectMs(runtimeRef.current?.effectUpdateMs ?? 0);
       id = requestAnimationFrame(tick);
     };
@@ -675,9 +674,9 @@ export function Editor() {
 
       <main className="viewport">
         <div ref={hostRef} className="viewport-host" />
-        {perfEffectMs !== null && (
+        {perfFps !== null && perfEffectMs !== null && (
           <div className="perf-hud" aria-hidden>
-            Effects update: {perfEffectMs.toFixed(2)} ms
+            FPS: {perfFps.toFixed(1)} | Effects: {perfEffectMs.toFixed(2)} ms
           </div>
         )}
         {runtimeState !== "ready" && (

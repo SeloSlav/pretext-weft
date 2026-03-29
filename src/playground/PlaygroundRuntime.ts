@@ -241,6 +241,8 @@ export class PlaygroundRuntime {
   private frameTick = 0
   /** Last frame CPU time spent in effect updates (ms), for debugging. */
   effectUpdateMs = 0
+  /** Smoothed presentation FPS for the current runtime. */
+  fps = 0
 
   constructor(host: HTMLElement) {
     this.host = host
@@ -1085,6 +1087,11 @@ export class PlaygroundRuntime {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsed - this.lastElapsed))
     this.lastElapsed = elapsed
     this.frameTick++
+    if (delta > 0) {
+      const instantFps = 1 / delta
+      const fpsBlend = 1 - Math.exp(-8 * delta)
+      this.fps = this.fps === 0 ? instantFps : THREE.MathUtils.lerp(this.fps, instantFps, fpsBlend)
+    }
 
     this.updateCameraProfile(delta)
     this.activeFrame = this.controller.update(

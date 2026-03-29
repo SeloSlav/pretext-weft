@@ -961,7 +961,7 @@ body,
 .perf-hud {
   position: absolute;
   top: 12px;
-  right: 12px;
+  left: 12px;
   z-index: 2;
   padding: 6px 10px;
   border-radius: 8px;
