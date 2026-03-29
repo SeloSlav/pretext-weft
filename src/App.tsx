@@ -13,7 +13,7 @@ export default function App() {
   return (
     <>
       <div className="hud">
-        <h1>Topology weaver</h1>
+        <h1>Pretext Weft</h1>
         <p>
           Contour bands on a deforming torus: each sector’s arc length becomes Pretext{' '}
           <code>layoutNextLine</code> width. A moving “wound” shrinks that width so the skin reflows

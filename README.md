@@ -1,6 +1,6 @@
-# Toposet
+# Pretext Weft
 
-**Layout on geometry.** Toposet is a layout engine and experiment surface for packing visual units along bands and paths on 3D geometry—like line layout, but the “lines” are geodesics or contour strips on a mesh. Measurement is batched; the hot path stays arithmetic so surfaces can reflow when the shape, damage, or obstacles change.
+**Layout on geometry.** Pretext Weft is a layout engine and experiment surface for packing visual units along bands and paths on 3D geometry—like line layout, but the “lines” are geodesics or contour strips on a mesh. Measurement is batched; the hot path stays arithmetic so surfaces can reflow when the shape, damage, or obstacles change.
 
 The long-term goal is a **toolkit and editor workflow**: authors define a stream of measured units (glyphs, icons, instanced mesh “tiles,” abstract ornaments), map surface bands or paths to one-dimensional layout widths, and drive placement in **Three.js / WebGL** (or export rules for game engines). This repository is the **reference implementation and playground** for that idea.
 
@@ -23,7 +23,7 @@ The long-term goal is a **toolkit and editor workflow**: authors define a stream
 
 Most real-time 3D decoration is **scatter, noise, or simulation**: things look organic but not *authored*. Typographic layout is the opposite: **deterministic packing** from measured widths, with predictable reflow when the available line width changes.
 
-Toposet asks: *what if the “page” is a surface?*
+Pretext Weft asks: *what if the “page” is a surface?*
 
 - Each **contour band** or **path** is unrolled into an effective **line width** (arc length × scale, minus obstacles).
 - A layout pass decides **which units fit** in each segment.
@@ -147,8 +147,8 @@ Contributions and experiments that explore new surface parameterizations are in 
 
 ---
 
-## Name and repository
+## Repository
 
-You may publish under a different GitHub repository name than the current npm package folder (`pretext-three-experiment`). **Toposet** is the product/engine name; rename the remote and `package.json` `"name"` when you are ready to ship.
+The canonical GitHub repo is **[pretext-weft](https://github.com/SeloSlav/pretext-weft)**. The npm package name in `package.json` is `pretext-weft` (local folder names may still differ on your machine).
 
 If you add a **LICENSE** file before publishing, describe it here (MIT is common for libraries and demos).
