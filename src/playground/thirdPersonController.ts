@@ -71,6 +71,7 @@ const tmpModelBox = new THREE.Box3()
 const RETICLE_LOCAL_DISTANCE = 1.8
 const RETICLE_LOCAL_SCALE = 0.18
 const CAMERA_GROUND_CLEARANCE = 0.22
+const GROUND_DETACH_DISTANCE = 0.32
 /** Applied on `visualRoot` so size is identical for every clip (not animated). */
 const PLAYER_VISUAL_SCALE = 0.9 * 1.2
 
@@ -352,7 +353,6 @@ export class ThirdPersonController {
   private cameraPitch = -0.18
   private groundYSmooth = 0
   private groundYSmoothReady = false
-  private jumpHeight = 0
   private jumpVelocity = 0
   private isJumping = false
   private remainingAirJumps = 0
@@ -363,10 +363,10 @@ export class ThirdPersonController {
     this.cameraYaw = cameraYaw
     this.cameraPitch = cameraPitch
     this.groundYSmoothReady = false
-    this.jumpHeight = 0
     this.jumpVelocity = 0
     this.isJumping = false
     this.remainingAirJumps = 0
+    this.position.y = position.y
     this.player.setPose(this.position, this.yaw)
   }
 
@@ -423,33 +423,46 @@ export class ThirdPersonController {
     if (!this.groundYSmoothReady) {
       this.groundYSmooth = targetGroundY
       this.groundYSmoothReady = true
+      this.position.y = targetGroundY
     } else {
       const yBlend = 1 - Math.exp(-38 * delta)
       this.groundYSmooth = THREE.MathUtils.lerp(this.groundYSmooth, targetGroundY, yBlend)
-    }
-    if (input.jump) {
-      if (!this.isJumping) {
-        this.isJumping = true
-        this.jumpVelocity = config.jumpVelocity
-        this.remainingAirJumps = 1
-      } else if (this.remainingAirJumps > 0) {
-        this.remainingAirJumps -= 1
-        this.jumpVelocity = config.jumpVelocity * config.doubleJumpMultiplier
+      if (input.jump) {
+        if (!this.isJumping) {
+          this.isJumping = true
+          this.jumpVelocity = config.jumpVelocity
+          this.remainingAirJumps = 1
+        } else if (this.remainingAirJumps > 0) {
+          this.remainingAirJumps -= 1
+          this.jumpVelocity = config.jumpVelocity * config.doubleJumpMultiplier
+        }
+      }
+
+      if (this.isJumping) {
+        this.jumpVelocity -= config.gravity * delta
+        this.position.y += this.jumpVelocity * delta
+
+        if (this.position.y <= targetGroundY && this.jumpVelocity <= 0) {
+          this.position.y = targetGroundY
+          this.groundYSmooth = targetGroundY
+          this.jumpVelocity = 0
+          this.isJumping = false
+          this.remainingAirJumps = 0
+        }
+      } else {
+        const dropToGround = this.position.y - targetGroundY
+        if (dropToGround > GROUND_DETACH_DISTANCE) {
+          this.isJumping = true
+          this.jumpVelocity = 0
+          this.remainingAirJumps = 1
+        } else {
+          this.position.y = this.groundYSmooth
+          if (Math.abs(this.position.y - targetGroundY) < 0.001) {
+            this.position.y = targetGroundY
+          }
+        }
       }
     }
-
-    if (this.isJumping) {
-      this.jumpVelocity -= config.gravity * delta
-      this.jumpHeight = Math.max(0, this.jumpHeight + this.jumpVelocity * delta)
-
-      if (this.jumpHeight === 0 && this.jumpVelocity <= 0) {
-        this.jumpVelocity = 0
-        this.isJumping = false
-        this.remainingAirJumps = 0
-      }
-    }
-
-    this.position.y = this.groundYSmooth + this.jumpHeight
 
     this.player.setPose(this.position, this.yaw)
 
