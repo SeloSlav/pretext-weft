@@ -43,6 +43,34 @@ Prefer the highest-level abstraction that solves the problem cleanly.
 
 Do not skip straight to bespoke runtime code unless the existing source/layout/effect model is genuinely insufficient.
 
+## Fast Decision Table
+
+Use this section to route common requests to the right Weft layer quickly.
+
+| If the user asks for... | Prefer... | Why |
+| --- | --- | --- |
+| a new reactive grass-like surface | `createGrassEffect()` plus `DEFAULT_GRASS_FIELD_PARAMS` | fastest path for ground-cover behavior with disturbance, recovery, density, wind, and state |
+| a woundable wall or shell surface | `createFishScaleEffect()` | already models wall-like deformation, wounds, and thinning |
+| deterministic rock or doodad placement on terrain | `createRockFieldEffect()` | preserves the layout-driven approach without inventing scatter tooling |
+| a puncturable glowing/particle wall | `createFireWallEffect()` | already expresses holes plus recovery over time |
+| a reactive sky or dome surface | `createStarSkyEffect()` | built for sky-style density and recoverable wounds |
+| a surface built from custom glyphs or a palette | `createSurfaceSource()` | standard source-authoring entrypoint |
+| stable semantic ids, weights, and metadata | `createSurfaceSource({ semantic: true, palette: [...] })` | use semantic palettes instead of plain repeated units |
+| a custom effect that still follows Weft’s model | `createSurfaceEffect()` with `fieldLayout()`, `wallLayout()`, or `skyLayout()` | keeps authoring inside the official source-layout-effect pipeline |
+| custom state transitions across a surface | `semanticStates()` and runtime state helpers | use built-in state vocabulary before inventing a separate state machine |
+| healing, decay, or recoverable impacts | `recoverableDamage()`, `decayRecoveringStrength()`, `updateRecoveringImpacts()` | matches the intended recovery model |
+| low-level text or source preparation | `src/weft/core` exports | only drop lower when `src/weft/three` is not enough |
+| docs or examples | real exports from `src/weft/three/index.ts` and the patterns in `src/Docs.tsx` | prevents speculative or stale guidance |
+
+## Request Routing Heuristics
+
+- If a request sounds like "make a new kind of grass/wall/fire/sky/rock effect", start from the closest shipped preset and adapt it.
+- If a request sounds like "I have my own glyph vocabulary or semantic palette", start from `createSurfaceSource()`.
+- If a request sounds like "I need a brand new topology or projection model", use `createSurfaceEffect()` and the layout helpers before dropping to fully bespoke code.
+- If a request sounds like "I need stable ids, metadata, or multi-state surface behavior", prefer semantic palettes and semantic state helpers.
+- If a request sounds like "I need raw text measurement, seeded traversal, or recovery internals", then and only then reach for `src/weft/core` or `src/weft/runtime`.
+- If a request sounds like ordinary app wiring, keep that logic outside the Weft authoring layer.
+
 ## Real SDK Surface
 
 These names are real exports and should be preferred over invented abstractions.
@@ -198,6 +226,8 @@ When writing docs:
 
 ## Canonical Quick Start Pattern
 
+Use the same structure even if your project imports Weft from a package entrypoint instead of repo-local paths.
+
 ```ts
 import {
   DEFAULT_GRASS_FIELD_PARAMS,
@@ -231,5 +261,7 @@ For this SDK, the most reliable references are:
 - the exported surface in `src/weft/three/index.ts`
 - the conceptual guide and examples in `src/Docs.tsx`
 - the project overview in `README.md`
+
+If you are integrating a packaged version of Weft, translate repo-local import paths like `./src/weft/three` and `./src/weft/core` to the package entrypoints exposed by that distribution.
 
 If this document and the code ever disagree, trust the code exports first and update the docs accordingly.

@@ -6,6 +6,8 @@ Reactive surface-layout SDK for Three.js/WebGPU. Build gameplay-responsive grass
 - Live site: [pretext-weft.vercel.app](https://pretext-weft.vercel.app)
 - Video demo: [x.com/SeloSlav/status/2038245103643333014](https://x.com/SeloSlav/status/2038245103643333014)
 
+> Start here for SDK integration guidance and agent-ready context: [`weft.md`](./weft.md)
+
 ![Playground screenshot](public/readme-playground-screenshot.png)
 
 The site has two faces:
