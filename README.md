@@ -1,6 +1,6 @@
 # Weft
 
-Reactive surface-layout SDK for Three.js/WebGPU. Build gameplay-responsive grass, walls, doodads, and skyboxes without custom scatter logic.
+Deterministic reactive surface SDK for Three.js. Author grass, facades, debris bands, fire walls, and sky wounds under one layout model instead of rebuilding scatter logic for every gameplay response.
 
 - Live site: [pretext-weft.vercel.app](https://pretext-weft.vercel.app)
 - Video demo: [x.com/SeloSlav/status/2038245103643333014](https://x.com/SeloSlav/status/2038245103643333014)
@@ -12,31 +12,86 @@ Reactive surface-layout SDK for Three.js/WebGPU. Build gameplay-responsive grass
 
 The site has two faces:
 
-- `Overview`: explains the engine argument and compares it to traditional scatter workflows
-- `Playground`: a stylized **edge-of-town intersection** (asphalt, markings, curbs, buildings) where multiple Weft surfaces share one runtime
+- `Overview`: the engine thesis, mental model, and why this is not just another scatter workflow
+- `Playground`: a stylized **edge-of-town intersection** where multiple reactive surfaces share one runtime
 
-## Core idea
+## Why Weft exists
 
-The core idea is simple:
+Most surface systems make you solve placement twice:
 
-**build reactive surfaces without custom scatter logic**
+1. scatter instances into the world
+2. invent a second system to make those instances react to gameplay
 
-Most surface systems make you solve placement twice: once to scatter instances, then again to make them react to gameplay. Weft turns that into one layout problem, so the same surface can thin out, open up, heal, or change state without a second bespoke runtime.
+That second system is where pipelines usually turn into a mess of masks, density maps, respawn timers, damage textures, custom rebuild code, and one-off recovery logic.
 
-Under the hood, the project uses typographic line breaking as the common placement primitive. A surface only needs:
+Weft turns both problems into one layout system.
 
-- a glyph vocabulary, or a weighted semantic palette with ids and metadata
-- a projection that turns laid-out rows and sectors into world-space instances
+The same authored surface can:
 
-Gameplay response then becomes a width problem. Narrow a slot, and fewer glyphs fit. Return zero width, and that part of the surface disappears. Density comes from font metrics rather than hand-tuned scatter constants. Some samples use direct width changes; others keep layout stable and apply deterministic thinning on top.
+- thin out under damage or pressure
+- open holes or corridors
+- recover over time
+- swap semantic state without changing its projection model
+- stay deterministic as the world changes
 
-## SDK
+## Mental model
+
+Think about Weft as:
+
+**source -> layout -> effect**
+
+- `source`: a measured stream built from repeated units or a semantic palette with ids, weights, and metadata
+- `layout`: rows, sectors, and available width across a surface
+- `effect`: projection of the laid-out result into world-space instances
+
+The key gameplay contract is width:
+
+- narrower width means fewer units fit
+- zero width means that part of the surface disappears
+- semantic weights can shift the apparent state of a surface without inventing a second placement pipeline
+
+This is what makes Weft feel different from ordinary scatter tooling. Placement and reactivity are the same problem.
+
+## What Weft is for
+
+Weft is strongest when the world element can honestly be treated as a reactive surface:
+
+- grass and ground cover
+- facades, shutters, ivy, and shell-like wall surfaces
+- rubble belts, rock fields, and edge clutter
+- puncturable fire or glow walls
+- recoverable sky surfaces
+- authored bands of crops, fungus, scales, wires, or fish-like swarms
+
+It is **not** trying to replace every procgen or biome scatter workflow. If your placement problem depends on fully freeform ecological simulation, global 2D blue-noise constraints, landmark exceptions, nav-aware object avoidance, or broad open-world biome logic, Weft may be part of the answer, but not the whole answer.
+
+## Why the model is useful
+
+Weft gives Three.js games one deterministic surface runtime for:
+
+- initial placement
+- damage and thinning
+- healing and recovery
+- semantic state shifts
+- preset-specific behaviors built on shared primitives
+
+Instead of every effect reinventing its own packing and mutation logic, multiple surface types can share the same authoring model.
+
+## SDK layers
 
 The repo includes these `Weft` layers:
 
-- `weft-sdk/core`: source preparation, deterministic seed cursors, and `SurfaceLayoutDriver`
-- `weft-sdk/runtime`: shared recovery/state primitives
-- `weft-sdk/three`: Three.js-first helpers plus shipped presets for `grass`, `fish scale` walls (used here as shutter + ivy facades), `rock field` (rubble lot), `fire wall` (neon sign mode), and `star sky`
+- `weft-sdk/three`: the main entrypoint for app code, layout helpers, behaviors, and shipped presets
+- `weft-sdk/runtime`: shared recovery and state primitives
+- `weft-sdk/core`: lower-level source preparation, deterministic seed cursors, and layout traversal
+
+Shipped preset entrypoints:
+
+- `createGrassEffect()`
+- `createFishScaleEffect()`
+- `createRockFieldEffect()`
+- `createFireWallEffect()`
+- `createStarSkyEffect()`
 
 Install the package with Three.js:
 
@@ -46,7 +101,7 @@ npm install weft-sdk three
 
 `three` is a peer dependency. `@chenglou/pretext` is bundled as a normal dependency of `weft-sdk`.
 
-## Hello world
+## Quick start
 
 This is the smallest package-consumer example: create a source, build a grass effect, and add its group to your scene.
 
@@ -79,46 +134,21 @@ const grass = createGrassEffect({
 scene.add(grass.group)
 ```
 
-The SDK already supports a direct authoring path for new effects through source creation, layout helpers, behaviors, and presets:
+The main authoring path is:
 
-```ts
-import {
-  DEFAULT_GRASS_FIELD_PARAMS,
-  createGrassEffect,
-  createSurfaceSource,
-} from 'weft-sdk/three'
-import { seedCursor } from 'weft-sdk/core'
-
-const surface = createSurfaceSource({
-  cacheKey: 'my-surface',
-  units: ['◓', '◒', '◐', '◑'],
-  repeat: 22,
-})
-
-const grass = createGrassEffect({
-  seedCursor,
-  surface,
-  initialParams: DEFAULT_GRASS_FIELD_PARAMS,
-})
-```
-
-Shipped preset entrypoints:
-
-- `createGrassEffect()`
-- `createFishScaleEffect()`
-- `createRockFieldEffect()`
-- `createFireWallEffect()`
-- `createStarSkyEffect()`
+1. create a source with `createSurfaceSource()`
+2. choose a preset or build a custom surface effect
+3. drive change through width, recovery, and semantic state instead of separate scatter rebuilds
 
 ## Current playground
 
-The `Editor` hosts a **town-edge intersection** built from static meshes (asphalt with yellow stripes, curbs, building blocks, streetlights) plus these reactive surfaces:
+The `Editor` hosts a **town-edge intersection** built from static meshes plus multiple reactive surfaces sharing one runtime:
 
-- **Grass**: trampling, disturbance, wind, seasonal palette, density, recovery — blades skip the road mask; verge strips read a bit denser
-- **Shutter facade** + **ivy facade**: two `createFishScaleEffect()` instances (metal slats vs vine palette) on building walls
-- **Rubble lot**: `createRockFieldEffect()` instances only inside a defined lot zone (layout-driven “fracture” density, not physics explosions)
-- **Neon sign**: `createFireWallEffect()` with `appearance: 'neon'` (magenta/cyan particles, no log prop)
-- **Star sky**: density and sky-wound recovery
+- **Grass**: trampling, disturbance, wind, seasonal palette shifts, density tuning, and recovery
+- **Shutter facade** + **ivy facade**: two `createFishScaleEffect()` instances with different authored surfaces
+- **Rubble lot**: `createRockFieldEffect()` constrained to a lot zone with deterministic fracture-like density
+- **Neon sign**: `createFireWallEffect()` in `appearance: 'neon'` mode
+- **Star sky**: density tuning plus recoverable sky wounds
 - Scene actions: clear facades, grass, neon, sky, or everything
 
 All of this is wired through one `PlaygroundRuntime` using `src/weft/three` presets.
@@ -141,23 +171,28 @@ Shots affect the world based on what is under the reticle:
 - the fire wall gets punched holes
 - the sky can be wounded when you shoot upward past world geometry
 
-## How it is built
-
-The architecture is intentionally split so the engine idea is not coupled to React:
-
-- React is only the site shell, landing page, and control UI
-- `Three.js` + `WebGPU` run the renderer
-- the runtime is plain TypeScript, which keeps the layout system portable and suited to live surface updates
-- `src/weft/core` handles source preparation, deterministic band seeding, and layout traversal
-- [`Pretext`](https://www.npmjs.com/package/@chenglou/pretext) provides the underlying measurement and line breaking
+## How it works
 
 At a high level the pipeline is:
 
-1. Prepare a measured glyph stream with Weft core on top of Pretext.
+1. Prepare a measured source stream.
 2. Describe a surface as rows, sectors, and available width.
 3. Run deterministic layout with seeded cursors.
-4. Project laid-out glyphs into world-space instances.
-5. Re-run layout or thinning when gameplay changes the width field.
+4. Project the laid-out result into world-space instances.
+5. Re-run layout or thinning when gameplay changes the width field or semantic state.
+
+Under the hood, Weft uses [`Pretext`](https://www.npmjs.com/package/@chenglou/pretext) for measurement and line breaking. That implementation detail matters because it makes density and packing stable, but it is not the main thing you are authoring. The main thing you author is a reactive surface.
+
+## Architecture
+
+The engine idea is intentionally not coupled to React:
+
+- React is only the site shell, landing page, and control UI
+- `Three.js` + `WebGPU` run the renderer
+- the runtime is plain TypeScript and stays focused on live surface updates
+- `src/weft/core` handles source preparation, deterministic band seeding, and layout traversal
+- `src/weft/runtime` handles reusable recovery and state logic
+- `src/weft/three` exposes the Three.js-facing authoring API
 
 ## Run the playground
 
@@ -191,10 +226,10 @@ src/
   Landing.tsx                 Product framing and engine explanation
   Editor.tsx                  Playground controls and runtime host
   weft/
-    core/                     Extracted source preparation and layout traversal
-    runtime/                  Shared runtime behaviors and state primitives
+    core/                     Source preparation and layout traversal
+    runtime/                  Shared recovery and state primitives
     three/                    Three.js-first public API and presets
-      presets/                Self-contained preset logic, defaults, and source builders
+      presets/                Preset logic, defaults, and source builders
   createWebGPURenderer.ts     WebGPU-only renderer bootstrap
   playground/
     PlaygroundRuntime.ts      Shared world runtime and interaction loop
@@ -202,9 +237,9 @@ src/
 
 ## What this repo is
 
-- a working Three.js-first SDK for reactive surface layout
-- a playground for comparing multiple surface types under one API
-- a proof that gameplay-driven density can come from layout instead of scatter rebuilds
+- a working Three.js-first SDK for reactive surface authoring
+- a playable proof that placement and gameplay response can share one deterministic model
+- a set of presets showing grass, wall, rubble, fire, and sky surfaces under one runtime
 
 ## Credits
 

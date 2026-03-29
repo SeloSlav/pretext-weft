@@ -43,24 +43,23 @@ export function Landing({ onEnterEditor }: LandingProps) {
   return (
     <div className="landing">
       <div className="landing__inner">
-        <p className="landing__eyebrow">A Reactive surface layout engine for three.js / WebGPU</p>
+        <p className="landing__eyebrow">Deterministic reactive surfaces for Three.js</p>
         <h1 className="landing__title">
-          Build reactive surfaces{' '}
-          <span className="landing__title-accent">without custom scatter logic</span>
+          Stop solving placement twice{' '}
+          <span className="landing__title-accent">for reactive world surfaces</span>
         </h1>
         <p className="landing__lead">
           Most surface systems make you solve placement twice: once to scatter instances, then again to
-          make them react to damage, growth, weather, or state changes. Weft turns that into one layout
-          problem, so the same surface can thin out, open up, heal, or change state without a second
-          bespoke runtime.
+          make them react to damage, growth, weather, or state changes. That is where pipelines turn into
+          masks, rebuild logic, timers, and one-off effect code. Weft turns placement and reactivity into
+          the same layout problem, so a surface can thin out, open up, heal, or shift state without a
+          second bespoke runtime.
         </p>
         <p className="landing__lead">
-          Weft runs a{' '}
-          <strong style={{ color: '#c8d6e8' }}>typographic line-breaking algorithm</strong> across a grid
-          of world slots. Start with a simple glyph array, or drop down to an explicit semantic palette
-          when you need stable ids, weights, or metadata. It measures the resolved glyph stream and
-          breaks lines to fit each slot's width. Density emerges from font metrics, not hand-tuned scatter
-          constants.
+          Weft is for authored reactive surfaces: grass, facades, rubble bands, fire walls, sky wounds,
+          crops, shell-like coverings. Think in terms of <strong style={{ color: '#c8d6e8' }}>source -&gt; layout -&gt; effect</strong>.
+          The surface owns rows, sectors, and width; gameplay changes width or semantic state; the same
+          projection code keeps doing the work.
         </p>
 
         <section className="landing__hero-media" aria-label="Hero gameplay demo">
@@ -77,8 +76,8 @@ export function Landing({ onEnterEditor }: LandingProps) {
             />
           </div>
           <p className="landing__hero-caption">
-            The town-edge playground shoots through neon and facade surfaces; openings recover using the same
-            reactive layout logic.
+            Move through the fire wall and it opens around you, then fills back in behind you under the
+            same reactive surface logic.
           </p>
         </section>
 
@@ -89,8 +88,8 @@ export function Landing({ onEnterEditor }: LandingProps) {
         </div>
 
         <p className="landing__lead">
-          Shipped presets already cover grass, walls, doodad placement, and
-          skyboxes through the same <code className="landing__code-inline">src/weft/three</code> entrypoint.
+          Shipped presets already cover grass, wall surfaces, rock fields, fire walls, and sky surfaces
+          through the same <code className="landing__code-inline">src/weft/three</code> entrypoint.
         </p>
 
         <div className="landing__compare">
@@ -98,28 +97,30 @@ export function Landing({ onEnterEditor }: LandingProps) {
             <p className="landing__compare-label landing__compare-label--bad">Traditional scatter</p>
             <ul className="landing__compare-list">
               <li>Random or blue-noise point distribution</li>
-              <li>Density is a hand-tuned constant</li>
-              <li>Responding to gameplay needs a separate system (damage texture, compute pass, CPU rebuild)</li>
-              <li>Every effect reinvents its own packing logic</li>
-              <li>Variation comes from RNG seeded per-instance</li>
+              <li>Initial placement and runtime mutation are separate engineering problems</li>
+              <li>Density is a hand-tuned constant or mask stack</li>
+              <li>Damage and recovery usually need a second system: texture, compute pass, or CPU rebuild</li>
+              <li>Every effect reinvents its own packing, healing, and state-change logic</li>
+              <li>Small gameplay changes can cause unstable or surprising respawn behavior</li>
             </ul>
           </div>
           <div className="landing__compare-col">
             <p className="landing__compare-label landing__compare-label--good">Weft</p>
             <ul className="landing__compare-list">
-              <li>Line-breaking over a rows × sectors world grid</li>
-              <li>Density emerges from font metrics and slot width</li>
-              <li>Gameplay narrows a slot width and the layout engine handles the rest</li>
-              <li>One control can swap a field between healthy, dry, corrupted, and dead states with the same projection code</li>
-              <li>Every surface type shares the same driver and API</li>
-              <li>Variation is token-seeded and deterministic per row band</li>
+              <li>One layout model handles both placement and runtime change</li>
+              <li>Rows, sectors, and available width define what fits on a surface</li>
+              <li>Gameplay narrows width and the same layout engine handles thinning or disappearance</li>
+              <li>Semantic states can swap a field between healthy, dry, corrupted, and dead with the same projection code</li>
+              <li>Grass, facades, rubble, fire, and sky surfaces share one driver and API</li>
+              <li>Traversal is deterministic per band, so the same world state produces the same result</li>
             </ul>
           </div>
         </div>
 
         <h2 className="landing__section-title">How quickly can you add a new surface</h2>
         <p className="landing__lead">
-          A new surface type needs two things. A glyph vocabulary and a projection. That's it.
+          A new reactive surface usually needs two things: a source and a projection. The runtime already
+          knows how to lay it out, thin it, and keep it deterministic.
         </p>
 
         <div className="landing__code-block">
@@ -148,15 +149,16 @@ const surface = createSurfaceSource({
             />
           </div>
           <p className="landing__demo-caption">
-            The same controls can tune grass, rock, and sky densities live without switching to a different
-            placement workflow for each surface.
+            The same controls can tune grass, rock, and sky densities live without switching to a separate
+            placement workflow for each surface type.
           </p>
         </section>
 
         <p className="landing__lead">
           Need more control? The same API also accepts explicit entries like
           <code className="landing__code-inline">{` { id, glyph, weight, meta } `}</code>
-          and normalizes both forms into the same semantic pipeline.
+          and normalizes both forms into the same semantic pipeline, which is how stable ids and world
+          states stay part of the same authoring model.
         </p>
 
         <div className="landing__code-block">
@@ -176,17 +178,17 @@ scene.add(grass.group)`}</pre>
         <p className="landing__lead">
           Weft gives you an SDK path built around sources, behaviors, and presets instead of hand-wiring
           every sample from scratch. The current repo already ships public preset factories for grass,
-          grass, wall facades, rubble, neon, and sky while still exposing the layout core directly when you want lower-level
-          control.
+          wall facades, rubble, neon, and sky while still exposing the layout core directly when you want
+          lower-level control.
         </p>
 
-        <h2 className="landing__section-title">The real payoff is gameplay-driven density</h2>
+        <h2 className="landing__section-title">The payoff is one gameplay contract</h2>
         <p className="landing__lead">
           The <code className="landing__code-inline">getMaxWidth</code> callback receives the current slot
-          on every frame. Return a smaller number and fewer glyphs fit, so the surface visibly thins out.
-          Return zero and the slot is empty. Some surfaces use that directly, while others keep layout
-          stable while swapping semantic source weights to move the exact same terrain between visibly
-          different world states, with no separate damage texture or compute pass.
+          on every frame. Return a smaller number and fewer units fit, so the surface visibly thins out.
+          Return zero and the slot is empty. Some surfaces use that directly; others keep layout stable
+          while swapping semantic source weights to move the same terrain between visibly different world
+          states, with no second damage texture or compute pass.
         </p>
 
         <section className="landing__demo-media" aria-label="Gameplay response demo">
@@ -204,7 +206,7 @@ scene.add(grass.group)`}</pre>
           </div>
           <p className="landing__demo-caption">
             Shoot the grass and the same layout system thins the surface in place. No separate damage
-            texture, scatter rebuild, or custom effect pipeline.
+            texture, scatter rebuild, or special-case effect pipeline.
           </p>
         </section>
 
@@ -216,9 +218,9 @@ scene.add(grass.group)`}</pre>
         </div>
 
         <p className="landing__lead">
-          In a traditional scatter pipeline, making density respond to gameplay is a non-trivial
-          engineering task. Here the same surface can also become healthy, dry, corrupted, or dead just
-          by changing the semantic source and re-running layout through the same projection callback.
+          In a traditional scatter pipeline, making density respond to gameplay is usually where the ugly
+          engineering starts. Here the same surface can also become healthy, dry, corrupted, or dead just
+          by changing semantic source weights and re-running layout through the same projection callback.
         </p>
 
         <section className="landing__state-showcase" aria-label="Surface state transitions">
@@ -258,8 +260,8 @@ scene.add(grass.group)`}</pre>
             <strong>One driver, every surface type</strong>
             <span>
               Grass, wall scales, rock fields, glow surfaces, sky, coral, ornament. All share{' '}
-              <code>SurfaceLayoutDriver</code> and <code>forEachLaidOutLine</code>. You only write the
-              glyph source and the per-token matrix placement.
+              <code>SurfaceLayoutDriver</code> and <code>forEachLaidOutLine</code>. You author the source
+              and the per-token placement, not a brand new mutation system for every effect.
             </span>
           </li>
           <li>
@@ -270,11 +272,11 @@ scene.add(grass.group)`}</pre>
             </span>
           </li>
           <li>
-            <strong>WebGPU runtime for live surface updates</strong>
+            <strong>Reactive surfaces, not universal scatter</strong>
             <span>
-              The renderer is built on plain TypeScript and Three.js WebGPU, so large instanced surfaces
-              can be re-laid out, thinned, and recolored in response to gameplay without turning each
-              effect into its own special-case pipeline.
+              The model is strongest on banded and surface-like distributions where rows, sectors, and
+              width are honest abstractions. It is meant to unify reactive surfaces, not replace every
+              open-world procgen or ecology system.
             </span>
           </li>
         </ul>
