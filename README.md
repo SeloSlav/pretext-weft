@@ -16,6 +16,7 @@ The long-term goal is a **toolkit and editor workflow**: authors define a stream
 - [Architecture notes](#architecture-notes)
 - [Roadmap](#roadmap)
 - [Credits](#credits)
+- [License](#license)
 
 ---
 
@@ -63,7 +64,7 @@ flowchart LR
 4. **Project**  
    Map each laid-out unit to a position/orientation on the surface (Frenet-style frame from tangents and normals), update **instanced meshes** or GPU buffers.
 
-The interactive demo uses a **deforming torus**, **multiple contour bands** (fixed \(v\), varying \(u\)), a **moving angular wound** that narrows `maxWidth`, and **instanced boxes** as stand-ins for arbitrary modules.
+The default **Torus + wound** sample uses a **deforming torus**, **multiple contour bands** (fixed \(v\), varying \(u\)), a **moving angular wound** that narrows `maxWidth`, and **instanced boxes** as stand-ins for arbitrary modules. **Plane ribbons** lays the same prepared stream on flat X–Z bands with a **drifting rectangular obstacle** (narrower layout width in that region).
 
 ---
 
@@ -75,6 +76,7 @@ The interactive demo uses a **deforming torus**, **multiple contour bands** (fix
 | Per-band layout cursors + sector `layoutNextLine` | Implemented (`src/TopologySkin.tsx`) |
 | Variable width / “wound” band + body deformation | Implemented (`src/App.tsx` + HUD) |
 | React Three Fiber + Drei scene | Implemented |
+| Sidebar sample switcher + multiple demos | Implemented (`src/samples/`) |
 | Standalone editor UI, export, game-engine plugins | Not yet—roadmap |
 
 This is intentionally an **experiment surface**: the APIs are wired for clarity, not yet packaged as a versioned library.
@@ -90,7 +92,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`). Orbit the camera with the mouse; use the HUD sliders to change wound size, narrowing factor, and deformation.
+Open the URL Vite prints (usually `http://localhost:5173`). Use the **left sidebar** to switch samples; each sample has its own parameter sliders. Orbit the camera with the mouse.
 
 **Production build:**
 
@@ -108,11 +110,15 @@ npm run preview
 ├── vite.config.ts
 ├── package.json
 └── src
-    ├── main.tsx          # React entry
-    ├── App.tsx           # Canvas, lighting, HUD controls
-    ├── TopologySkin.tsx  # Torus bands, Pretext layout loop, instancing
-    ├── skinText.ts       # Ornamental stream + prepare + cursor seeding
-    └── style.css         # HUD + full-viewport layout
+    ├── main.tsx              # React entry
+    ├── App.tsx               # Shell: sidebar + Canvas, sample switcher
+    ├── TopologySkin.tsx      # Torus sample: Pretext layout loop + instancing
+    ├── skinText.ts           # Ornamental stream + prepare + cursor seeding
+    ├── style.css             # Sidebar + viewport layout
+    └── samples/
+        ├── sampleMeta.ts     # Sample list (titles + descriptions)
+        ├── graphemes.ts      # Shared grapheme splitting for placement
+        └── RibbonPlaneSkin.tsx  # Plane-ribbon sample
 ```
 
 ---
@@ -147,8 +153,12 @@ Contributions and experiments that explore new surface parameterizations are in 
 
 ---
 
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
 ## Repository
 
 The canonical GitHub repo is **[pretext-weft](https://github.com/SeloSlav/pretext-weft)**. The npm package name in `package.json` is `pretext-weft` (local folder names may still differ on your machine).
-
-If you add a **LICENSE** file before publishing, describe it here (MIT is common for libraries and demos).

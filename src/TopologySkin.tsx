@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { layoutNextLine, type LayoutCursor } from '@chenglou/pretext'
 import { getPreparedSkin, seedCursor } from './skinText'
+import { graphemesOf } from './samples/graphemes'
 
 const MAX_INSTANCES = 14_000
 const NUM_BANDS = 14
@@ -15,16 +16,6 @@ const tmpTanU = new THREE.Vector3()
 const tmpNorm = new THREE.Vector3()
 const tmpLook = new THREE.Vector3()
 const dummy = new THREE.Object3D()
-
-const graphemeSplitter =
-  typeof Intl !== 'undefined' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null
-
-function graphemesOf(s: string): string[] {
-  if (graphemeSplitter) {
-    return [...graphemeSplitter.segment(s)].map((x) => x.segment)
-  }
-  return [...s]
-}
 
 function angularDistance(a: number, b: number): number {
   let d = Math.abs(a - b) % (Math.PI * 2)
