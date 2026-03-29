@@ -162,10 +162,7 @@ export class SurfaceLayoutDriver<TokenId extends string = string, Meta = unknown
         if (laidOut === null) continue
 
         cursor = laidOut.cursorEnd
-        // Keep spaces so prose surfaces (book pages) can render word gaps. Strip only hard line breaks.
-        const glyphs = graphemesOf(laidOut.line.text).filter(
-          (glyph) => glyph !== '\n' && glyph !== '\r',
-        )
+        const glyphs = graphemesOf(laidOut.line.text).filter((glyph) => !/^\s+$/.test(glyph))
         if (glyphs.length === 0) continue
         const resolvedGlyphs = glyphs
           .map((glyph) => this.surface.glyphLookup.get(glyph))

@@ -116,10 +116,10 @@ export class PlayerActor {
     }),
   )
   private readonly visualRoot = new THREE.Group()
-  private readonly fallbackVisual = this.createFallbackVisual()
   private readonly loader = new GLTFLoader()
   private readonly geometries = new Set<THREE.BufferGeometry>()
   private readonly materials = new Set<THREE.Material>([this.aimRing.material, this.aimCore.material])
+  private readonly fallbackVisual: THREE.Group
 
   private mixer: THREE.AnimationMixer | null = null
   private activeAction: THREE.AnimationAction | null = null
@@ -129,6 +129,7 @@ export class PlayerActor {
   private readonly animationActions: Partial<Record<PlayerAnimationState, THREE.AnimationAction>> = {}
 
   constructor() {
+    this.fallbackVisual = this.createFallbackVisual()
     this.reticle.add(this.aimRing)
     this.reticle.add(this.aimCore)
     this.reticle.renderOrder = 999
