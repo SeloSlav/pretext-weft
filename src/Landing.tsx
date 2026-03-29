@@ -6,7 +6,7 @@ export function Landing({ onEnterEditor }: LandingProps) {
   return (
     <div className="landing">
       <div className="landing__inner">
-        <p className="landing__eyebrow">Surface layout engine · Editor direction · Three.js WebGPU demos</p>
+        <p className="landing__eyebrow">Surface layout engine</p>
         <h1 className="landing__title">
           A new mental model for <span className="landing__title-accent">browser game surfaces</span>
         </h1>

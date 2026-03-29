@@ -1,9 +1,11 @@
-import { seedCursor, getPreparedSkin } from '../skinText'
+import { seedCursor } from '../skinText'
 import { createWebGPURenderer } from '../createWebGPURenderer'
 import { Timer } from 'three'
 import * as THREE from 'three'
 import { FishScaleSample } from './fishScaleSample'
 import { GrassFieldSample } from './grassFieldSample'
+import { getPreparedFishSurface } from './fishSurfaceText'
+import { getPreparedGrassSurface } from './grassSurfaceText'
 import { applyPlaygroundAtmosphere, addPlaygroundLighting } from './playgroundEnvironment'
 import {
   type PlayerAnimationState,
@@ -35,15 +37,22 @@ export class PlaygroundRuntime {
   private readonly scene = new THREE.Scene()
   private readonly camera = new THREE.PerspectiveCamera(32, 1, 0.2, 140)
   private readonly cameraFill = new THREE.PointLight('#fff4dc', 1.65, 26, 2)
-  private readonly prepared = getPreparedSkin()
   private readonly raycaster = new THREE.Raycaster()
   private readonly grassAimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private readonly grassFallbackPoint = new THREE.Vector3()
   private readonly playerForward = new THREE.Vector3()
   private readonly footstepPoint = new THREE.Vector3()
   private readonly ndcCenter = new THREE.Vector2(0, 0)
-  private readonly fishScaleSample = new FishScaleSample(this.prepared, seedCursor, DEFAULT_FISH_SCALE_PARAMS)
-  private readonly grassFieldSample = new GrassFieldSample(this.prepared, seedCursor, DEFAULT_GRASS_FIELD_PARAMS)
+  private readonly fishScaleSample = new FishScaleSample(
+    getPreparedFishSurface(),
+    seedCursor,
+    DEFAULT_FISH_SCALE_PARAMS,
+  )
+  private readonly grassFieldSample = new GrassFieldSample(
+    getPreparedGrassSurface(),
+    seedCursor,
+    DEFAULT_GRASS_FIELD_PARAMS,
+  )
   private readonly controller = new ThirdPersonController()
   private readonly shotAudio = new Audio('/gun_shot.mp3')
   private readonly inputState = {

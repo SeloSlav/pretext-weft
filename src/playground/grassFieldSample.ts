@@ -1,9 +1,10 @@
-import { layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
+import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
-import { graphemesOf } from '../samples/graphemes'
 import { PLAYGROUND_BOUNDS } from './playgroundWorld'
+import { smoothPulse } from './mathUtils'
 import { updateRecoveringImpacts } from './recovery'
-import type { GrassFieldParams } from './types'
+import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
+import type { GrassFieldParams, SeedCursorFactory } from './types'
 
 const ROWS = 52
 const SECTORS = 68
@@ -213,12 +214,6 @@ function fieldNoise(x: number, z: number): number {
   return THREE.MathUtils.clamp(0.5 + a * 0.22 + b * 0.18 + c * 0.1, 0, 1)
 }
 
-function smoothPulse(n: number): number {
-  if (n >= 1) return 0
-  const t = 1 - n * n
-  return t * t
-}
-
 export class GrassFieldSample {
   readonly group = new THREE.Group()
   readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
@@ -259,21 +254,27 @@ export class GrassFieldSample {
   })
   private readonly baseGroundPositions = Float32Array.from(this.groundGeometry.attributes.position.array as ArrayLike<number>)
   private readonly groundColors = new Float32Array(this.groundGeometry.attributes.position.count * 3)
-  private readonly bandSeeds: LayoutCursor[]
+  private readonly layoutDriver: SurfaceLayoutDriver
   private readonly disturbances: Disturbance[] = []
-  private readonly prepared: PreparedTextWithSegments
   private lastElapsedTime = 0
 
   private params: GrassFieldParams
 
   constructor(
     prepared: PreparedTextWithSegments,
-    seedCursor: (preparedText: PreparedTextWithSegments, advance: number) => LayoutCursor,
+    seedCursor: SeedCursorFactory,
     initialParams: GrassFieldParams,
   ) {
-    this.prepared = prepared
     this.params = { ...initialParams }
-    this.bandSeeds = Array.from({ length: ROWS }, (_, row) => seedCursor(prepared, row * 13 + 5))
+    this.layoutDriver = new SurfaceLayoutDriver({
+      prepared,
+      rows: ROWS,
+      sectors: SECTORS,
+      advanceForRow: (row) => row * 13 + 5,
+      seedCursor,
+      staggerFactor: 0.45,
+      minSpanFactor: 0.33,
+    })
 
     this.bladeMesh.frustumCulled = false
     this.bladeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
@@ -399,115 +400,119 @@ export class GrassFieldSample {
 
   private updateBlades(elapsedTime: number): void {
     const rowStep = FIELD_DEPTH / (ROWS + 1.1)
-    const sectorStep = FIELD_WIDTH / SECTORS
     const backZ = FIELD_DEPTH * 0.48
     let instanceIndex = 0
 
-    for (let row = 0; row < ROWS; row++) {
-      const z = backZ - row * rowStep
-      const rowOffset = (row % 2) * sectorStep * 0.45
-      let cursor: LayoutCursor = this.bandSeeds[row] ? { ...this.bandSeeds[row] } : { segmentIndex: 0, graphemeIndex: 0 }
-
-      for (let sector = 0; sector < SECTORS; sector++) {
-        const x0Raw = -FIELD_WIDTH * 0.5 + sector * sectorStep + rowOffset
-        const x1Raw = x0Raw + sectorStep
-        const x0 = THREE.MathUtils.clamp(x0Raw, -FIELD_WIDTH * 0.5, FIELD_WIDTH * 0.5)
-        const x1 = THREE.MathUtils.clamp(x1Raw, -FIELD_WIDTH * 0.5, FIELD_WIDTH * 0.5)
-        if (x1 - x0 < sectorStep * 0.33) continue
-
-        const xMid = (x0 + x1) * 0.5
-        const disturbance = this.disturbanceAt(xMid, z)
-        const maxWidth = Math.max(
-          8,
-          (x1 - x0) * LAYOUT_PX_PER_WORLD * THREE.MathUtils.lerp(1, 1 - this.params.disturbanceStrength * 0.98, disturbance),
-        )
-
-        let line = layoutNextLine(this.prepared, cursor, maxWidth)
-        if (line === null) {
-          cursor = { segmentIndex: 0, graphemeIndex: 0 }
-          line = layoutNextLine(this.prepared, cursor, maxWidth)
-        }
-        if (line === null) continue
-
-        cursor = line.end
-        const glyphs = graphemesOf(line.text).filter((g) => !/^\s+$/.test(g))
-        const n = glyphs.length
-        if (n === 0) continue
-
-        for (let k = 0; k < n; k++) {
-          if (instanceIndex >= MAX_INSTANCES) break
-
-          const glyph = glyphs[k]!
-          const code = glyph.codePointAt(0) ?? 0
-          for (let blade = 0; blade < BLADES_PER_SLOT; blade++) {
-            if (instanceIndex >= MAX_INSTANCES) break
-
-            const fieldRandom = fieldNoise(xMid + k * 0.37 + blade * 1.9, z + blade * 0.23)
-            const t01 = (k + 0.18 + blade * 0.34) / (n + BLADES_PER_SLOT * 0.2)
-            const x = x0 + t01 * (x1 - x0) + (blade - 0.5) * sectorStep * 0.14 + (fieldRandom - 0.5) * sectorStep * 0.2
-            const zJitter = (blade - 0.5) * rowStep * 0.24 + (fieldRandom - 0.5) * rowStep * 0.18
-            const localZ = z + zJitter
-            const localDisturbance = this.disturbanceAt(x, localZ)
-            const baseY = this.groundY(x, localZ)
-            const organicNoise = fieldNoise(x, localZ)
-
-            let awayX = 0
-            let awayZ = 1
-            let strongest = 0
-            for (const hit of this.disturbances) {
-              const dx = x - hit.x
-              const dz = localZ - hit.z
-              const n = Math.sqrt(dx * dx + dz * dz) / Math.max(hit.radius, 0.0001)
-              const influence = smoothPulse(n) * hit.strength
-              if (influence > strongest) {
-                strongest = influence
-                awayX = dx
-                awayZ = dz
-              }
-            }
-
-            const bendDirection = Math.atan2(awayX, awayZ) + (organicNoise - 0.5) * 0.35
-            const gust =
-              Math.sin(elapsedTime * 1.55 + x * 0.52 + localZ * 0.34) +
-              0.55 * Math.sin(elapsedTime * 2.8 + x * 1.1 - localZ * 0.62)
-            const windYaw = gust * this.params.wind * 0.14
-            const windBend = (0.24 + Math.abs(gust) * 0.18) * this.params.wind
-            const trampleBend = localDisturbance * 1.15
-            const height = 0.88 + (code % 7) * 0.1 + organicNoise * 0.14 + blade * 0.07
-            const width = 0.072 + ((code >> 2) % 5) * 0.01 + organicNoise * 0.015 + blade * 0.006
-
-            tmpPos.set(
-              x + awayX * localDisturbance * 0.22,
-              baseY + 0.16 + localDisturbance * 0.05,
-              localZ + awayZ * localDisturbance * 0.22,
-            )
-            dummy.position.copy(tmpPos)
-            dummy.rotation.set(0, bendDirection + windYaw, 0)
-            dummy.rotateX((organicNoise - 0.5) * 0.12)
-            dummy.rotateZ((windBend + trampleBend) * Math.sign(awayX || 1))
-            dummy.scale.set(width * (1 - localDisturbance * 0.42), Math.max(height * (1 - localDisturbance * 0.88), 0.18), 1)
-            dummy.updateMatrix()
-            this.bladeMesh.setMatrixAt(instanceIndex, dummy.matrix)
-
-            const hue = 0.27 + organicNoise * 0.04 + (code % 9) * 0.002
-            const sat = THREE.MathUtils.lerp(0.74, 0.2, localDisturbance)
-            const light = THREE.MathUtils.lerp(0.44, 0.66, 0.35 + organicNoise * 0.65)
-            tmpColor.setHSL(hue, sat, light)
-            tmpColor.lerp(groundBaseColor, localDisturbance * 0.04)
-            tmpColor.lerp(groundDirtColor, localDisturbance * 0.52)
-            tmpColor.lerp(groundDarkColor, localDisturbance * 0.32)
-            this.bladeMesh.setColorAt(instanceIndex, tmpColor)
-
-            instanceIndex++
-          }
-        }
-      }
-    }
+    this.layoutDriver.forEachLaidOutLine({
+      spanMin: -FIELD_WIDTH * 0.5,
+      spanMax: FIELD_WIDTH * 0.5,
+      lineCoordAtRow: (row) => backZ - row * rowStep,
+      getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
+      onLine: ({ slot, glyphs }) => {
+        instanceIndex = this.projectLine(slot, glyphs, rowStep, elapsedTime, instanceIndex)
+      },
+    })
 
     this.bladeMesh.count = instanceIndex
     this.bladeMesh.instanceMatrix.needsUpdate = true
     if (this.bladeMesh.instanceColor) {
       this.bladeMesh.instanceColor.needsUpdate = true
     }
+  }
+
+  private getSlotMaxWidth(slot: SurfaceLayoutSlot): number {
+    const disturbance = this.disturbanceAt(slot.spanCenter, slot.lineCoord)
+    return (
+      slot.spanSize *
+      LAYOUT_PX_PER_WORLD *
+      THREE.MathUtils.lerp(1, 1 - this.params.disturbanceStrength * 0.98, disturbance)
+    )
+  }
+
+  private projectLine(
+    slot: SurfaceLayoutSlot,
+    glyphs: readonly string[],
+    rowStep: number,
+    elapsedTime: number,
+    instanceIndex: number,
+  ): number {
+    const n = glyphs.length
+    for (let k = 0; k < n; k++) {
+      if (instanceIndex >= MAX_INSTANCES) break
+
+      const glyph = glyphs[k]!
+      const code = glyph.codePointAt(0) ?? 0
+      for (let blade = 0; blade < BLADES_PER_SLOT; blade++) {
+        if (instanceIndex >= MAX_INSTANCES) break
+
+        const fieldRandom = fieldNoise(slot.spanCenter + k * 0.37 + blade * 1.9, slot.lineCoord + blade * 0.23)
+        const t01 = (k + 0.18 + blade * 0.34) / (n + BLADES_PER_SLOT * 0.2)
+        const x =
+          slot.spanStart +
+          t01 * slot.spanSize +
+          (blade - 0.5) * slot.sectorStep * 0.14 +
+          (fieldRandom - 0.5) * slot.sectorStep * 0.2
+        const zJitter = (blade - 0.5) * rowStep * 0.24 + (fieldRandom - 0.5) * rowStep * 0.18
+        const localZ = slot.lineCoord + zJitter
+        const localDisturbance = this.disturbanceAt(x, localZ)
+        const baseY = this.groundY(x, localZ)
+        const organicNoise = fieldNoise(x, localZ)
+
+        let awayX = 0
+        let awayZ = 1
+        let strongest = 0
+        for (const hit of this.disturbances) {
+          const dx = x - hit.x
+          const dz = localZ - hit.z
+          const n = Math.sqrt(dx * dx + dz * dz) / Math.max(hit.radius, 0.0001)
+          const influence = smoothPulse(n) * hit.strength
+          if (influence > strongest) {
+            strongest = influence
+            awayX = dx
+            awayZ = dz
+          }
+        }
+
+        const bendDirection = Math.atan2(awayX, awayZ) + (organicNoise - 0.5) * 0.35
+        const gust =
+          Math.sin(elapsedTime * 1.55 + x * 0.52 + localZ * 0.34) +
+          0.55 * Math.sin(elapsedTime * 2.8 + x * 1.1 - localZ * 0.62)
+        const windYaw = gust * this.params.wind * 0.14
+        const windBend = (0.24 + Math.abs(gust) * 0.18) * this.params.wind
+        const trampleBend = localDisturbance * 1.15
+        const height = 0.88 + (code % 7) * 0.1 + organicNoise * 0.14 + blade * 0.07
+        const width = 0.072 + ((code >> 2) % 5) * 0.01 + organicNoise * 0.015 + blade * 0.006
+
+        tmpPos.set(
+          x + awayX * localDisturbance * 0.22,
+          baseY + 0.16 + localDisturbance * 0.05,
+          localZ + awayZ * localDisturbance * 0.22,
+        )
+        dummy.position.copy(tmpPos)
+        dummy.rotation.set(0, bendDirection + windYaw, 0)
+        dummy.rotateX((organicNoise - 0.5) * 0.12)
+        dummy.rotateZ((windBend + trampleBend) * Math.sign(awayX || 1))
+        dummy.scale.set(
+          width * (1 - localDisturbance * 0.42),
+          Math.max(height * (1 - localDisturbance * 0.88), 0.18),
+          1,
+        )
+        dummy.updateMatrix()
+        this.bladeMesh.setMatrixAt(instanceIndex, dummy.matrix)
+
+        const hue = 0.27 + organicNoise * 0.04 + (code % 9) * 0.002
+        const sat = THREE.MathUtils.lerp(0.74, 0.2, localDisturbance)
+        const light = THREE.MathUtils.lerp(0.44, 0.66, 0.35 + organicNoise * 0.65)
+        tmpColor.setHSL(hue, sat, light)
+        tmpColor.lerp(groundBaseColor, localDisturbance * 0.04)
+        tmpColor.lerp(groundDirtColor, localDisturbance * 0.52)
+        tmpColor.lerp(groundDarkColor, localDisturbance * 0.32)
+        this.bladeMesh.setColorAt(instanceIndex, tmpColor)
+
+        instanceIndex++
+      }
+    }
+
+    return instanceIndex
   }
 }

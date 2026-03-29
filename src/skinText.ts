@@ -5,19 +5,14 @@ import {
   type PreparedTextWithSegments,
 } from '@chenglou/pretext'
 
-/** Ornamental “glyphs” (not prose): spaced so Pretext keeps most as separate measured segments. */
-const ORNAMENT_CHARS =
-  '■□▢▣▤▥▦▧▨▩▪▫▬▭▮▯▰▱▲△▴▵▶▷◀◁◂◃◄◅◆◇◈◉◊○◎●◐◑◒◓◔◕◖◗◘◙◚◛◜◝◞◟◠◡☀☁☂☃★☆☎☏☐☑☒☓☔☕☖☗♔♕♖♗♘♙♚♛♜♝♞♟♠♣♥♦♩♪♫♬⚊⚋⛁⛂⛛⛶✦✧❖❘❙❚⬒⬓⬔⬕⬖⬗⬘⬙⬚⬛⬜⬝⬞⬟⬠⬡⬢⬣⬤⬥⬦⬧'
-
-const REPEAT = 12
-
-export const SKIN_FONT =
+export const SURFACE_TEXT_FONT =
   '22px "Segoe UI Symbol", "Cascadia Code", "Noto Sans Symbols 2", sans-serif'
 
-export function buildSkinStream(): string {
-  const units = [...ORNAMENT_CHARS]
+const preparedCache = new Map<string, PreparedTextWithSegments>()
+
+export function buildRepeatedUnitStream(units: readonly string[], repeat: number): string {
   const chunks: string[] = []
-  for (let r = 0; r < REPEAT; r++) {
+  for (let r = 0; r < repeat; r++) {
     for (let i = 0; i < units.length; i++) {
       chunks.push(units[i]!)
       chunks.push(' ')
@@ -26,13 +21,19 @@ export function buildSkinStream(): string {
   return chunks.join('')
 }
 
-let cached: PreparedTextWithSegments | null = null
-
-export function getPreparedSkin(): PreparedTextWithSegments {
-  if (cached === null) {
-    cached = prepareWithSegments(buildSkinStream(), SKIN_FONT)
+export function prepareCachedSurfaceText(
+  cacheKey: string,
+  sourceText: string,
+  font = SURFACE_TEXT_FONT,
+): PreparedTextWithSegments {
+  const cached = preparedCache.get(cacheKey)
+  if (cached) {
+    return cached
   }
-  return cached
+
+  const prepared = prepareWithSegments(sourceText, font)
+  preparedCache.set(cacheKey, prepared)
+  return prepared
 }
 
 export function seedCursor(prepared: PreparedTextWithSegments, advance: number): LayoutCursor {

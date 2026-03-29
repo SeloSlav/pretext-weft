@@ -1,3 +1,10 @@
+import type { LayoutCursor, PreparedTextWithSegments } from '@chenglou/pretext'
+
+export type SeedCursorFactory = (
+  preparedText: PreparedTextWithSegments,
+  advance: number,
+) => LayoutCursor
+
 export type FishScaleParams = {
   woundRadius: number
   woundNarrow: number

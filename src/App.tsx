@@ -14,7 +14,6 @@ export default function App() {
           <button type="button" className="site-nav__logo" onClick={() => setPage('home')}>
             Pretext Weft
           </button>
-          <span className="site-nav__badge">preview</span>
         </div>
 
         <nav className="site-nav__links" aria-label="Site">

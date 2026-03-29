@@ -1,8 +1,9 @@
-import { layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
+import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
-import { graphemesOf } from '../samples/graphemes'
+import { smoothPulse } from './mathUtils'
 import { updateRecoveringImpacts } from './recovery'
-import type { FishScaleParams } from './types'
+import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
+import type { FishScaleParams, SeedCursorFactory } from './types'
 
 const ROWS = 16
 const SECTORS = 28
@@ -82,12 +83,6 @@ function createPatchMaterial(): THREE.MeshStandardMaterial {
   })
 }
 
-function smoothPulse(n: number): number {
-  if (n >= 1) return 0
-  const t = 1 - n * n
-  return t * t
-}
-
 export class FishScaleSample {
   readonly group = new THREE.Group()
   readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
@@ -98,21 +93,27 @@ export class FishScaleSample {
   private readonly patchGeometry = new THREE.PlaneGeometry(PATCH_WIDTH, PATCH_HEIGHT, 72, 54)
   private readonly patchMaterial = createPatchMaterial()
   private readonly basePatchPositions = Float32Array.from(this.patchGeometry.attributes.position.array as ArrayLike<number>)
-  private readonly bandSeeds: LayoutCursor[]
+  private readonly layoutDriver: SurfaceLayoutDriver
   private readonly wounds: Wound[] = []
-  private readonly prepared: PreparedTextWithSegments
   private lastElapsedTime = 0
 
   private params: FishScaleParams
 
   constructor(
     prepared: PreparedTextWithSegments,
-    seedCursor: (preparedText: PreparedTextWithSegments, advance: number) => LayoutCursor,
+    seedCursor: SeedCursorFactory,
     initialParams: FishScaleParams,
   ) {
-    this.prepared = prepared
     this.params = { ...initialParams }
-    this.bandSeeds = Array.from({ length: ROWS }, (_, row) => seedCursor(prepared, row * 17 + 9))
+    this.layoutDriver = new SurfaceLayoutDriver({
+      prepared,
+      rows: ROWS,
+      sectors: SECTORS,
+      advanceForRow: (row) => row * 17 + 9,
+      seedCursor,
+      staggerFactor: 0.5,
+      minSpanFactor: 0.35,
+    })
 
     this.scaleMesh = new THREE.InstancedMesh(this.scaleGeometry, this.scaleMaterial, MAX_INSTANCES)
     this.scaleMesh.frustumCulled = false
@@ -285,89 +286,84 @@ export class FishScaleSample {
 
   private updateScales(elapsedTime: number): void {
     const rowStep = PATCH_HEIGHT / (ROWS + 2.6)
-    const columnStep = PATCH_WIDTH / SECTORS
     const topY = PATCH_HEIGHT * 0.42
     let instanceIndex = 0
 
-    for (let row = 0; row < ROWS; row++) {
-      const rowY = topY - row * rowStep
-      const rowOffset = (row % 2) * columnStep * 0.5
-      let cursor: LayoutCursor = this.bandSeeds[row]
-        ? { ...this.bandSeeds[row] }
-        : { segmentIndex: 0, graphemeIndex: 0 }
-
-      for (let sector = 0; sector < SECTORS; sector++) {
-        const x0Raw = -PATCH_WIDTH * 0.5 + sector * columnStep + rowOffset
-        const x1Raw = x0Raw + columnStep
-        const x0 = THREE.MathUtils.clamp(x0Raw, -PATCH_WIDTH * 0.5, PATCH_WIDTH * 0.5)
-        const x1 = THREE.MathUtils.clamp(x1Raw, -PATCH_WIDTH * 0.5, PATCH_WIDTH * 0.5)
-        if (x1 - x0 < columnStep * 0.35) continue
-
-        const xMid = (x0 + x1) * 0.5
-        const damage = this.damageAt(xMid, rowY)
-        const surface = this.sampleSurface(xMid, rowY, elapsedTime)
-        const arcWorld = (x1 - x0) * Math.max(1, surface.tangentX.length())
-        const widthMultiplier = THREE.MathUtils.lerp(1, this.params.woundNarrow, damage)
-        const maxWidth = Math.max(8, arcWorld * LAYOUT_PX_PER_WORLD * widthMultiplier)
-
-        let line = layoutNextLine(this.prepared, cursor, maxWidth)
-        if (line === null) {
-          cursor = { segmentIndex: 0, graphemeIndex: 0 }
-          line = layoutNextLine(this.prepared, cursor, maxWidth)
-        }
-        if (line === null) continue
-
-        cursor = line.end
-
-        const glyphs = graphemesOf(line.text).filter((g) => !/^\s+$/.test(g))
-        const n = glyphs.length
-        if (n === 0) continue
-
-        for (let k = 0; k < n; k++) {
-          if (instanceIndex >= MAX_INSTANCES) break
-
-          const glyph = glyphs[k]!
-          const code = glyph.codePointAt(0) ?? 0
-          const t01 = (k + 0.5) / n
-          const x = x0 + t01 * (x1 - x0)
-          const y = rowY
-          const localDamage = this.damageAt(x, y)
-          const frame = this.sampleSurface(x, y, elapsedTime)
-          const scaleWidth = 0.145 + ((code >> 3) % 5) * 0.014
-          const scaleHeight = 0.2 + (code % 7) * 0.016
-          const scaleDepth = 0.05 + ((code >> 5) % 4) * 0.004
-          const lift = BASE_SCALE_LIFT + localDamage * this.params.scaleLift * 0.18
-
-          dummy.position.copy(frame.position).addScaledVector(frame.normal, lift)
-
-          tmpMatrix.makeBasis(frame.tangentX, frame.tangentY, frame.normal)
-          dummy.quaternion.setFromRotationMatrix(tmpMatrix)
-          dummy.rotateX(0.28 + localDamage * 0.5)
-          dummy.rotateZ(((code % 17) / 17 - 0.5) * 0.24)
-          dummy.scale.set(
-            scaleWidth * (1 - localDamage * 0.08),
-            scaleHeight * (1 - localDamage * 0.12),
-            scaleDepth * (1 + localDamage * 0.28),
-          )
-          dummy.updateMatrix()
-          this.scaleMesh.setMatrixAt(instanceIndex, dummy.matrix)
-
-          const hue = 0.44 + row * 0.008 + (code % 11) * 0.003
-          const saturation = THREE.MathUtils.lerp(0.22, 0.46, 1 - localDamage)
-          const lightness = THREE.MathUtils.lerp(0.28, 0.56, 0.5 + Math.sin(row * 0.35 + k * 0.3) * 0.25)
-          tmpColor.setHSL(hue, saturation, lightness)
-          tmpColor.lerp(new THREE.Color('#3f332f'), localDamage * 0.72)
-          this.scaleMesh.setColorAt(instanceIndex, tmpColor)
-
-          instanceIndex++
-        }
-      }
-    }
+    this.layoutDriver.forEachLaidOutLine({
+      spanMin: -PATCH_WIDTH * 0.5,
+      spanMax: PATCH_WIDTH * 0.5,
+      lineCoordAtRow: (row) => topY - row * rowStep,
+      getMaxWidth: (slot) => this.getSlotMaxWidth(slot, elapsedTime),
+      onLine: ({ slot, glyphs }) => {
+        instanceIndex = this.projectLine(slot, glyphs, elapsedTime, instanceIndex)
+      },
+    })
 
     this.scaleMesh.count = instanceIndex
     this.scaleMesh.instanceMatrix.needsUpdate = true
     if (this.scaleMesh.instanceColor) {
       this.scaleMesh.instanceColor.needsUpdate = true
     }
+  }
+
+  private getSlotMaxWidth(slot: SurfaceLayoutSlot, elapsedTime: number): number {
+    const damage = this.damageAt(slot.spanCenter, slot.lineCoord)
+    const surface = this.sampleSurface(slot.spanCenter, slot.lineCoord, elapsedTime)
+    const arcWorld = slot.spanSize * Math.max(1, surface.tangentX.length())
+    const widthMultiplier = THREE.MathUtils.lerp(1, this.params.woundNarrow, damage)
+    return arcWorld * LAYOUT_PX_PER_WORLD * widthMultiplier
+  }
+
+  private projectLine(
+    slot: SurfaceLayoutSlot,
+    glyphs: readonly string[],
+    elapsedTime: number,
+    instanceIndex: number,
+  ): number {
+    const n = glyphs.length
+    for (let k = 0; k < n; k++) {
+      if (instanceIndex >= MAX_INSTANCES) break
+
+      const glyph = glyphs[k]!
+      const code = glyph.codePointAt(0) ?? 0
+      const t01 = (k + 0.5) / n
+      const x = slot.spanStart + t01 * slot.spanSize
+      const y = slot.lineCoord
+      const localDamage = this.damageAt(x, y)
+      const frame = this.sampleSurface(x, y, elapsedTime)
+      const scaleWidth = 0.145 + ((code >> 3) % 5) * 0.014
+      const scaleHeight = 0.2 + (code % 7) * 0.016
+      const scaleDepth = 0.05 + ((code >> 5) % 4) * 0.004
+      const lift = BASE_SCALE_LIFT + localDamage * this.params.scaleLift * 0.18
+
+      dummy.position.copy(frame.position).addScaledVector(frame.normal, lift)
+
+      tmpMatrix.makeBasis(frame.tangentX, frame.tangentY, frame.normal)
+      dummy.quaternion.setFromRotationMatrix(tmpMatrix)
+      dummy.rotateX(0.28 + localDamage * 0.5)
+      dummy.rotateZ(((code % 17) / 17 - 0.5) * 0.24)
+      dummy.scale.set(
+        scaleWidth * (1 - localDamage * 0.08),
+        scaleHeight * (1 - localDamage * 0.12),
+        scaleDepth * (1 + localDamage * 0.28),
+      )
+      dummy.updateMatrix()
+      this.scaleMesh.setMatrixAt(instanceIndex, dummy.matrix)
+
+      const hue = 0.44 + slot.row * 0.008 + (code % 11) * 0.003
+      const saturation = THREE.MathUtils.lerp(0.22, 0.46, 1 - localDamage)
+      const lightness = THREE.MathUtils.lerp(
+        0.28,
+        0.56,
+        0.5 + Math.sin(slot.row * 0.35 + k * 0.3) * 0.25,
+      )
+      tmpColor.setHSL(hue, saturation, lightness)
+      tmpColor.lerp(new THREE.Color('#3f332f'), localDamage * 0.72)
+      this.scaleMesh.setColorAt(instanceIndex, tmpColor)
+
+      instanceIndex++
+    }
+
+    return instanceIndex
   }
 }
