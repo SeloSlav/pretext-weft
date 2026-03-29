@@ -43,22 +43,22 @@ export function Landing({ onEnterEditor }: LandingProps) {
   return (
     <div className="landing">
       <div className="landing__inner">
-        <p className="landing__eyebrow">Reactive surface layout</p>
+        <p className="landing__eyebrow">A Reactive surface layout engine for three.js / WebGPU</p>
         <h1 className="landing__title">
           Build reactive surfaces{' '}
           <span className="landing__title-accent">without custom scatter logic</span>
         </h1>
         <p className="landing__lead">
           Most surface systems make you solve placement twice: once to scatter instances, then again to
-          make them react to damage, growth, weather, or state changes. Pretext turns that into one layout
+          make them react to damage, growth, weather, or state changes. Weft turns that into one layout
           problem, so the same surface can thin out, open up, heal, or change state without a second
           bespoke runtime.
         </p>
         <p className="landing__lead">
-          This engine runs a{' '}
+          Weft runs a{' '}
           <strong style={{ color: '#c8d6e8' }}>typographic line-breaking algorithm</strong> across a grid
           of world slots. Start with a simple glyph array, or drop down to an explicit semantic palette
-          when you need stable ids, weights, or metadata. Pretext measures the resolved glyph stream and
+          when you need stable ids, weights, or metadata. It measures the resolved glyph stream and
           breaks lines to fit each slot's width. Density emerges from font metrics, not hand-tuned scatter
           constants.
         </p>
@@ -88,6 +88,11 @@ export function Landing({ onEnterEditor }: LandingProps) {
           </button>
         </div>
 
+        <p className="landing__lead">
+          Shipped presets already cover grass, walls, doodad placement, and
+          skyboxes through the same <code className="landing__code-inline">src/weft/three</code> entrypoint.
+        </p>
+
         <div className="landing__compare">
           <div className="landing__compare-col">
             <p className="landing__compare-label landing__compare-label--bad">Traditional scatter</p>
@@ -100,7 +105,7 @@ export function Landing({ onEnterEditor }: LandingProps) {
             </ul>
           </div>
           <div className="landing__compare-col">
-            <p className="landing__compare-label landing__compare-label--good">This engine</p>
+            <p className="landing__compare-label landing__compare-label--good">Weft</p>
             <ul className="landing__compare-list">
               <li>Line-breaking over a rows × sectors world grid</li>
               <li>Density emerges from font metrics and slot width</li>
@@ -121,14 +126,12 @@ export function Landing({ onEnterEditor }: LandingProps) {
           <p className="landing__code-label">Step 1. Define your surface source (~10 lines)</p>
           <pre className="landing__pre">{`const shellUnits = ['◓', '◒', '◐', '◑', '◉', '◍', '◎'] as const
 
-export function getPreparedMySurface() {
-  return prepareSurfaceText(
-    'my-surface',
-    shellUnits,
-    22,
-    SURFACE_TEXT_FONT,
-  )
-}`}</pre>
+const surface = createSurfaceSource({
+  cacheKey: 'my-surface',
+  units: shellUnits,
+  repeat: 22,
+  font: WEFT_TEXT_FONT,
+})`}</pre>
         </div>
 
         <section className="landing__demo-media" aria-label="Density tuning demo">
@@ -145,7 +148,7 @@ export function getPreparedMySurface() {
             />
           </div>
           <p className="landing__demo-caption">
-            The same controls can tune grass and doodad densities live without switching to a different
+            The same controls can tune grass, rock, and sky densities live without switching to a different
             placement workflow for each surface.
           </p>
         </section>
@@ -157,27 +160,24 @@ export function getPreparedMySurface() {
         </p>
 
         <div className="landing__code-block">
-          <p className="landing__code-label">Step 2. Drive layout and place instances (~80–120 lines)</p>
-          <pre className="landing__pre">{`this.driver = new SurfaceLayoutDriver({
-  surface, rows: 20, sectors: 12,
-  advanceForRow: (row) => row * 13 + 5,
+          <p className="landing__code-label">Step 2. Create an effect and mount it (~20 lines)</p>
+          <pre className="landing__pre">{`const grass = createGrassEffect({
   seedCursor,
+  surface,
+  initialParams: {
+    ...DEFAULT_GRASS_FIELD_PARAMS,
+    layoutDensity: 8,
+  },
 })
 
-this.driver.forEachLaidOutLine({
-  spanMin: -5, spanMax: 5,
-  lineCoordAtRow: (row) => startZ - row * rowStep,
-  getMaxWidth: (slot) => slot.spanSize * LAYOUT_PX_PER_WORLD,
-  onLine: ({ slot, resolvedGlyphs }) => {
-    // set InstancedMesh matrices from slot + resolvedGlyphs
-  },
-})`}</pre>
+scene.add(grass.group)`}</pre>
         </div>
 
         <p className="landing__lead">
-          That's the entire API. Forget spatial indexing, noise functions, and custom packing loops.
-          Line-breaking, row seeding, stagger, slot clipping, and palette normalization are all handled
-          by the driver stack.
+          Weft gives you an SDK path built around sources, behaviors, and presets instead of hand-wiring
+          every sample from scratch. The current repo already ships public preset factories for grass,
+          fish, rock, fire, and sky while still exposing the layout core directly when you want lower-level
+          control.
         </p>
 
         <h2 className="landing__section-title">The real payoff is gameplay-driven density</h2>

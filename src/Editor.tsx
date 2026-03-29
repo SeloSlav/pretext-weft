@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { PlaygroundRuntime } from "./playground/PlaygroundRuntime";
 import {
+  DEFAULT_FIRE_WALL_PARAMS,
   DEFAULT_FISH_SCALE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
-} from "./playground/types";
+} from "./weft/three";
 
 type ControlSectionProps = {
   title: string;
@@ -77,8 +78,12 @@ export function Editor() {
   const [rockSizeScale, setRockSizeScale] = useState(
     DEFAULT_ROCK_FIELD_PARAMS.sizeScale,
   );
-  const [fireRecoveryRate, setFireRecoveryRate] = useState(0.35);
-  const [fireHoleSize, setFireHoleSize] = useState(1.0);
+  const [fireRecoveryRate, setFireRecoveryRate] = useState(
+    DEFAULT_FIRE_WALL_PARAMS.recoveryRate,
+  );
+  const [fireHoleSize, setFireHoleSize] = useState(
+    DEFAULT_FIRE_WALL_PARAMS.holeSize,
+  );
   const [starLayoutDensity, setStarLayoutDensity] = useState(
     DEFAULT_STAR_SKY_PARAMS.layoutDensity,
   );
@@ -231,9 +236,9 @@ export function Editor() {
                 </button>
               </div>
               <p className="tagline">
-                Typographic line-breaking as a 3D placement engine. Each
-                surface runs the same layout driver — density, variation, and
-                gameplay response all flow from one callback.
+                Weft is evolving into a Three.js-first SDK for reactive
+                surfaces. These playground samples share the same layout core
+                while grass and fire now run through the emerging preset API.
               </p>
             </header>
 

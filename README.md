@@ -1,24 +1,25 @@
-# Pretext Weft
+# Weft
 
-Pretext Weft is a prototype surface-layout engine for interactive 3D built around one practical idea: reactive surfaces should not need one system for placement and another for gameplay response. Instead of scattering meshes with noise and then layering separate damage, growth, weather, or state logic on top, it treats a surface like a page: Pretext measures a glyph stream, breaks it into rows and sectors, and the renderer projects the result back into the world.
+Reactive surface-layout SDK for Three.js/WebGPU. Build gameplay-responsive grass, walls, doodads, and skyboxes without custom scatter logic.
+
 
 - Live site: [pretext-weft.vercel.app](https://pretext-weft.vercel.app)
 - Video demo: [x.com/SeloSlav/status/2038245103643333014](https://x.com/SeloSlav/status/2038245103643333014)
 
 ![Playground screenshot](public/readme-playground-screenshot.png)
 
-The current site has two faces:
+The site has two faces:
 
 - `Overview`: explains the engine argument and compares it to traditional scatter workflows
-- `Playground`: a live WebGPU scene where multiple surface types share the same layout driver
+- `Playground`: a live WebGPU scene where multiple surface types share the same layout driver and Weft presets
 
 ## Core idea
 
-The pitch is simple:
+The core idea is simple:
 
 **build reactive surfaces without custom scatter logic**
 
-Most surface systems make you solve placement twice: once to scatter instances, then again to make them react to gameplay. Pretext turns that into one layout problem, so the same surface can thin out, open up, heal, or change state without a second bespoke runtime.
+Most surface systems make you solve placement twice: once to scatter instances, then again to make them react to gameplay. Weft turns that into one layout problem, so the same surface can thin out, open up, heal, or change state without a second bespoke runtime.
 
 Under the hood, the project uses typographic line breaking as the common placement primitive. A surface only needs:
 
@@ -26,6 +27,44 @@ Under the hood, the project uses typographic line breaking as the common placeme
 - a projection that turns laid-out rows and sectors into world-space instances
 
 Gameplay response then becomes a width problem. Narrow a slot, and fewer glyphs fit. Return zero width, and that part of the surface disappears. Density comes from font metrics rather than hand-tuned scatter constants. Some samples use direct width changes; others keep layout stable and apply deterministic thinning on top.
+
+## SDK
+
+The repo includes these `Weft` layers:
+
+- `src/weft/core`: source preparation, deterministic seed cursors, and `SurfaceLayoutDriver`
+- `src/weft/runtime`: shared recovery/state primitives
+- `src/weft/three`: Three.js-first helpers plus shipped presets for `grass`, `fish scale`, `rock field`, `fire wall`, and `star sky`
+
+The SDK already supports a direct authoring path for new effects through source creation, layout helpers, behaviors, and presets:
+
+```ts
+import {
+  DEFAULT_GRASS_FIELD_PARAMS,
+  createGrassEffect,
+  createSurfaceSource,
+} from './src/weft/three'
+
+const surface = createSurfaceSource({
+  cacheKey: 'my-surface',
+  units: ['◓', '◒', '◐', '◑'],
+  repeat: 22,
+})
+
+const grass = createGrassEffect({
+  seedCursor,
+  surface,
+  initialParams: DEFAULT_GRASS_FIELD_PARAMS,
+})
+```
+
+Shipped preset entrypoints:
+
+- `createGrassEffect()`
+- `createFishScaleEffect()`
+- `createRockFieldEffect()`
+- `createFireWallEffect()`
+- `createStarSkyEffect()`
 
 ## Current playground
 
@@ -38,7 +77,7 @@ The current `Editor` is no longer a single fish demo. It hosts one shared runtim
 - star sky: density and sky-wound recovery
 - scene actions: clear grass, fish wall, fire, sky, or everything at once
 
-All of those surfaces are mounted together inside one plain TypeScript `PlaygroundRuntime`, not separate React demos.
+All of those surfaces are mounted together inside one plain TypeScript `PlaygroundRuntime`, and the playground now instantiates them through `src/weft/three` rather than bespoke sample classes.
 
 ## Runtime interaction
 
@@ -65,11 +104,12 @@ The architecture is intentionally split so the engine idea is not coupled to Rea
 - React is only the site shell, landing page, and control UI
 - `Three.js` + `WebGPU` run the renderer
 - the runtime is plain TypeScript, which keeps the layout system portable and suited to live surface updates
-- Pretext provides measurement and deterministic line breaking
+- `src/weft/core` handles source preparation, deterministic band seeding, and layout traversal
+- [`Pretext`](https://www.npmjs.com/package/@chenglou/pretext) provides the underlying measurement and line breaking
 
 At a high level the pipeline is:
 
-1. Prepare a measured glyph stream with Pretext.
+1. Prepare a measured glyph stream with Weft core on top of Pretext.
 2. Describe a surface as rows, sectors, and available width.
 3. Run deterministic layout with seeded cursors.
 4. Project laid-out glyphs into world-space instances.
@@ -106,30 +146,21 @@ src/
   App.tsx                     Site shell with Overview / Playground navigation
   Landing.tsx                 Product framing and engine explanation
   Editor.tsx                  Playground controls and runtime host
-  skinText.ts                 Surface text preparation and seeded cursors
+  weft/
+    core/                     Extracted source preparation and layout traversal
+    runtime/                  Shared runtime behaviors and state primitives
+    three/                    Three.js-first public API and presets
+      presets/                Self-contained preset logic, defaults, and source builders
   createWebGPURenderer.ts     WebGPU-only renderer bootstrap
   playground/
     PlaygroundRuntime.ts      Shared world runtime and interaction loop
-    grassFieldSample.ts       Ground-cover layout and disturbance response
-    fishScaleSample.ts        Wounded fish-wall surface
-    rockFieldSample.ts        Rock placement sample
-    fireParticleSample.ts     Shootable fire wall with recovering holes
-    starSkySample.ts          Sky layout and wound response
-    types.ts                  Runtime parameter types and defaults
 ```
 
 ## What this repo is
 
-- a reference prototype for layout-driven surface placement
+- a working Three.js-first SDK for reactive surface layout
 - a playground for comparing multiple surface types under one API
 - a proof that gameplay-driven density can come from layout instead of scatter rebuilds
-
-## What it is not yet
-
-- not a packaged engine
-- not a polished editor workflow
-- not a generalized content pipeline for every surface type
-- not yet integrated into an external game engine
 
 ## Credits
 

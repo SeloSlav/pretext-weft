@@ -37,7 +37,7 @@ export type ThirdPersonControllerInput = {
   lookDeltaY: number
 }
 
-export type PlayerAnimationState = 'idle' | 'walking' | 'running' | 'shooting' | 'jumping'
+export type PlayerAnimationState = 'idle' | 'walking' | 'running'
 
 export type ThirdPersonControllerFrame = {
   movedDistance: number
@@ -62,18 +62,29 @@ const tmpModelBox = new THREE.Box3()
 const RETICLE_LOCAL_DISTANCE = 1.8
 const RETICLE_LOCAL_SCALE = 0.18
 const CAMERA_GROUND_CLEARANCE = 0.22
+/** Applied on `visualRoot` so size is identical for every clip (not animated). */
+const PLAYER_VISUAL_SCALE = 0.9
 
 const ANIMATION_ASSET_BY_STATE: Record<PlayerAnimationState, string> = {
   idle: '/Meshy_AI_WarHero_biped_Animation_Idle_withSkin.glb',
   walking: '/Meshy_AI_WarHero_biped_Animation_Walking_withSkin.glb',
   running: '/Meshy_AI_WarHero_biped_Animation_Running_withSkin.glb',
-  shooting: '/Meshy_AI_WarHero_biped_Animation_Walk_Forward_While_Shooting_withSkin.glb',
-  jumping: '/Meshy_AI_WarHero_biped_Animation_Regular_Jump_withSkin.glb',
 }
 
 function dampAngle(current: number, target: number, factor: number): number {
   const delta = Math.atan2(Math.sin(target - current), Math.cos(target - current))
   return current + delta * factor
+}
+
+/**
+ * Walk/run GLBs are separate exports; their clips often include bone `.scale` tracks that do not
+ * match the idle rig’s bind pose, which makes the mesh shrink when switching clips.
+ */
+function clipWithoutBoneScaleTracks(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const stripped = clip.clone()
+  stripped.tracks = stripped.tracks.filter((track) => !track.name.endsWith('.scale'))
+  stripped.resetDuration()
+  return stripped
 }
 
 export class PlayerActor {
@@ -199,16 +210,18 @@ export class PlayerActor {
       })
 
       this.visualRoot.add(model)
+      this.visualRoot.scale.setScalar(PLAYER_VISUAL_SCALE)
       this.mixer = new THREE.AnimationMixer(model)
 
       loadedAnimations.forEach(({ state, gltf }) => {
-        const clip = gltf.animations[0]
-        if (!clip || !this.mixer) return
+        const raw = gltf.animations[0]
+        if (!raw || !this.mixer) return
 
+        const clip = clipWithoutBoneScaleTracks(raw)
         const action = this.mixer.clipAction(clip)
         action.enabled = true
-        action.clampWhenFinished = state === 'jumping'
-        action.setLoop(state === 'jumping' ? THREE.LoopOnce : THREE.LoopRepeat, state === 'jumping' ? 1 : Infinity)
+        action.clampWhenFinished = false
+        action.setLoop(THREE.LoopRepeat, Infinity)
         this.animationActions[state] = action
       })
 
@@ -236,7 +249,7 @@ export class PlayerActor {
         if (!action || action === nextAction) return
         action.fadeOut(0.16)
       })
-      nextAction.reset().fadeIn(animationState === 'jumping' ? 0.08 : 0.16).play()
+      nextAction.reset().fadeIn(0.16).play()
     }
 
     this.activeAction = nextAction
