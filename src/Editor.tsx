@@ -7,7 +7,10 @@ import {
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
 } from "./weft/three";
-import { DEFAULT_GLASS_SURFACE_PARAMS } from "./playground/playgroundWorld";
+import {
+  DEFAULT_GLASS_SURFACE_PARAMS,
+  FACADE_FISH_RECOVERY_RATE,
+} from "./playground/playgroundWorld";
 import {
   PLAYGROUND_QUALITY_DEFAULT,
   type PlaygroundQuality,
@@ -58,7 +61,7 @@ export function Editor() {
     DEFAULT_FISH_SCALE_PARAMS.surfaceFlex,
   );
   const [fishRecoveryRate, setFishRecoveryRate] = useState(
-    DEFAULT_FISH_SCALE_PARAMS.recoveryRate,
+    FACADE_FISH_RECOVERY_RATE,
   );
   const [glassWoundRadius, setGlassWoundRadius] = useState<number>(
     DEFAULT_GLASS_SURFACE_PARAMS.woundRadius,

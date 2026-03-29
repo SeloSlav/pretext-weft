@@ -35,7 +35,12 @@ import {
   type ThirdPersonControllerConfig,
   type ThirdPersonControllerFrame,
   type ThirdPersonControllerInput,
+  type ResolveHorizontalMove,
 } from './thirdPersonController'
+import {
+  circleOverlapsAabb,
+  pushCircleOutOfAabb,
+} from './playgroundCollision'
 import {
   getQualityGrassLayoutScale,
   getQualityPixelRatioCap,
@@ -51,14 +56,21 @@ import {
 } from './playgroundTownScene'
 import { TOWN_ROAD_SURFACE_Y, isCrossRoadAsphalt } from './townRoadMask'
 import {
+  type BreachZone,
+  BREACHABLE_FACADE_ZONES,
+  FACADE_BREACH_DAMAGE_THRESHOLD,
+  FACADE_BREACH_SAMPLE_OFFSET,
+  FACADE_FISH_RECOVERY_RATE,
   INTERIOR_FLOOR_Y,
   IVY_WALL_LAYOUT,
   NEON_BARRIERS,
+  PLAYER_COLLISION_RADIUS,
   PLAYGROUND_BOUNDS,
   PLAYGROUND_CONTROLLER,
   PLAYGROUND_SPAWN,
   PLAYGROUND_ZOOM,
   SHUTTER_WALL_LAYOUT,
+  SOLID_BUILDING_WALLS,
   DEFAULT_GLASS_SURFACE_PARAMS,
   STREET_LAMP_GLASS_BREAK_THRESHOLD,
   STREET_LAMP_GLOBE_EMISSIVE_MAX,
@@ -96,18 +108,19 @@ export class PlaygroundRuntime {
   private readonly cameraAimToEye = new THREE.Vector3()
   private readonly cameraLookTarget = new THREE.Vector3()
   private readonly cameraSafePosition = new THREE.Vector3()
+  private readonly collisionSample = new THREE.Vector3()
   private readonly ndcCenter = new THREE.Vector2(0, 0)
   private readonly shutterEffect = createFishScaleEffect({
     surface: getPreparedFishSurface(),
     seedCursor,
-    initialParams: DEFAULT_FISH_SCALE_PARAMS,
+    initialParams: { ...DEFAULT_FISH_SCALE_PARAMS, recoveryRate: FACADE_FISH_RECOVERY_RATE },
     appearance: 'shutter',
     effectId: 'shutter-facade',
   })
   private readonly ivyEffect = createFishScaleEffect({
     surface: getPreparedIvySurface(),
     seedCursor,
-    initialParams: DEFAULT_FISH_SCALE_PARAMS,
+    initialParams: { ...DEFAULT_FISH_SCALE_PARAMS, recoveryRate: FACADE_FISH_RECOVERY_RATE },
     appearance: 'ivy',
     effectId: 'ivy-facade',
   })
@@ -176,7 +189,10 @@ export class PlaygroundRuntime {
   private laserLifeRemaining = 0
   private readonly laserDurationSec = 0.11
 
-  private fishScaleParams: FishScaleParams = { ...DEFAULT_FISH_SCALE_PARAMS }
+  private fishScaleParams: FishScaleParams = {
+    ...DEFAULT_FISH_SCALE_PARAMS,
+    recoveryRate: FACADE_FISH_RECOVERY_RATE,
+  }
   private glassSurfaceParams: FishScaleParams = { ...DEFAULT_GLASS_SURFACE_PARAMS }
   private grassFieldParams: GrassFieldParams = { ...DEFAULT_GRASS_FIELD_PARAMS }
   private rockFieldParams: RockFieldParams = { ...DEFAULT_ROCK_FIELD_PARAMS }
@@ -575,6 +591,7 @@ export class PlaygroundRuntime {
       PLAYGROUND_BOUNDS,
       this.getGroundHeightAtWorld,
       1,
+      this.resolveHorizontalMove,
     )
 
     const elapsed = this.timer.getElapsed()
@@ -612,6 +629,105 @@ export class PlaygroundRuntime {
       return Math.max(gy, TOWN_ROAD_SURFACE_Y)
     }
     return gy
+  }
+
+  /** Solid building AABBs plus breach zones: pass only through Weft holes when sampled points are open enough. */
+  private readonly resolveHorizontalMove: ResolveHorizontalMove = (prevX, prevZ, nextX, nextZ) => {
+    const r = PLAYER_COLLISION_RADIUS
+    let x = nextX
+    let z = nextZ
+
+    const mdx = nextX - prevX
+    const mdz = nextZ - prevZ
+    const mlen = Math.hypot(mdx, mdz)
+    const perpX = mlen > 1e-6 ? -mdz / mlen : 1
+    const perpZ = mlen > 1e-6 ? mdx / mlen : 0
+
+    const o = FACADE_BREACH_SAMPLE_OFFSET
+    const breachOffsets = [0, o, -o] as const
+
+    for (let iter = 0; iter < 5; iter++) {
+      let changed = false
+
+      for (const wall of SOLID_BUILDING_WALLS) {
+        const p = pushCircleOutOfAabb(x, z, r, wall)
+        if (p.x !== x || p.z !== z) changed = true
+        x = p.x
+        z = p.z
+      }
+
+      for (const zone of BREACHABLE_FACADE_ZONES) {
+        if (!circleOverlapsAabb(x, z, r, zone.bounds)) continue
+        if (this.isBreachZoneOpen(zone, x, z, perpX, perpZ, breachOffsets)) continue
+        const p = pushCircleOutOfAabb(x, z, r, zone.bounds)
+        if (p.x !== x || p.z !== z) changed = true
+        x = p.x
+        z = p.z
+      }
+
+      if (!changed) break
+    }
+
+    return { x, z }
+  }
+
+  private isBreachZoneOpen(
+    zone: BreachZone,
+    x: number,
+    z: number,
+    perpX: number,
+    perpZ: number,
+    breachOffsets: readonly number[],
+  ): boolean {
+    const gy = this.getGroundHeightAtWorld(x, z)
+    const sampleY = gy + 1.55
+
+    if (zone.kind === 'shutter') {
+      // Project onto the shopfront plane so damage matches from either side of the wall (world Z is the façade anchor).
+      const wallZ = SHUTTER_WALL_LAYOUT.z
+      for (const off of breachOffsets) {
+        const sx = x + perpX * off
+        this.collisionSample.set(sx, sampleY, wallZ)
+        if (this.shutterEffect.getSurfaceDamage01AtWorldPoint(this.collisionSample) < FACADE_BREACH_DAMAGE_THRESHOLD) {
+          return false
+        }
+      }
+      return true
+    }
+
+    if (zone.kind === 'ivy') {
+      // Ivy faces ±X; project onto the wall plane so interior-side samples use the same patch coords as outside.
+      const wallX = IVY_WALL_LAYOUT.x
+      for (const off of breachOffsets) {
+        const sz = z + perpZ * off
+        this.collisionSample.set(wallX, sampleY, sz)
+        if (this.ivyEffect.getSurfaceDamage01AtWorldPoint(this.collisionSample) < FACADE_BREACH_DAMAGE_THRESHOLD) {
+          return false
+        }
+      }
+      return true
+    }
+
+    if (zone.kind === 'neon') {
+      const idx = zone.neonIndex ?? 0
+      const neon = this.neonSignEffects[idx]
+      const barrier = NEON_BARRIERS[idx]
+      if (!neon || !barrier) return false
+      const neonGroundY = this.grassEffect.getGroundHeightAtWorld(barrier.x, barrier.z)
+      const wallCenterY = neonGroundY + 0.06 + barrier.wallHeight * 0.5
+      const wallZ = barrier.z
+
+      for (const off of breachOffsets) {
+        const sx = x + perpX * off
+        this.collisionSample.set(sx, wallCenterY, wallZ)
+        if (!neon.isHoleOpenAtWorldPoint(this.collisionSample)) {
+          return false
+        }
+      }
+      return true
+    }
+
+    return false
   }
 
   /**
@@ -933,6 +1049,7 @@ export class PlaygroundRuntime {
       PLAYGROUND_BOUNDS,
       this.getGroundHeightAtWorld,
       delta,
+      this.resolveHorizontalMove,
     )
     if (this.activeFrame) {
       this.applyCameraObstruction(this.activeFrame)

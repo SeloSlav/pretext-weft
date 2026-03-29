@@ -35,11 +35,15 @@ export const DEFAULT_FISH_SCALE_PARAMS: FishScaleParams = {
   recoveryRate: 0.8,
 }
 
+export const FISH_SCALE_PATCH_WIDTH = 5.8
+export const FISH_SCALE_PATCH_HEIGHT = 4.4
+
 const ROWS = 16
 const SECTORS = 28
 const MAX_INSTANCES = 9_000
-const PATCH_WIDTH = 5.8
-const PATCH_HEIGHT = 4.4
+const PATCH_WIDTH = FISH_SCALE_PATCH_WIDTH
+const PATCH_HEIGHT = FISH_SCALE_PATCH_HEIGHT
+const FACADE_VISUAL_HOLE_THRESHOLD = 0.5
 const LAYOUT_PX_PER_WORLD = 33
 const BASE_SCALE_LIFT = 0.055
 const WOUND_MERGE_RADIUS = 0.46
@@ -79,6 +83,17 @@ type SurfaceFrame = {
   tangentX: THREE.Vector3
   tangentY: THREE.Vector3
   normal: THREE.Vector3
+}
+
+type BreachHoleUniforms = {
+  uFishInvWorldMatrix: { value: THREE.Matrix4 }
+  uWoundCount: { value: number }
+  uWoundXY: { value: Float32Array }
+  uWoundRadius: { value: Float32Array }
+  uWoundStrength: { value: Float32Array }
+  uPatchHalfW: { value: number }
+  uPatchHalfH: { value: number }
+  uHoleThreshold: { value: number }
 }
 
 function uhash(n: number): number {
@@ -180,6 +195,16 @@ export class FishScaleEffect {
   private readonly scaleMaterial = createScaleMaterial()
   private readonly patchGeometry = new THREE.PlaneGeometry(PATCH_WIDTH, PATCH_HEIGHT, 44, 32)
   private readonly patchMaterial = createPatchMaterial()
+  private readonly breachHoleUniforms: BreachHoleUniforms = {
+    uFishInvWorldMatrix: { value: new THREE.Matrix4() },
+    uWoundCount: { value: 0 },
+    uWoundXY: { value: new Float32Array(16) },
+    uWoundRadius: { value: new Float32Array(8) },
+    uWoundStrength: { value: new Float32Array(8) },
+    uPatchHalfW: { value: PATCH_WIDTH * 0.5 },
+    uPatchHalfH: { value: PATCH_HEIGHT * 0.5 },
+    uHoleThreshold: { value: FACADE_VISUAL_HOLE_THRESHOLD },
+  }
   private readonly basePatchPositions = Float32Array.from(this.patchGeometry.attributes.position.array as ArrayLike<number>)
   private readonly layoutDriver: SurfaceLayoutDriver<FishTokenId, FishTokenMeta>
   private readonly wounds: Wound[] = []
@@ -212,6 +237,7 @@ export class FishScaleEffect {
     this.scaleMesh.frustumCulled = false
 
     this.applyAppearanceMaterials()
+    this.applyBreachHoleShaders()
 
     this.interactionMesh = new THREE.Mesh(this.patchGeometry, this.patchMaterial)
     this.interactionMesh.renderOrder = -1
@@ -246,6 +272,43 @@ export class FishScaleEffect {
     return THREE.MathUtils.clamp(sum / breakThreshold, 0, 1)
   }
 
+  /**
+   * Local wound damage at a world point projected onto the fish-scale patch (0 = intact, 1 = fully damaged).
+   * Matches the same (x,y) parameterization as `addWoundFromWorldPoint` and the internal `damageAt` field.
+   */
+  getSurfaceDamage01AtWorldPoint(worldPoint: THREE.Vector3): number {
+    tmpLocalPoint.copy(worldPoint)
+    this.group.worldToLocal(tmpLocalPoint)
+    if (this.isSphericalGlassSurface()) {
+      const { x, y } = this.glassParamsFromLocalPoint(tmpLocalPoint)
+      return this.damageAt(x, y)
+    }
+    // Flat patch lies in local XY; drop depth so interior-side world points map to the same (x,y) as a front hit.
+    tmpLocalPoint.z = 0
+    const x = THREE.MathUtils.clamp(tmpLocalPoint.x, -PATCH_WIDTH * 0.5, PATCH_WIDTH * 0.5)
+    const y = THREE.MathUtils.clamp(tmpLocalPoint.y, -PATCH_HEIGHT * 0.5, PATCH_HEIGHT * 0.5)
+    return this.damageAt(x, y)
+  }
+
+  /**
+   * Wounds in patch space for shell/mesh shaders that need the exact same hole mask as the facade effect.
+   */
+  getWoundsForBreachingShader(max = 8): { x: number; y: number; radius: number; strength: number }[] {
+    if (this.isSphericalGlassSurface()) return []
+    const out: { x: number; y: number; radius: number; strength: number }[] = []
+    for (const w of this.wounds) {
+      if (w.strength < 0.06) continue
+      out.push({
+        x: w.x,
+        y: w.y,
+        radius: this.woundRadiusFor(w),
+        strength: w.strength,
+      })
+      if (out.length >= max) break
+    }
+    return out
+  }
+
   addWoundFromWorldPoint(worldPoint: THREE.Vector3, worldDirection: THREE.Vector3): void {
     tmpLocalPoint.copy(worldPoint)
     this.group.worldToLocal(tmpLocalPoint)
@@ -253,8 +316,8 @@ export class FishScaleEffect {
     const { x, y } = this.isSphericalGlassSurface()
       ? this.glassParamsFromLocalPoint(tmpLocalPoint)
       : {
-          x: THREE.MathUtils.clamp(tmpLocalPoint.x, -PATCH_WIDTH * 0.48, PATCH_WIDTH * 0.48),
-          y: THREE.MathUtils.clamp(tmpLocalPoint.y, -PATCH_HEIGHT * 0.48, PATCH_HEIGHT * 0.48),
+          x: THREE.MathUtils.clamp(tmpLocalPoint.x, -PATCH_WIDTH * 0.5, PATCH_WIDTH * 0.5),
+          y: THREE.MathUtils.clamp(tmpLocalPoint.y, -PATCH_HEIGHT * 0.5, PATCH_HEIGHT * 0.5),
         }
     const side = this.isSphericalGlassSurface() ? 1 : this.impactSideFromWorldDirection(worldDirection)
     const mergeIndex = this.findNearbyWoundIndex(x, y, side)
@@ -283,13 +346,16 @@ export class FishScaleEffect {
       if (this.patchNormalAccumulator >= 1 / 12) this.patchNormalAccumulator = 0
     }
     this.updateScales(elapsedTime)
+    this.updateBreachHoleUniforms()
   }
 
   private applyAppearanceMaterials(): void {
     if (this.appearance === 'shutter') {
-      this.patchMaterial.transparent = false
-      this.patchMaterial.opacity = 1
-      this.patchMaterial.depthWrite = true
+      this.patchMaterial.transparent = true
+      this.patchMaterial.opacity = 0
+      this.patchMaterial.depthWrite = false
+      this.patchMaterial.colorWrite = false
+      this.scaleMaterial.side = THREE.DoubleSide
       this.scaleMaterial.color.set('#9aa8b8')
       this.scaleMaterial.emissive.set('#223040')
       this.scaleMaterial.emissiveIntensity = 0.35
@@ -299,9 +365,11 @@ export class FishScaleEffect {
       this.patchMaterial.emissive.set('#121a24')
       this.patchMaterial.emissiveIntensity = 0.22
     } else if (this.appearance === 'ivy') {
-      this.patchMaterial.transparent = false
-      this.patchMaterial.opacity = 1
-      this.patchMaterial.depthWrite = true
+      this.patchMaterial.transparent = true
+      this.patchMaterial.opacity = 0
+      this.patchMaterial.depthWrite = false
+      this.patchMaterial.colorWrite = false
+      this.scaleMaterial.side = THREE.DoubleSide
       this.scaleMaterial.color.set('#4a8f52')
       this.scaleMaterial.emissive.set('#1a3020')
       this.scaleMaterial.emissiveIntensity = 0.18
@@ -329,6 +397,104 @@ export class FishScaleEffect {
     }
   }
 
+  private applyBreachHoleShaders(): void {
+    if (this.appearance !== 'shutter' && this.appearance !== 'ivy') return
+
+    const patchMaterialForBreach = (material: THREE.MeshStandardMaterial): void => {
+      material.side = THREE.DoubleSide
+      material.onBeforeCompile = (shader) => {
+        Object.assign(shader.uniforms, this.breachHoleUniforms)
+
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <common>',
+          `#include <common>
+      varying vec3 vWorldPosBreach;
+      `,
+        )
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <worldpos_vertex>',
+          `#include <worldpos_vertex>
+      vWorldPosBreach = worldPosition.xyz;
+      `,
+        )
+
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <common>',
+          `#include <common>
+      uniform mat4 uFishInvWorldMatrix;
+      uniform int uWoundCount;
+      uniform float uWoundXY[ 16 ];
+      uniform float uWoundRadius[ 8 ];
+      uniform float uWoundStrength[ 8 ];
+      uniform float uPatchHalfW;
+      uniform float uPatchHalfH;
+      uniform float uHoleThreshold;
+      varying vec3 vWorldPosBreach;
+
+      float breachHoleAt( vec2 pointXY ) {
+        float hole = 0.0;
+        for ( int i = 0; i < 8; i ++ ) {
+          if ( i >= uWoundCount ) break;
+          vec2 woundXY = vec2( uWoundXY[ i * 2 ], uWoundXY[ i * 2 + 1 ] );
+          float strength = uWoundStrength[ i ];
+          float presence = clamp( strength, 0.0, 1.0 );
+          float radius = max( 0.0001, uWoundRadius[ i ] * mix( 1.22, 1.38, presence ) );
+          vec2 delta = vec2( pointXY.x - woundXY.x, ( pointXY.y - woundXY.y ) * 1.14 );
+          float normalized = length( delta ) / radius;
+          float cut = normalized <= 1.0 ? presence : 0.0;
+          hole = max( hole, cut );
+        }
+        return clamp( hole, 0.0, 1.0 );
+      }
+      `,
+        )
+
+        shader.fragmentShader = shader.fragmentShader.replace(
+          '#include <clipping_planes_fragment>',
+          `#include <clipping_planes_fragment>
+      {
+        vec4 localPoint = uFishInvWorldMatrix * vec4( vWorldPosBreach, 1.0 );
+        vec2 pointXY = vec2(
+          clamp( localPoint.x, -uPatchHalfW, uPatchHalfW ),
+          clamp( localPoint.y, -uPatchHalfH, uPatchHalfH )
+        );
+        if ( abs( localPoint.x ) <= uPatchHalfW && abs( localPoint.y ) <= uPatchHalfH ) {
+          float hole = breachHoleAt( pointXY );
+          if ( hole >= uHoleThreshold ) discard;
+        }
+      }
+      `,
+        )
+      }
+      material.customProgramCacheKey = () => `fish-breach-hole-v2-${this.appearance}`
+      material.needsUpdate = true
+    }
+
+    patchMaterialForBreach(this.patchMaterial)
+    patchMaterialForBreach(this.scaleMaterial)
+  }
+
+  private updateBreachHoleUniforms(): void {
+    if (this.appearance !== 'shutter' && this.appearance !== 'ivy') return
+
+    this.group.updateMatrixWorld(true)
+    this.breachHoleUniforms.uFishInvWorldMatrix.value.copy(this.group.matrixWorld).invert()
+
+    const wounds = this.getWoundsForBreachingShader(8)
+    this.breachHoleUniforms.uWoundCount.value = wounds.length
+    this.breachHoleUniforms.uWoundXY.value.fill(0)
+    this.breachHoleUniforms.uWoundRadius.value.fill(0)
+    this.breachHoleUniforms.uWoundStrength.value.fill(0)
+
+    for (let i = 0; i < wounds.length; i++) {
+      const wound = wounds[i]!
+      this.breachHoleUniforms.uWoundXY.value[i * 2] = wound.x
+      this.breachHoleUniforms.uWoundXY.value[i * 2 + 1] = wound.y
+      this.breachHoleUniforms.uWoundRadius.value[i] = wound.radius
+      this.breachHoleUniforms.uWoundStrength.value[i] = wound.strength
+    }
+  }
+
   dispose(): void {
     this.scaleGeometry.dispose()
     this.scaleMaterial.dispose()
@@ -348,6 +514,23 @@ export class FishScaleEffect {
     }
 
     return THREE.MathUtils.clamp(damage, 0, 1)
+  }
+
+  private visualHole01At(x: number, y: number): number {
+    if (this.appearance !== 'shutter' && this.appearance !== 'ivy') return 0
+
+    let hole = 0
+    for (const wound of this.wounds) {
+      const dx = this.paramDeltaX(x, wound.x)
+      const dy = (y - wound.y) * 1.14
+      const presence = this.woundPresence01(wound)
+      const radius = Math.max(0.0001, this.woundRadiusFor(wound) * THREE.MathUtils.lerp(1.22, 1.38, presence))
+      const normalized = Math.sqrt(dx * dx + dy * dy) / radius
+      const cut = normalized <= 1 ? presence : 0
+      hole = Math.max(hole, cut)
+    }
+
+    return THREE.MathUtils.clamp(hole, 0, 1)
   }
 
   private impactSideFromWorldDirection(worldDirection: THREE.Vector3): 1 | -1 {
@@ -661,7 +844,14 @@ export class FishScaleEffect {
       const x = slot.spanStart + t01 * slot.spanSize
       const y = slot.lineCoord
       const localDamage = this.damageAt(x, y)
-      const localCoverage = THREE.MathUtils.lerp(1, this.params.woundNarrow, localDamage)
+      const localHole = this.visualHole01At(x, y)
+      const literalBreachHole = localHole >= FACADE_VISUAL_HOLE_THRESHOLD
+      if (literalBreachHole) continue
+      const localCoverage = THREE.MathUtils.lerp(
+        1,
+        this.appearance === 'shutter' || this.appearance === 'ivy' ? 0 : this.params.woundNarrow,
+        Math.max(localDamage, localHole),
+      )
       const hashPresence = glyphHash(identity, slot.row * 131 + slot.sector, k)
       if (hashPresence > localCoverage) continue
       const frame = this.sampleSurface(x, y, elapsedTime)

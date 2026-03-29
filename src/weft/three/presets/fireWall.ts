@@ -251,6 +251,17 @@ export class FireWallEffect {
     return this.wounds.length > 0
   }
 
+  /**
+   * True when a world point lies in a hole region (particle suppression) for the current wound field.
+   * Uses the same test as `woundSuppresses` in layout space.
+   */
+  isHoleOpenAtWorldPoint(worldPoint: THREE.Vector3): boolean {
+    tmpLocalPoint.copy(worldPoint)
+    this.group.worldToLocal(tmpLocalPoint)
+    tmpLocalPoint.z = 0
+    return this.woundSuppresses(tmpLocalPoint.x, tmpLocalPoint.y)
+  }
+
   update(elapsedTime: number): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, elapsedTime - this.lastElapsed)
     this.lastElapsed = elapsedTime

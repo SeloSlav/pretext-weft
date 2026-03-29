@@ -49,6 +49,14 @@ export type ThirdPersonControllerFrame = {
   aimDirection: THREE.Vector3
 }
 
+/** Optional horizontal collision: return resolved position from `prev` toward `next` (XZ only). */
+export type ResolveHorizontalMove = (
+  prevX: number,
+  prevZ: number,
+  nextX: number,
+  nextZ: number,
+) => { x: number; z: number }
+
 const tmpForward = new THREE.Vector3()
 const tmpRight = new THREE.Vector3()
 const tmpMove = new THREE.Vector3()
@@ -366,6 +374,7 @@ export class ThirdPersonController {
     bounds: MovementBounds,
     groundHeightAt: (x: number, z: number) => number,
     delta: number,
+    resolveHorizontalMove?: ResolveHorizontalMove,
   ): ThirdPersonControllerFrame {
     if (input.lookActive) {
       this.cameraYaw += input.lookDeltaX * config.lookYawSpeed
@@ -389,7 +398,18 @@ export class ThirdPersonController {
     if (tmpMove.lengthSq() > 0.0001) {
       tmpMove.normalize()
       movedDistance = config.moveSpeed * (input.sprint ? config.sprintMultiplier : 1) * delta
-      this.position.addScaledVector(tmpMove, movedDistance)
+      const prevX = this.position.x
+      const prevZ = this.position.z
+      const nextX = prevX + tmpMove.x * movedDistance
+      const nextZ = prevZ + tmpMove.z * movedDistance
+      if (resolveHorizontalMove) {
+        const resolved = resolveHorizontalMove(prevX, prevZ, nextX, nextZ)
+        this.position.x = resolved.x
+        this.position.z = resolved.z
+      } else {
+        this.position.x = nextX
+        this.position.z = nextZ
+      }
       this.yaw = dampAngle(this.yaw, Math.atan2(tmpMove.x, tmpMove.z), Math.min(1, config.turnLerp * delta))
     }
 

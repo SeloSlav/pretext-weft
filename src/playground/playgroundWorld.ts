@@ -1,4 +1,6 @@
 import type { MovementBounds, ThirdPersonControllerConfig } from './thirdPersonController'
+import type { SolidAabb } from './playgroundCollision'
+
 export const PLAYGROUND_BOUNDS: MovementBounds = {
   minX: -28,
   maxX: 28,
@@ -9,7 +11,7 @@ export const PLAYGROUND_BOUNDS: MovementBounds = {
 export const PLAYGROUND_CONTROLLER: ThirdPersonControllerConfig = {
   moveSpeed: 5.7,
   sprintMultiplier: 1.5,
-  jumpVelocity: 6.1,
+  jumpVelocity: 10.57,
   gravity: 15.5,
   turnLerp: 10,
   lookYawSpeed: 0.008,
@@ -77,6 +79,76 @@ export function isInsideBuildingInterior(x: number, z: number): boolean {
     x >= interior.minX && x <= interior.maxX && z >= interior.minZ && z <= interior.maxZ,
   )
 }
+
+/** Player XZ collision radius (circle vs AABB). */
+export const PLAYER_COLLISION_RADIUS = 0.34
+
+/** Minimum fish-scale damage (0–1) at a point to pass through shutter/ivy breach zones. */
+export const FACADE_BREACH_DAMAGE_THRESHOLD = 0.38
+
+/** Lateral offset (m) for multi-sample breach checks; ~player radius for fair hole width. */
+export const FACADE_BREACH_SAMPLE_OFFSET = 0.28
+
+/**
+ * Wound recovery for shopfront + ivy fish facades only (lower = holes stay open longer).
+ * Default fish preset is ~0.8; facades use this so damage lingers.
+ */
+export const FACADE_FISH_RECOVERY_RATE = 0.12
+
+/** Thicker concrete shells so inner/outer faces read more clearly than paper-thin boxes. */
+export const HOLLOW_BUILDING_WALL_THICKNESS = 0.52
+
+/**
+ * Solid building shell walls (no walking through). Breachable facades are omitted here;
+ * see `BREACHABLE_FACADE_ZONES` and runtime checks against Weft wound state.
+ */
+export const SOLID_BUILDING_WALLS: SolidAabb[] = [
+  // North building (center ~ z=-19.5, half-depth 4.25, half-width 13)
+  { minX: -13.1, maxX: 13.1, minZ: -24.05, maxZ: -23.45 },
+  { minX: -13.55, maxX: -12.95, minZ: -23.4, maxZ: -15.45 },
+  { minX: 12.95, maxX: 13.55, minZ: -23.4, maxZ: -15.45 },
+  { minX: -13.1, maxX: -4.55, minZ: -15.72, maxZ: -15.12 },
+  { minX: 4.55, maxX: 13.1, minZ: -15.72, maxZ: -15.12 },
+  // West building (center ~ x=-16.5, z=2, w=8.5, d=14)
+  { minX: -21.05, maxX: -20.5, minZ: -5.05, maxZ: 9.05 },
+  { minX: -20.85, maxX: -12.15, minZ: 8.65, maxZ: 9.25 },
+  { minX: -20.85, maxX: -12.15, minZ: -5.25, maxZ: -4.65 },
+  { minX: -12.95, maxX: -12.2, minZ: 6.38, maxZ: 9.35 },
+  { minX: -12.95, maxX: -12.2, minZ: -5.05, maxZ: -2.38 },
+  // East building (center ~ x=17, z=-4, w=8.5, d=12)
+  { minX: 12.5, maxX: 13.1, minZ: -10.05, maxZ: 2.05 },
+  { minX: 12.65, maxX: 21.35, minZ: 1.45, maxZ: 2.15 },
+  { minX: 12.65, maxX: 21.35, minZ: -10.35, maxZ: -9.65 },
+  { minX: 20.9, maxX: 21.55, minZ: -10.05, maxZ: 2.05 },
+]
+
+export type BreachZoneKind = 'shutter' | 'ivy' | 'neon'
+
+export type BreachZone = {
+  kind: BreachZoneKind
+  bounds: SolidAabb
+  /** Index into `NEON_BARRIERS` / `neonSignEffects` when `kind === 'neon'`. */
+  neonIndex?: number
+}
+
+/**
+ * Regions where the shell is intentionally open only when Weft damage/holes allow passage.
+ */
+export const BREACHABLE_FACADE_ZONES: BreachZone[] = [
+  {
+    kind: 'shutter',
+    bounds: { minX: -4.55, maxX: 4.55, minZ: -15.72, maxZ: -14.95 },
+  },
+  {
+    kind: 'ivy',
+    bounds: { minX: -12.98, maxX: -11.82, minZ: -2.38, maxZ: 6.38 },
+  },
+  {
+    kind: 'neon',
+    neonIndex: 0,
+    bounds: { minX: -9.1, maxX: 9.1, minZ: 8.65, maxZ: 9.35 },
+  },
+]
 
 /** Keep only the south neon wall segment on the open side with no building behind it. */
 export const NEON_BARRIERS = [

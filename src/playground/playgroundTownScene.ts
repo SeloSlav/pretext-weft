@@ -1,6 +1,13 @@
 import * as THREE from 'three'
+import { FISH_SCALE_PATCH_HEIGHT, FISH_SCALE_PATCH_WIDTH } from '../weft/three/presets/fishScale'
 import { CROSS_EXTENT, CROSS_HALF_WIDTH, TOWN_ROAD_SURFACE_Y } from './townRoadMask'
-import { INTERIOR_FLOOR_Y, WINDOW_GLASS_LAYOUTS } from './playgroundWorld'
+import {
+  HOLLOW_BUILDING_WALL_THICKNESS,
+  INTERIOR_FLOOR_Y,
+  IVY_WALL_LAYOUT,
+  SHUTTER_WALL_LAYOUT,
+  WINDOW_GLASS_LAYOUTS,
+} from './playgroundWorld'
 
 /** Lamp foot positions (world XZ); used by the playground for Weft lamp targets. */
 export const STREET_LIGHT_XZ = [
@@ -35,6 +42,15 @@ type HollowBuildingOptions = {
   floorThickness?: number
   lightRange?: number
   floorWorldY?: number
+  southOpening?: WallOpening
+  eastOpening?: WallOpening
+}
+
+type WallOpening = {
+  centerAlong: number
+  width: number
+  centerWorldY: number
+  height: number
 }
 
 function createAsphaltTexture(): THREE.CanvasTexture {
@@ -170,11 +186,13 @@ function addHollowBuilding(
     width,
     height,
     depth,
-    wallThickness = 0.26,
+    wallThickness = HOLLOW_BUILDING_WALL_THICKNESS,
     roofThickness = 0.24,
     floorThickness = 0.12,
     lightRange = 14,
     floorWorldY = INTERIOR_FLOOR_Y,
+    southOpening,
+    eastOpening,
   } = options
 
   const group = new THREE.Group()
@@ -185,25 +203,125 @@ function addHollowBuilding(
   const halfD = depth * 0.5
   const innerDepth = Math.max(0.2, depth - wallThickness * 2)
 
-  const northWall = new THREE.Mesh(new THREE.BoxGeometry(width, height, wallThickness), wallMat)
-  northWall.position.set(0, 0, -halfD + wallThickness * 0.5)
-  group.add(northWall)
+  const cameraObstacles: THREE.Object3D[] = []
+  const minPanel = 0.04
 
-  const southWall = northWall.clone()
-  southWall.position.z = halfD - wallThickness * 0.5
-  group.add(southWall)
+  const addObstacleMesh = (geometry: THREE.BufferGeometry, px: number, py: number, pz: number): void => {
+    const mesh = new THREE.Mesh(geometry, wallMat)
+    mesh.position.set(px, py, pz)
+    group.add(mesh)
+    cameraObstacles.push(mesh)
+  }
 
-  const westWall = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, height, innerDepth), wallMat)
-  westWall.position.set(-halfW + wallThickness * 0.5, 0, 0)
-  group.add(westWall)
+  const getClampedOpening = (
+    opening: WallOpening | undefined,
+    spanHalf: number,
+    wallHalfHeight: number,
+  ): { minAlong: number; maxAlong: number; minY: number; maxY: number } | null => {
+    if (!opening) return null
+    const minAlong = THREE.MathUtils.clamp(opening.centerAlong - opening.width * 0.5, -spanHalf, spanHalf)
+    const maxAlong = THREE.MathUtils.clamp(opening.centerAlong + opening.width * 0.5, -spanHalf, spanHalf)
+    const localCenterY = opening.centerWorldY - y
+    const minY = THREE.MathUtils.clamp(localCenterY - opening.height * 0.5, -wallHalfHeight, wallHalfHeight)
+    const maxY = THREE.MathUtils.clamp(localCenterY + opening.height * 0.5, -wallHalfHeight, wallHalfHeight)
+    if (maxAlong - minAlong <= minPanel || maxY - minY <= minPanel) return null
+    return { minAlong, maxAlong, minY, maxY }
+  }
 
-  const eastWall = westWall.clone()
-  eastWall.position.x = halfW - wallThickness * 0.5
-  group.add(eastWall)
+  addObstacleMesh(new THREE.BoxGeometry(width, height, wallThickness), 0, 0, -halfD + wallThickness * 0.5)
+
+  const southZ = halfD - wallThickness * 0.5
+  const southCutout = getClampedOpening(southOpening, halfW, halfH)
+  if (!southCutout) {
+    addObstacleMesh(new THREE.BoxGeometry(width, height, wallThickness), 0, 0, southZ)
+  } else {
+    const leftWidth = southCutout.minAlong + halfW
+    if (leftWidth > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(leftWidth, height, wallThickness),
+        -halfW + leftWidth * 0.5,
+        0,
+        southZ,
+      )
+    }
+    const rightWidth = halfW - southCutout.maxAlong
+    if (rightWidth > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(rightWidth, height, wallThickness),
+        southCutout.maxAlong + rightWidth * 0.5,
+        0,
+        southZ,
+      )
+    }
+    const topHeight = halfH - southCutout.maxY
+    if (topHeight > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(southCutout.maxAlong - southCutout.minAlong, topHeight, wallThickness),
+        (southCutout.minAlong + southCutout.maxAlong) * 0.5,
+        southCutout.maxY + topHeight * 0.5,
+        southZ,
+      )
+    }
+    const bottomHeight = southCutout.minY + halfH
+    if (bottomHeight > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(southCutout.maxAlong - southCutout.minAlong, bottomHeight, wallThickness),
+        (southCutout.minAlong + southCutout.maxAlong) * 0.5,
+        -halfH + bottomHeight * 0.5,
+        southZ,
+      )
+    }
+  }
+
+  addObstacleMesh(new THREE.BoxGeometry(wallThickness, height, innerDepth), -halfW + wallThickness * 0.5, 0, 0)
+
+  const eastX = halfW - wallThickness * 0.5
+  const eastCutout = getClampedOpening(eastOpening, halfD - wallThickness, halfH)
+  if (!eastCutout) {
+    addObstacleMesh(new THREE.BoxGeometry(wallThickness, height, innerDepth), eastX, 0, 0)
+  } else {
+    const northDepth = eastCutout.minAlong + (halfD - wallThickness)
+    if (northDepth > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(wallThickness, height, northDepth),
+        eastX,
+        0,
+        -(halfD - wallThickness) + northDepth * 0.5,
+      )
+    }
+    const southDepth = (halfD - wallThickness) - eastCutout.maxAlong
+    if (southDepth > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(wallThickness, height, southDepth),
+        eastX,
+        0,
+        eastCutout.maxAlong + southDepth * 0.5,
+      )
+    }
+    const topHeight = halfH - eastCutout.maxY
+    if (topHeight > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(wallThickness, topHeight, eastCutout.maxAlong - eastCutout.minAlong),
+        eastX,
+        eastCutout.maxY + topHeight * 0.5,
+        (eastCutout.minAlong + eastCutout.maxAlong) * 0.5,
+      )
+    }
+    const bottomHeight = eastCutout.minY + halfH
+    if (bottomHeight > minPanel) {
+      addObstacleMesh(
+        new THREE.BoxGeometry(wallThickness, bottomHeight, eastCutout.maxAlong - eastCutout.minAlong),
+        eastX,
+        -halfH + bottomHeight * 0.5,
+        (eastCutout.minAlong + eastCutout.maxAlong) * 0.5,
+      )
+    }
+  }
 
   const roof = new THREE.Mesh(new THREE.BoxGeometry(width, roofThickness, depth), wallMat)
   roof.position.set(0, halfH - roofThickness * 0.5, 0)
   group.add(roof)
+  cameraObstacles.push(roof)
 
   const floor = new THREE.Mesh(new THREE.BoxGeometry(width - wallThickness * 2, floorThickness, depth - wallThickness * 2), floorMat)
   floor.position.set(0, floorWorldY - y + floorThickness * 0.5, 0)
@@ -216,7 +334,7 @@ function addHollowBuilding(
   root.add(group)
   return {
     group,
-    cameraObstacles: [northWall, southWall, westWall, eastWall, roof],
+    cameraObstacles,
   }
 }
 
@@ -302,8 +420,15 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     emissiveIntensity: 0.15,
     roughness: 0.78,
     metalness: 0.12,
+    // Hollow shells use outward normals; from inside the room the interior faces read as back faces without this.
+    side: THREE.DoubleSide,
   })
-  const trimMat = new THREE.MeshStandardMaterial({ color: '#4a5a6e', roughness: 0.65, metalness: 0.25 })
+  const trimMat = new THREE.MeshStandardMaterial({
+    color: '#4a5a6e',
+    roughness: 0.65,
+    metalness: 0.25,
+    side: THREE.DoubleSide,
+  })
   const interiorConcreteMap = createInteriorConcreteTexture()
   const interiorFloorMat = new THREE.MeshStandardMaterial({
     map: interiorConcreteMap,
@@ -322,6 +447,12 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     height: 9,
     depth: 8.5,
     lightRange: 18,
+    southOpening: {
+      centerAlong: SHUTTER_WALL_LAYOUT.x,
+      width: FISH_SCALE_PATCH_WIDTH,
+      centerWorldY: SHUTTER_WALL_LAYOUT.wallCenterHeight,
+      height: FISH_SCALE_PATCH_HEIGHT,
+    },
   }, buildingMat, interiorFloorMat)
   cameraObstacles.push(...northShell.cameraObstacles)
   const northTrim = new THREE.Mesh(new THREE.BoxGeometry(26.2, 0.35, 8.7), trimMat)
@@ -336,6 +467,12 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     height: 7,
     depth: 14,
     lightRange: 14,
+    eastOpening: {
+      centerAlong: IVY_WALL_LAYOUT.z - 2,
+      width: FISH_SCALE_PATCH_WIDTH,
+      centerWorldY: IVY_WALL_LAYOUT.wallCenterHeight,
+      height: FISH_SCALE_PATCH_HEIGHT,
+    },
   }, buildingMat, interiorFloorMat)
   cameraObstacles.push(...westShell.cameraObstacles)
 
@@ -359,11 +496,13 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     transparent: true,
     opacity: 0.24,
     depthWrite: false,
+    side: THREE.DoubleSide,
   })
   const windowFrameMat = new THREE.MeshStandardMaterial({
     color: '#516270',
     roughness: 0.62,
     metalness: 0.22,
+    side: THREE.DoubleSide,
   })
   /** Solid “room interior” read behind glass — buildings are uncut boxes, so without this, holes show the wall shader. */
   const windowBackingMat = new THREE.MeshStandardMaterial({
@@ -376,6 +515,7 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
+    side: THREE.DoubleSide,
   })
 
   for (const layout of WINDOW_GLASS_LAYOUTS) {
@@ -437,5 +577,10 @@ export function createTownIntersectionScene(): TownIntersectionScene {
     addStreetlight(x, z)
   }
 
-  return { root, lampLights, lampGlobes, cameraObstacles }
+  return {
+    root,
+    lampLights,
+    lampGlobes,
+    cameraObstacles,
+  }
 }
