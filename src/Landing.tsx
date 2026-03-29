@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import weftGuideUrl from '../weft.md?url'
 
 type LandingProps = {
   onEnterEditor: () => void
@@ -85,6 +86,9 @@ export function Landing({ onEnterEditor }: LandingProps) {
           <button type="button" className="btn btn--primary" onClick={onEnterEditor}>
             Open engine playground
           </button>
+          <a className="btn btn--secondary" href={weftGuideUrl} target="_blank" rel="noreferrer">
+            Open `weft.md` guide
+          </a>
         </div>
 
         <p className="landing__lead">
