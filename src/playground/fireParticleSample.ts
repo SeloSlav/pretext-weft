@@ -1,5 +1,6 @@
-import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
+import type { PreparedSurfaceSource } from '../skinText'
+import type { FireTokenId, FireTokenMeta } from './fireSurfaceText'
 import { updateRecoveringImpacts } from './recovery'
 import { SurfaceLayoutDriver } from './surfaceLayoutCore'
 import type { SeedCursorFactory } from './types'
@@ -67,14 +68,14 @@ function lineSignature(text: string): number {
 // ─── fire color ───────────────────────────────────────────────────────────────
 // White-yellow core at base → orange mid → deep red at top tip.
 
-function fireColor(age01: number, rowNorm: number, code: number): THREE.Color {
+function fireColor(age01: number, rowNorm: number, identity: number, meta: FireTokenMeta): THREE.Color {
   // Hot white core at base, transitioning to yellow, then orange, then deep red.
-  const baseHue = THREE.MathUtils.lerp(0.12, 0.02, rowNorm)
+  const baseHue = THREE.MathUtils.lerp(0.12, 0.02, rowNorm) + meta.heatBias * 0.06
   const hue = THREE.MathUtils.lerp(baseHue, 0.0, age01 * 0.7)
   const sat = 1.0
   // Brightness: base is very bright (white-ish), tip is dark.
   const light = THREE.MathUtils.lerp(0.9, 0.15, age01 * 0.9 + rowNorm * 0.1)
-  const nudge = (uhash(code * 2654435761) - 0.5) * 0.03
+  const nudge = (uhash(identity * 2654435761) - 0.5) * 0.03
   return tmpColor.setHSL(hue + nudge, sat, light).clone()
 }
 
@@ -131,7 +132,7 @@ export class FireParticleSample {
     metalness: 0.0,
   })
   private readonly baseMesh = new THREE.Mesh(this.baseGeometry, this.baseMaterial)
-  private readonly layoutDriver: SurfaceLayoutDriver
+  private readonly layoutDriver: SurfaceLayoutDriver<FireTokenId, FireTokenMeta>
   private readonly wounds: FireWound[] = []
   private params: FireWallParams = { ...DEFAULT_FIRE_WALL_PARAMS }
 
@@ -142,9 +143,9 @@ export class FireParticleSample {
 
   private lastElapsed = 0
 
-  constructor(prepared: PreparedTextWithSegments, seedCursor: SeedCursorFactory) {
+  constructor(surface: PreparedSurfaceSource<FireTokenId, FireTokenMeta>, seedCursor: SeedCursorFactory) {
     this.layoutDriver = new SurfaceLayoutDriver({
-      prepared,
+      surface,
       rows: ROWS,
       sectors: SECTORS,
       advanceForRow: (row) => row * 7 + 3,
@@ -243,15 +244,15 @@ export class FireParticleSample {
       spanMax:  WALL_WIDTH * 0.5,
       lineCoordAtRow: (row) => (row / (ROWS - 1)) * WALL_HEIGHT,
       getMaxWidth: () => LAYOUT_PX_PER_SLOT,
-      onLine: ({ slot, glyphs, lineText }) => {
-        const lineSeed = lineSignature(lineText)
-        const n = glyphs.length
+      onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
+        const lineSeed = lineSignature(tokenLineKey)
+        const n = resolvedGlyphs.length
         for (let k = 0; k < n && k < MAX_PER_SLOT; k++) {
           if (instanceIndex >= MAX_PARTICLES) break
 
           const ageIdx = (slot.row * SECTORS + slot.sector) * MAX_PER_SLOT + k
-          const glyph = glyphs[k]!
-          const code = glyph.codePointAt(0) ?? 0
+          const token = resolvedGlyphs[k]!
+          const identity = token.ordinal + 1
 
           // Advance age, respawn when expired.
           const lifetime = this.particleLifetime[ageIdx] ?? BASE_LIFETIME
@@ -263,9 +264,9 @@ export class FireParticleSample {
           this.particleAge[ageIdx] = age
           const age01 = age / lifetime
 
-          const hashLat = glyphHash(code, slot.row, k)
-          const hashDep = glyphHash(code + 1, slot.sector, k ^ 0xef)
-          const hashR   = glyphHash(code + 3, slot.row ^ slot.sector, k ^ 0x1f)
+          const hashLat = glyphHash(identity, slot.row, k)
+          const hashDep = glyphHash(identity + 1, slot.sector, k ^ 0xef)
+          const hashR   = glyphHash(identity + 3, slot.row ^ slot.sector, k ^ 0x1f)
 
           // Horizontal position within this sector slot.
           const px = slot.spanStart + (hashLat * 0.84 + 0.08) * slot.spanSize
@@ -285,7 +286,7 @@ export class FireParticleSample {
           const wobbleX = Math.sin(elapsedTime * 2.8 + phase + lineSeed * 3.1) * 0.06
           const wobbleY = Math.cos(elapsedTime * 2.1 + phase * 0.7) * 0.04
 
-          const baseSize = PARTICLE_BASE_SIZE + uhash(code * 987654) * PARTICLE_SIZE_VARIANCE
+          const baseSize = PARTICLE_BASE_SIZE + token.meta.sizeBias + uhash(identity * 987654) * PARTICLE_SIZE_VARIANCE
           const rowShrink = 1.0 - rowNorm * 0.5
           const ageFade = Math.max(0, 1 - age01 * age01)
           const size = baseSize * ageFade * rowShrink * (0.85 + Math.sin(phase + elapsedTime * 4.5) * 0.15)
@@ -295,7 +296,7 @@ export class FireParticleSample {
           dummy.scale.setScalar(size)
           dummy.updateMatrix()
           this.particleMesh.setMatrixAt(instanceIndex, dummy.matrix)
-          this.particleMesh.setColorAt(instanceIndex, fireColor(age01, rowNorm, code))
+          this.particleMesh.setColorAt(instanceIndex, fireColor(age01, rowNorm, identity, token.meta))
 
           instanceIndex++
         }

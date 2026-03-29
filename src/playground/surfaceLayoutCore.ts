@@ -1,15 +1,16 @@
 import { layoutNextLine, type LayoutCursor, type PreparedTextWithSegments } from '@chenglou/pretext'
+import type { PreparedSurfaceSource, ResolvedSurfaceGlyph } from '../skinText'
 import { graphemesOf } from '../samples/graphemes'
 import type { SeedCursorFactory } from './types'
 
-type SurfaceLayoutBandOptions = {
-  prepared: PreparedTextWithSegments
+type SurfaceLayoutBandOptions<TokenId extends string = string, Meta = unknown> = {
+  surface: PreparedSurfaceSource<TokenId, Meta>
   rows: number
   advanceForRow: (row: number) => number
   seedCursor: SeedCursorFactory
 }
 
-type SurfaceLayoutDriverOptions = SurfaceLayoutBandOptions & {
+type SurfaceLayoutDriverOptions<TokenId extends string = string, Meta = unknown> = SurfaceLayoutBandOptions<TokenId, Meta> & {
   sectors: number
   staggerFactor?: number
   minSpanFactor?: number
@@ -28,22 +29,24 @@ export type SurfaceLayoutSlot = {
   rowOffset: number
 }
 
-export type SurfaceLayoutLine = {
+export type SurfaceLayoutLine<TokenId extends string = string, Meta = unknown> = {
   slot: SurfaceLayoutSlot
   lineText: string
   glyphs: string[]
+  resolvedGlyphs: ResolvedSurfaceGlyph<TokenId, Meta>[]
+  tokenLineKey: string
   maxWidth: number
   cursorStart: LayoutCursor
   cursorEnd: LayoutCursor
 }
 
-type LayoutTraversalOptions = {
+type LayoutTraversalOptions<TokenId extends string = string, Meta = unknown> = {
   spanMin: number
   spanMax: number
   lineCoordAtRow: (row: number) => number
   rowOffsetAt?: (row: number, sectorStep: number) => number
   getMaxWidth: (slot: SurfaceLayoutSlot) => number
-  onLine: (line: SurfaceLayoutLine) => void
+  onLine: (line: SurfaceLayoutLine<TokenId, Meta>) => void
 }
 
 const ROOT_CURSOR: LayoutCursor = { segmentIndex: 0, graphemeIndex: 0 }
@@ -71,17 +74,18 @@ function layoutNextLineOrRewind(
   }
 }
 
-export function createBandSeeds({
-  prepared,
+export function createBandSeeds<TokenId extends string, Meta>({
+  surface,
   rows,
   advanceForRow,
   seedCursor,
-}: SurfaceLayoutBandOptions): LayoutCursor[] {
-  return Array.from({ length: rows }, (_, row) => seedCursor(prepared, advanceForRow(row)))
+}: SurfaceLayoutBandOptions<TokenId, Meta>): LayoutCursor[] {
+  return Array.from({ length: rows }, (_, row) => seedCursor(surface.prepared, advanceForRow(row)))
 }
 
-export class SurfaceLayoutDriver {
+export class SurfaceLayoutDriver<TokenId extends string = string, Meta = unknown> {
   private readonly prepared: PreparedTextWithSegments
+  private readonly surface: PreparedSurfaceSource<TokenId, Meta>
   private readonly rows: number
   private readonly sectors: number
   private readonly staggerFactor: number
@@ -90,7 +94,7 @@ export class SurfaceLayoutDriver {
   private readonly bandSeeds: LayoutCursor[]
 
   constructor({
-    prepared,
+    surface,
     rows,
     sectors,
     advanceForRow,
@@ -98,14 +102,15 @@ export class SurfaceLayoutDriver {
     staggerFactor = 0.5,
     minSpanFactor = 0.33,
     minLayoutWidth = 8,
-  }: SurfaceLayoutDriverOptions) {
-    this.prepared = prepared
+  }: SurfaceLayoutDriverOptions<TokenId, Meta>) {
+    this.surface = surface
+    this.prepared = surface.prepared
     this.rows = rows
     this.sectors = sectors
     this.staggerFactor = staggerFactor
     this.minSpanFactor = minSpanFactor
     this.minLayoutWidth = minLayoutWidth
-    this.bandSeeds = createBandSeeds({ prepared, rows, advanceForRow, seedCursor })
+    this.bandSeeds = createBandSeeds({ surface, rows, advanceForRow, seedCursor })
   }
 
   forEachLaidOutLine({
@@ -115,7 +120,7 @@ export class SurfaceLayoutDriver {
     rowOffsetAt,
     getMaxWidth,
     onLine,
-  }: LayoutTraversalOptions): void {
+  }: LayoutTraversalOptions<TokenId, Meta>): void {
     const sectorStep = (spanMax - spanMin) / this.sectors
 
     for (let row = 0; row < this.rows; row++) {
@@ -155,11 +160,17 @@ export class SurfaceLayoutDriver {
         cursor = laidOut.cursorEnd
         const glyphs = graphemesOf(laidOut.line.text).filter((glyph) => !/^\s+$/.test(glyph))
         if (glyphs.length === 0) continue
+        const resolvedGlyphs = glyphs
+          .map((glyph) => this.surface.glyphLookup.get(glyph))
+          .filter((glyph): glyph is ResolvedSurfaceGlyph<TokenId, Meta> => glyph !== undefined)
+        if (resolvedGlyphs.length !== glyphs.length) continue
 
         onLine({
           slot,
           lineText: laidOut.line.text,
           glyphs,
+          resolvedGlyphs,
+          tokenLineKey: resolvedGlyphs.map((glyph) => glyph.id).join('|'),
           maxWidth,
           cursorStart,
           cursorEnd: cloneCursor(laidOut.cursorEnd),

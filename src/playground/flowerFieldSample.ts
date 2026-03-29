@@ -1,5 +1,6 @@
-import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
+import type { PreparedSurfaceSource, ResolvedSurfaceGlyph } from '../skinText'
+import type { FlowerTokenId, FlowerTokenMeta } from './flowerSurfaceText'
 import { PLAYGROUND_BOUNDS } from './playgroundWorld'
 import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
 import type { SeedCursorFactory } from './types'
@@ -59,40 +60,25 @@ function organicField(x: number, z: number): number {
   )
 }
 
-// ─── per-glyph flower identity ────────────────────────────────────────────────
+// ─── per-token flower identity ────────────────────────────────────────────────
 
-// Each Unicode flower glyph hashes to a distinct hue across the full botanical
-// spectrum. The character IS the color — this is the pretext-y part.
-function glyphFlowerHue(code: number): number {
-  const t = uhash(code * 2654435761)
-  // Spread across warm reds, pinks, violets, yellows, whites, blues.
-  // Avoid pure green (that's the grass) by wrapping the hue range.
-  if (t < 0.18) return 0.0 + t * 0.5         // red → orange-red
-  if (t < 0.36) return 0.05 + (t - 0.18) * 1.1 // orange → yellow
-  if (t < 0.54) return 0.72 + (t - 0.36) * 1.2 // violet → blue-violet
-  if (t < 0.72) return 0.88 + (t - 0.54) * 0.8 // pink → rose
-  return 0.55 + (t - 0.72) * 0.5              // sky blue → lavender
+function flowerHeadColor(identity: number, noise: number, meta: FlowerTokenMeta): THREE.Color {
+  const light = 0.4 + noise * 0.15 + uhash(identity + 13) * 0.05
+  return tmpColor.setHSL(meta.hue, 0.85, light).clone()
 }
 
-function glyphFlowerColor(code: number, noise: number): THREE.Color {
-  const hue = glyphFlowerHue(code)
-  const sat = 0.85
-  const light = 0.4 + noise * 0.15 + uhash(code + 13) * 0.05
-  return tmpColor.setHSL(hue, sat, light).clone()
+function flowerStalkColor(identity: number, meta: FlowerTokenMeta): THREE.Color {
+  const t = uhash(identity * 1234567)
+  return tmpColor.setHSL(meta.stalkHue + t * 0.03, 0.8 + t * 0.2, 0.22 + t * 0.1).clone()
 }
 
-function glyphStalkColor(code: number): THREE.Color {
-  const t = uhash(code * 1234567)
-  return tmpColor.setHSL(0.28 + t * 0.07, 0.8 + t * 0.2, 0.22 + t * 0.1).clone()
+// Height and head size vary by token — dense blooms are taller, airy blooms shorter.
+function flowerHeight(identity: number, meta: FlowerTokenMeta): number {
+  return 0.55 + uhash(identity * 987654) * 0.7 + meta.heightBias
 }
 
-// Height and head size vary by glyph — denser glyphs are taller, outline ones shorter.
-function glyphFlowerHeight(code: number): number {
-  return 0.55 + uhash(code * 987654) * 0.7
-}
-
-function glyphHeadRadius(code: number): number {
-  return 0.08 + uhash(code * 3456789) * 0.12
+function flowerHeadRadius(identity: number, meta: FlowerTokenMeta): number {
+  return 0.08 + uhash(identity * 3456789) * 0.12 + meta.bloomBias
 }
 
 // ─── geometries ──────────────────────────────────────────────────────────────
@@ -138,12 +124,12 @@ export class FlowerFieldSample {
     MAX_FLOWERS,
   )
 
-  private readonly layoutDriver: SurfaceLayoutDriver
+  private readonly layoutDriver: SurfaceLayoutDriver<FlowerTokenId, FlowerTokenMeta>
   private layoutDensity = 0
 
-  constructor(prepared: PreparedTextWithSegments, seedCursor: SeedCursorFactory) {
+  constructor(surface: PreparedSurfaceSource<FlowerTokenId, FlowerTokenMeta>, seedCursor: SeedCursorFactory) {
     this.layoutDriver = new SurfaceLayoutDriver({
-      prepared,
+      surface,
       rows: ROWS,
       sectors: SECTORS,
       advanceForRow: (row) => row * 11 + 2,
@@ -195,8 +181,8 @@ export class FlowerFieldSample {
       spanMax: FIELD_WIDTH * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => slot.spanSize * BASE_LAYOUT_PX_PER_WORLD * this.layoutDensity,
-      onLine: ({ slot, glyphs, lineText }) => {
-        idx = this.projectLine(slot, glyphs, lineText, rowStep, elapsedTime, getGroundHeight, getDisturbance, idx)
+      onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
+        idx = this.projectLine(slot, resolvedGlyphs, tokenLineKey, rowStep, elapsedTime, getGroundHeight, getDisturbance, idx)
       },
     })
 
@@ -210,29 +196,30 @@ export class FlowerFieldSample {
 
   private projectLine(
     slot: SurfaceLayoutSlot,
-    glyphs: readonly string[],
-    lineText: string,
+    resolvedGlyphs: readonly ResolvedSurfaceGlyph<FlowerTokenId, FlowerTokenMeta>[],
+    tokenLineKey: string,
     rowStep: number,
     elapsedTime: number,
     getGroundHeight: (x: number, z: number) => number,
     getDisturbance: (x: number, z: number) => number,
     idx: number,
   ): number {
-    const n = glyphs.length
-    const lineSeed = lineSignature(lineText)
+    const n = resolvedGlyphs.length
+    const lineSeed = lineSignature(tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.24
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.16
 
     for (let k = 0; k < n; k++) {
       if (idx >= MAX_FLOWERS) break
 
-      const glyph = glyphs[k]!
-      const code = glyph.codePointAt(0) ?? 0
+      const token = resolvedGlyphs[k]!
+      const identity = token.ordinal + 1
+      const { meta } = token
 
       // Independent hash channels — no correlated banding between axes.
-      const hashLat = glyphHash(code, slot.row, k)
-      const hashDep = glyphHash(code + 1, slot.sector, k ^ 0xcd)
-      const hashOrg = glyphHash(code + 2, slot.row ^ slot.sector, k + 23)
+      const hashLat = glyphHash(identity, slot.row, k)
+      const hashDep = glyphHash(identity + 1, slot.sector, k ^ 0xcd)
+      const hashOrg = glyphHash(identity + 2, slot.row ^ slot.sector, k + 23)
 
       const t01 = THREE.MathUtils.clamp((k + hashLat * 0.88 + 0.06) / (n + 0.1), 0.02, 0.98)
       const x =
@@ -247,8 +234,8 @@ export class FlowerFieldSample {
       const groundY = getGroundHeight(x, z)
       const disturbance = getDisturbance(x, z)
 
-      const height = glyphFlowerHeight(code) * (1 - disturbance * 0.75)
-      const headR = glyphHeadRadius(code)
+      const height = flowerHeight(identity, meta) * (1 - disturbance * 0.75)
+      const headR = flowerHeadRadius(identity, meta)
 
       // Wind: slow sway, phase-offset per flower so they don't all move together.
       const phase = hashOrg * Math.PI * 2
@@ -265,7 +252,7 @@ export class FlowerFieldSample {
       dummyStalk.scale.set(1, height, 1)
       dummyStalk.updateMatrix()
       this.stalkMesh.setMatrixAt(idx, dummyStalk.matrix)
-      this.stalkMesh.setColorAt(idx, glyphStalkColor(code))
+      this.stalkMesh.setColorAt(idx, flowerStalkColor(identity, meta))
 
       // Head: flat disc at the top of the stalk, tilted to face slightly upward
       // and swayed by the same wind angle as the stalk tip.
@@ -283,7 +270,7 @@ export class FlowerFieldSample {
       dummyHead.scale.setScalar(headR * (0.8 + noise * 0.4))
       dummyHead.updateMatrix()
       this.headMesh.setMatrixAt(idx, dummyHead.matrix)
-      this.headMesh.setColorAt(idx, glyphFlowerColor(code, noise))
+      this.headMesh.setColorAt(idx, flowerHeadColor(identity, noise, meta))
 
       idx++
     }

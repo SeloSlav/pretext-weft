@@ -1,5 +1,6 @@
-import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
+import type { PreparedSurfaceSource, ResolvedSurfaceGlyph } from '../skinText'
+import type { GrassTokenId, GrassTokenMeta } from './grassSurfaceText'
 import { PLAYGROUND_BOUNDS } from './playgroundWorld'
 import { smoothPulse } from './mathUtils'
 import { decayRecoveringStrength } from './recovery'
@@ -22,19 +23,6 @@ const tmpLocalPoint = new THREE.Vector3()
 const dummy = new THREE.Object3D()
 const groundBaseColor = new THREE.Color('#8cab72')
 const groundDarkColor = new THREE.Color('#587044')
-
-// Each Unicode blade glyph gets its own color identity so the typographic
-// origin is visible in the field. Hue 0.27 = yellow-green, 0.32 = warm gold.
-function glyphColorIdentity(code: number): { hueShift: number; lightShift: number; satShift: number } {
-  // Map code point to a stable slot in [0,1) using a cheap mix
-  const t = ((code * 2654435761) >>> 0) / 4294967296
-  // Spread hue across a narrow yellow-green to warm-gold band
-  const hueShift = (t - 0.5) * 0.072
-  // Some glyphs are paler (tips), some richer (stems)
-  const lightShift = (t - 0.5) * 0.14
-  const satShift = (t - 0.5) * 0.18
-  return { hueShift, lightShift, satShift }
-}
 
 type Disturbance = {
   x: number
@@ -204,7 +192,7 @@ function uhash(n: number): number {
 }
 
 // Combine up to four integer keys into one [0,1) value.
-// Using code + row + sector + blade index gives each instance a unique,
+// Using token identity + row + sector + blade index gives each instance a unique,
 // non-periodic hash with no visible grid structure.
 function glyphHash(a: number, b: number, c = 0, d = 0): number {
   return uhash(a ^ Math.imul(b, 0x9e3779b9) ^ Math.imul(c, 0x85ebca6b) ^ Math.imul(d, 0xc2b2ae35))
@@ -219,7 +207,7 @@ function lineSignature(text: string): number {
   return (hash >>> 0) / 4294967295
 }
 
-// Per-blade scatter: mixes code point, line hash, and blade index through
+// Per-blade scatter: mixes token identity, line hash, and blade index through
 // independent hash channels so lateral and depth jitter are uncorrelated.
 function glyphScatter(code: number, lineSeed: number, index: number): number {
   const waveA = Math.sin(code * 0.073 + lineSeed * 6.1 + index * 1.7)
@@ -292,20 +280,20 @@ export class GrassFieldSample {
   })
   private readonly groundSurfaceMesh = new THREE.Mesh(this.groundGeometry, this.groundMaterial)
   private readonly baseGroundPositions = Float32Array.from(this.groundGeometry.attributes.position.array as ArrayLike<number>)
-  private readonly layoutDriver: SurfaceLayoutDriver
+  private readonly layoutDriver: SurfaceLayoutDriver<GrassTokenId, GrassTokenMeta>
   private readonly disturbances: Disturbance[] = []
   private lastElapsedTime = 0
 
   private params: GrassFieldParams
 
   constructor(
-    prepared: PreparedTextWithSegments,
+    surface: PreparedSurfaceSource<GrassTokenId, GrassTokenMeta>,
     seedCursor: SeedCursorFactory,
     initialParams: GrassFieldParams,
   ) {
     this.params = { ...initialParams }
     this.layoutDriver = new SurfaceLayoutDriver({
-      prepared,
+      surface,
       rows: ROWS,
       sectors: SECTORS,
       advanceForRow: (row) => row * 13 + 5,
@@ -463,8 +451,8 @@ export class GrassFieldSample {
       spanMax: FIELD_WIDTH * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
-      onLine: ({ slot, glyphs, lineText }) => {
-        instanceIndex = this.projectLine(slot, glyphs, lineText, rowStep, elapsedTime, instanceIndex)
+      onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
+        instanceIndex = this.projectLine(slot, resolvedGlyphs, tokenLineKey, rowStep, elapsedTime, instanceIndex)
       },
     })
 
@@ -487,14 +475,14 @@ export class GrassFieldSample {
 
   private projectLine(
     slot: SurfaceLayoutSlot,
-    glyphs: readonly string[],
-    lineText: string,
+    resolvedGlyphs: readonly ResolvedSurfaceGlyph<GrassTokenId, GrassTokenMeta>[],
+    tokenLineKey: string,
     rowStep: number,
     elapsedTime: number,
     instanceIndex: number,
   ): number {
-    const n = glyphs.length
-    const lineSeed = lineSignature(lineText)
+    const n = resolvedGlyphs.length
+    const lineSeed = lineSignature(tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.28
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.18
     const lineClusterStrength = 0.035 + lineSeed * 0.05
@@ -502,17 +490,18 @@ export class GrassFieldSample {
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
 
-      const glyph = glyphs[k]!
-      const code = glyph.codePointAt(0) ?? 0
+      const token = resolvedGlyphs[k]!
+      const identity = token.ordinal + 1
+      const { meta } = token
       for (let blade = 0; blade < BLADES_PER_SLOT; blade++) {
         if (instanceIndex >= MAX_INSTANCES) break
 
-        const pretextScatter = glyphScatter(code, lineSeed, k * BLADES_PER_SLOT + blade)
+        const pretextScatter = glyphScatter(identity, lineSeed, k * BLADES_PER_SLOT + blade)
         // Per-blade hash: independent channels for lateral and depth so the two
         // axes of jitter are completely uncorrelated — no diagonal banding.
-        const hashLat = glyphHash(code, slot.row, k, blade)
-        const hashDep = glyphHash(code + 1, slot.sector, k, blade ^ 0xff)
-        const hashOrganic = glyphHash(code + 2, slot.row ^ slot.sector, k + blade * 31)
+        const hashLat = glyphHash(identity, slot.row, k, blade)
+        const hashDep = glyphHash(identity + 1, slot.sector, k, blade ^ 0xff)
+        const hashOrganic = glyphHash(identity + 2, slot.row ^ slot.sector, k + blade * 31)
 
         // Replace even t01 spacing with hash-driven placement within the slot.
         // Blades no longer form a regular comb — they bunch and gap naturally.
@@ -559,8 +548,8 @@ export class GrassFieldSample {
         const windYaw = gust * this.params.wind * 0.14
         const windBend = (0.24 + Math.abs(gust) * 0.18) * this.params.wind
         const trampleBend = localDisturbance * 1.15
-        const height = (0.88 + (code % 7) * 0.1 + organicNoise * 0.14 + blade * 0.07) * 0.5
-        const width = 0.072 + ((code >> 2) % 5) * 0.01 + organicNoise * 0.015 + blade * 0.006
+        const height = (0.88 + meta.heightBias + (identity % 7) * 0.08 + organicNoise * 0.14 + blade * 0.07) * 0.5
+        const width = 0.072 + meta.widthBias + (identity % 5) * 0.008 + organicNoise * 0.015 + blade * 0.006
 
         tmpPos.set(
           x + awayX * localDisturbance * 0.22,
@@ -579,18 +568,17 @@ export class GrassFieldSample {
         dummy.updateMatrix()
         this.bladeMesh.setMatrixAt(instanceIndex, dummy.matrix)
 
-        const identity = glyphColorIdentity(code)
         // Base hue drifts with field noise; glyph identity shifts it further so
-        // each distinct blade character reads as a slightly different colour family.
-        const hue = 0.275 + organicNoise * 0.038 + identity.hueShift
+        // each distinct semantic blade token reads as a slightly different colour family.
+        const hue = 0.275 + organicNoise * 0.038 + meta.hueShift
         // Blades taller in the slot (blade index 1) are slightly paler — tip effect.
         const tipFade = blade * 0.055
         const sat = THREE.MathUtils.clamp(
-          THREE.MathUtils.lerp(0.78, 0.18, localDisturbance) + identity.satShift,
+          THREE.MathUtils.lerp(0.78, 0.18, localDisturbance) + meta.satShift,
           0.1, 1,
         )
         const light = THREE.MathUtils.clamp(
-          THREE.MathUtils.lerp(0.41, 0.68, 0.3 + organicNoise * 0.7) + identity.lightShift + tipFade,
+          THREE.MathUtils.lerp(0.41, 0.68, 0.3 + organicNoise * 0.7) + meta.lightShift + tipFade,
           0.28, 0.78,
         )
         tmpColor.setHSL(hue, sat, light)

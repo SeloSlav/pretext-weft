@@ -1,6 +1,7 @@
-import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
+import type { PreparedSurfaceSource, ResolvedSurfaceGlyph } from '../skinText'
 import { PLAYGROUND_BOUNDS } from './playgroundWorld'
+import type { RockTokenId, RockTokenMeta } from './rockSurfaceText'
 import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
 import type { RockFieldParams, SeedCursorFactory } from './types'
 
@@ -68,17 +69,16 @@ function organicField(x: number, z: number): number {
   return THREE.MathUtils.clamp(coarse * 0.6 + fine * 0.4, 0, 1)
 }
 
-// Each glyph gets a stable size identity from its code point.
-// Heavier/filled glyphs (⬛ ◼ ◆) map to larger rocks; lighter ones (▫ △) are pebbles.
-function glyphSizeIdentity(code: number): number {
-  return 0.55 + (((code * 2246822519) >>> 0) / 4294967296) * 0.9
+// Each semantic rock token gets a stable size identity independent of glyph choice.
+function rockSizeIdentity(identity: number, meta: RockTokenMeta): number {
+  return 0.58 + uhash(identity * 2246822519) * 0.72 + meta.sizeBias
 }
 
-// Per-glyph colour identity across grey, slate, and warm-brown stone tones.
-function glyphStoneColor(code: number, noise: number): THREE.Color {
-  const t = ((code * 2654435761) >>> 0) / 4294967296
+// Per-token colour identity across grey, slate, and warm-brown stone tones.
+function rockStoneColor(identity: number, noise: number, meta: RockTokenMeta): THREE.Color {
+  const t = uhash(identity * 2654435761)
   // Hue: 0 = warm brown, 0.55 = slate blue-grey, 0.08 = sandy
-  const hue = t < 0.4 ? 0.06 + t * 0.05 : 0.55 + (t - 0.4) * 0.08
+  const hue = (t < 0.4 ? 0.06 + t * 0.05 : 0.55 + (t - 0.4) * 0.08) + meta.warmth
   const sat = 0.08 + t * 0.14 + noise * 0.06
   const light = 0.28 + noise * 0.22 + t * 0.08
   return tmpColor.setHSL(hue, sat, light).clone()
@@ -102,17 +102,17 @@ export class RockFieldSample {
     this.rockMaterial,
     MAX_INSTANCES,
   )
-  private readonly layoutDriver: SurfaceLayoutDriver
+  private readonly layoutDriver: SurfaceLayoutDriver<RockTokenId, RockTokenMeta>
   private params: RockFieldParams
 
   constructor(
-    prepared: PreparedTextWithSegments,
+    surface: PreparedSurfaceSource<RockTokenId, RockTokenMeta>,
     seedCursor: SeedCursorFactory,
     initialParams: RockFieldParams,
   ) {
     this.params = { ...initialParams }
     this.layoutDriver = new SurfaceLayoutDriver({
-      prepared,
+      surface,
       rows: ROWS,
       sectors: SECTORS,
       advanceForRow: (row) => row * 7 + 3,
@@ -156,8 +156,8 @@ export class RockFieldSample {
       spanMax: FIELD_WIDTH * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
-      onLine: ({ slot, glyphs, lineText }) => {
-        instanceIndex = this.projectLine(slot, glyphs, lineText, rowStep, getGroundHeight, instanceIndex)
+      onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
+        instanceIndex = this.projectLine(slot, resolvedGlyphs, tokenLineKey, rowStep, getGroundHeight, instanceIndex)
       },
     })
 
@@ -170,27 +170,28 @@ export class RockFieldSample {
 
   private projectLine(
     slot: SurfaceLayoutSlot,
-    glyphs: readonly string[],
-    lineText: string,
+    resolvedGlyphs: readonly ResolvedSurfaceGlyph<RockTokenId, RockTokenMeta>[],
+    tokenLineKey: string,
     rowStep: number,
     getGroundHeight: (x: number, z: number) => number,
     instanceIndex: number,
   ): number {
-    const n = glyphs.length
-    const lineSeed = lineSignature(lineText)
+    const n = resolvedGlyphs.length
+    const lineSeed = lineSignature(tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.22
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.14
 
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
 
-      const glyph = glyphs[k]!
-      const code = glyph.codePointAt(0) ?? 0
+      const token = resolvedGlyphs[k]!
+      const identity = token.ordinal + 1
+      const { meta } = token
 
       // Independent hash channels per rock — lateral and depth are uncorrelated.
-      const hashLat = glyphHash(code, slot.row, k)
-      const hashDep = glyphHash(code + 1, slot.sector, k ^ 0xab)
-      const hashOrg = glyphHash(code + 2, slot.row ^ slot.sector, k + 17)
+      const hashLat = glyphHash(identity, slot.row, k)
+      const hashDep = glyphHash(identity + 1, slot.sector, k ^ 0xab)
+      const hashOrg = glyphHash(identity + 2, slot.row ^ slot.sector, k + 17)
 
       // Hash-driven lateral position breaks the even t01 comb.
       const t01 = THREE.MathUtils.clamp((k + hashLat * 0.85 + 0.08) / (n + 0.1), 0.02, 0.98)
@@ -205,13 +206,13 @@ export class RockFieldSample {
       const noise = organicField(x + hashOrg * 0.3, z + hashOrg * 0.2)
 
       const groundY = getGroundHeight(x, z)
-      const sizeBase = glyphSizeIdentity(code)
+      const sizeBase = rockSizeIdentity(identity, meta)
       const size = sizeBase * (0.28 + noise * 0.38) * this.params.sizeScale
       // Slight random yaw so rocks don't all face the same way
       const yaw = lineSeed * Math.PI * 2 + k * 1.17 + noise * 0.9
       // Tilt slightly into the ground for a settled look
       const tiltX = (noise - 0.5) * 0.18
-      const tiltZ = (Math.sin(code * 0.13 + lineSeed * 3.1) * 0.5) * 0.14
+      const tiltZ = (Math.sin(identity * 0.13 + lineSeed * 3.1) * 0.5) * 0.14
 
       dummy.position.set(x, groundY + size * 0.06, z)
       dummy.rotation.set(tiltX, yaw, tiltZ)
@@ -219,7 +220,7 @@ export class RockFieldSample {
       dummy.updateMatrix()
       this.rockMesh.setMatrixAt(instanceIndex, dummy.matrix)
 
-      const color = glyphStoneColor(code, noise)
+      const color = rockStoneColor(identity, noise, meta)
       this.rockMesh.setColorAt(instanceIndex, color)
 
       instanceIndex++

@@ -19,9 +19,10 @@ export function Landing({ onEnterEditor }: LandingProps) {
         <p className="landing__lead">
           This engine runs a{' '}
           <strong style={{ color: '#c8d6e8' }}>typographic line-breaking algorithm</strong> across a grid
-          of world slots. A Unicode stream of glyph shapes is the content vocabulary. Pretext measures
-          each glyph and breaks lines to fit each slot's width. The glyphs that come out drive instanced
-          mesh placement. Density emerges from font metrics, not magic numbers.
+          of world slots. A semantic surface palette resolves to a backing glyph stream for layout.
+          Pretext measures that stream and breaks lines to fit each slot's width. The resolved tokens
+          that come out drive instanced mesh placement. Density emerges from font metrics, not magic
+          numbers.
         </p>
 
         <div className="landing__actions">
@@ -48,24 +49,29 @@ export function Landing({ onEnterEditor }: LandingProps) {
               <li>Density emerges from font metrics and slot width</li>
               <li>Gameplay narrows a slot width and the layout engine handles the rest</li>
               <li>Every surface type shares the same driver and API</li>
-              <li>Variation is glyph-seeded and deterministic per row band</li>
+              <li>Variation is token-seeded and deterministic per row band</li>
             </ul>
           </div>
         </div>
 
         <h2 className="landing__section-title">How quickly can you add a new surface</h2>
         <p className="landing__lead">
-          A new surface type needs two things. A Unicode vocabulary and a projection. That's it.
+          A new surface type needs two things. A semantic palette and a projection. That's it.
         </p>
 
         <div className="landing__code-block">
-          <p className="landing__code-label">Step 1. Define your glyph vocabulary (~30 lines)</p>
-          <pre className="landing__pre">{`const MY_UNITS = ['◓', '◒', '◐', '◑', '◉', '◍', '◎'] as const
+          <p className="landing__code-label">Step 1. Define your semantic palette (~30 lines)</p>
+          <pre className="landing__pre">{`const shellPalette = [
+  { id: 'crest-left', glyph: '◓', weight: 3, meta: { widthBias: 0.02 } },
+  { id: 'crest-right', glyph: '◒', weight: 2, meta: { widthBias: 0.01 } },
+  { id: 'core-eye', glyph: '◉', meta: { widthBias: 0.05 } },
+] as const
 
 export function getPreparedMySurface() {
-  return prepareCachedSurfaceText(
+  return prepareSemanticSurfaceText(
     'my-surface',
-    buildRepeatedUnitStream(MY_UNITS, 22),
+    shellPalette,
+    22,
     SURFACE_TEXT_FONT,
   )
 }`}</pre>
@@ -91,7 +97,8 @@ this.driver.forEachLaidOutLine({
 
         <p className="landing__lead">
           That's the entire API. Forget spatial indexing, noise functions, and custom packing loops.
-          Line-breaking, row seeding, stagger, and slot clipping are all handled by the driver.
+          Semantic token weighting, line-breaking, row seeding, stagger, and slot clipping are all
+          handled by the driver.
         </p>
 
         <h2 className="landing__section-title">The real payoff is gameplay-driven density</h2>
@@ -120,7 +127,7 @@ this.driver.forEachLaidOutLine({
             <span>
               Grass, fish scales, rock fields, coral, ornament. All share{' '}
               <code>SurfaceLayoutDriver</code> and <code>forEachLaidOutLine</code>. You only write the
-              glyph vocabulary and the per-glyph matrix placement.
+              semantic palette and the per-token matrix placement.
             </span>
           </li>
           <li>

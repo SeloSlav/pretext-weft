@@ -1,5 +1,6 @@
-import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
+import type { PreparedSurfaceSource, ResolvedSurfaceGlyph } from '../skinText'
+import type { FishTokenId, FishTokenMeta } from './fishSurfaceText'
 import { smoothPulse } from './mathUtils'
 import { updateRecoveringImpacts } from './recovery'
 import { SurfaceLayoutDriver, type SurfaceLayoutSlot } from './surfaceLayoutCore'
@@ -94,7 +95,7 @@ export class FishScaleSample {
   private readonly patchGeometry = new THREE.PlaneGeometry(PATCH_WIDTH, PATCH_HEIGHT, 44, 32)
   private readonly patchMaterial = createPatchMaterial()
   private readonly basePatchPositions = Float32Array.from(this.patchGeometry.attributes.position.array as ArrayLike<number>)
-  private readonly layoutDriver: SurfaceLayoutDriver
+  private readonly layoutDriver: SurfaceLayoutDriver<FishTokenId, FishTokenMeta>
   private readonly wounds: Wound[] = []
   private lastElapsedTime = 0
   private patchUpdateAccumulator = 1
@@ -103,13 +104,13 @@ export class FishScaleSample {
   private params: FishScaleParams
 
   constructor(
-    prepared: PreparedTextWithSegments,
+    surface: PreparedSurfaceSource<FishTokenId, FishTokenMeta>,
     seedCursor: SeedCursorFactory,
     initialParams: FishScaleParams,
   ) {
     this.params = { ...initialParams }
     this.layoutDriver = new SurfaceLayoutDriver({
-      prepared,
+      surface,
       rows: ROWS,
       sectors: SECTORS,
       advanceForRow: (row) => row * 17 + 9,
@@ -317,8 +318,8 @@ export class FishScaleSample {
       spanMax: PATCH_WIDTH * 0.5,
       lineCoordAtRow: (row) => topY - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot, elapsedTime),
-      onLine: ({ slot, glyphs }) => {
-        instanceIndex = this.projectLine(slot, glyphs, elapsedTime, instanceIndex)
+      onLine: ({ slot, resolvedGlyphs }) => {
+        instanceIndex = this.projectLine(slot, resolvedGlyphs, elapsedTime, instanceIndex)
       },
     })
 
@@ -339,24 +340,25 @@ export class FishScaleSample {
 
   private projectLine(
     slot: SurfaceLayoutSlot,
-    glyphs: readonly string[],
+    resolvedGlyphs: readonly ResolvedSurfaceGlyph<FishTokenId, FishTokenMeta>[],
     elapsedTime: number,
     instanceIndex: number,
   ): number {
-    const n = glyphs.length
+    const n = resolvedGlyphs.length
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
 
-      const glyph = glyphs[k]!
-      const code = glyph.codePointAt(0) ?? 0
+      const token = resolvedGlyphs[k]!
+      const identity = token.ordinal + 1
+      const { meta } = token
       const t01 = (k + 0.5) / n
       const x = slot.spanStart + t01 * slot.spanSize
       const y = slot.lineCoord
       const localDamage = this.damageAt(x, y)
       const frame = this.sampleSurface(x, y, elapsedTime)
-      const scaleWidth = 0.145 + ((code >> 3) % 5) * 0.014
-      const scaleHeight = 0.2 + (code % 7) * 0.016
-      const scaleDepth = 0.05 + ((code >> 5) % 4) * 0.004
+      const scaleWidth = 0.145 + meta.widthBias + (identity % 5) * 0.012
+      const scaleHeight = 0.2 + meta.heightBias + (identity % 7) * 0.014
+      const scaleDepth = 0.05 + meta.depthBias + (identity % 4) * 0.004
       const lift = BASE_SCALE_LIFT + localDamage * this.params.scaleLift * 0.18
 
       dummy.position.copy(frame.position).addScaledVector(frame.normal, lift)
@@ -364,7 +366,7 @@ export class FishScaleSample {
       tmpMatrix.makeBasis(frame.tangentX, frame.tangentY, frame.normal)
       dummy.quaternion.setFromRotationMatrix(tmpMatrix)
       dummy.rotateX(0.28 + localDamage * 0.5)
-      dummy.rotateZ(((code % 17) / 17 - 0.5) * 0.24)
+      dummy.rotateZ((((identity % 17) / 17) - 0.5) * 0.24)
       dummy.scale.set(
         scaleWidth * (1 - localDamage * 0.08),
         scaleHeight * (1 - localDamage * 0.12),
@@ -373,7 +375,7 @@ export class FishScaleSample {
       dummy.updateMatrix()
       this.scaleMesh.setMatrixAt(instanceIndex, dummy.matrix)
 
-      const hue = 0.44 + slot.row * 0.008 + (code % 11) * 0.003
+      const hue = 0.44 + slot.row * 0.008 + meta.hueBias + (identity % 11) * 0.0025
       const saturation = THREE.MathUtils.lerp(0.22, 0.46, 1 - localDamage)
       const lightness = THREE.MathUtils.lerp(
         0.28,

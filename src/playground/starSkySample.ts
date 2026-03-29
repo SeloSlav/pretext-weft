@@ -1,5 +1,6 @@
-import type { PreparedTextWithSegments } from '@chenglou/pretext'
 import * as THREE from 'three'
+import type { PreparedSurfaceSource } from '../skinText'
+import type { StarTokenId, StarTokenMeta } from './starSurfaceText'
 import { updateRecoveringImpacts } from './recovery'
 import { SurfaceLayoutDriver } from './surfaceLayoutCore'
 import type { SeedCursorFactory } from './types'
@@ -51,12 +52,12 @@ function starDensity(azimuth: number, polar: number): number {
   return 0.45 + band * 0.55 + haze * 0.25 + horizonFade * 0.15
 }
 
-function starColor(code: number, twinkle: number, polar: number): THREE.Color {
-  const t = uhash(code * 2654435761)
+function starColor(identity: number, twinkle: number, polar: number, meta: StarTokenMeta): THREE.Color {
+  const t = uhash(identity * 2654435761)
   const hue = THREE.MathUtils.lerp(0.58, 0.12, t * 0.22)
   const sat = 0.18 + t * 0.22
   const zenithBoost = THREE.MathUtils.smoothstep(MAX_POLAR, MIN_POLAR, polar)
-  const light = 0.72 + twinkle * 0.18 + zenithBoost * 0.12
+  const light = 0.72 + twinkle * 0.18 + zenithBoost * 0.12 + meta.brightnessBias
   return tmpColor.setHSL(hue, sat, light).clone()
 }
 
@@ -72,13 +73,13 @@ export class StarSkySample {
     blending: THREE.AdditiveBlending,
   })
   private readonly starMesh = new THREE.InstancedMesh(this.geometry, this.material, MAX_STARS)
-  private readonly layoutDriver: SurfaceLayoutDriver
+  private readonly layoutDriver: SurfaceLayoutDriver<StarTokenId, StarTokenMeta>
   private readonly wounds: SkyWound[] = []
   private lastElapsed = 0
 
-  constructor(prepared: PreparedTextWithSegments, seedCursor: SeedCursorFactory) {
+  constructor(surface: PreparedSurfaceSource<StarTokenId, StarTokenMeta>, seedCursor: SeedCursorFactory) {
     this.layoutDriver = new SurfaceLayoutDriver({
-      prepared,
+      surface,
       rows: ROWS,
       sectors: SECTORS,
       advanceForRow: (row) => row * 9 + 3,
@@ -172,14 +173,14 @@ export class StarSkySample {
       spanMax: Math.PI * 2,
       lineCoordAtRow: (row) => THREE.MathUtils.lerp(MIN_POLAR, MAX_POLAR, row / (ROWS - 1)),
       getMaxWidth: (slot) => BASE_LAYOUT_PX * starDensity(slot.spanCenter, slot.lineCoord),
-      onLine: ({ slot, glyphs }) => {
-        const n = glyphs.length
+      onLine: ({ slot, resolvedGlyphs }) => {
+        const n = resolvedGlyphs.length
         for (let k = 0; k < n && k < MAX_PER_SLOT; k++) {
           if (instanceIndex >= MAX_STARS) break
-          const glyph = glyphs[k]!
-          const code = glyph.codePointAt(0) ?? 0
-          const hashA = glyphHash(code, slot.row, k)
-          const hashB = glyphHash(code + 1, slot.sector, k ^ 0xa7)
+          const token = resolvedGlyphs[k]!
+          const identity = token.ordinal + 1
+          const hashA = glyphHash(identity, slot.row, k)
+          const hashB = glyphHash(identity + 1, slot.sector, k ^ 0xa7)
           const azimuth = slot.spanStart + (hashA * 0.84 + 0.08) * slot.spanSize
           const polar = slot.lineCoord + (hashB - 0.5) * (MAX_POLAR - MIN_POLAR) / ROWS * 0.55
 
@@ -193,7 +194,7 @@ export class StarSkySample {
 
           const radius = SKY_RADIUS - hashB * 6
           const twinkle = Math.sin(elapsedTime * (1.1 + hashA * 1.7) + hashB * Math.PI * 2) * 0.5 + 0.5
-          const size = (0.18 + hashA * 0.48 + (code % 5) * 0.03) * (0.7 + twinkle * 0.6)
+          const size = (0.18 + hashA * 0.48 + (identity % 5) * 0.03 + token.meta.sizeBias) * (0.7 + twinkle * 0.6)
 
           dummy.position.copy(tmpDir).multiplyScalar(radius)
           dummy.lookAt(0, 0, 0)
@@ -202,7 +203,7 @@ export class StarSkySample {
           dummy.updateMatrix()
 
           this.starMesh.setMatrixAt(instanceIndex, dummy.matrix)
-          this.starMesh.setColorAt(instanceIndex, starColor(code, twinkle, polar))
+          this.starMesh.setColorAt(instanceIndex, starColor(identity, twinkle, polar, token.meta))
           instanceIndex++
         }
       },
