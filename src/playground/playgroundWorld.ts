@@ -12,6 +12,7 @@ export const PLAYGROUND_CONTROLLER: ThirdPersonControllerConfig = {
   moveSpeed: 5.7,
   sprintMultiplier: 1.5,
   jumpVelocity: 10.57,
+  doubleJumpMultiplier: 2,
   gravity: 15.5,
   turnLerp: 10,
   lookYawSpeed: 0.008,
@@ -68,6 +69,11 @@ export const WINDOW_GLASS_LAYOUTS = [
 
 export const INTERIOR_FLOOR_Y = 0.14
 
+export type RoofWalkableSurface = {
+  bounds: SolidAabb
+  y: number
+}
+
 const BUILDING_INTERIORS = [
   { minX: -12.74, maxX: 12.74, minZ: -23.49, maxZ: -15.51 },
   { minX: -20.49, maxX: -12.51, minZ: -4.74, maxZ: 8.74 },
@@ -79,6 +85,16 @@ export function isInsideBuildingInterior(x: number, z: number): boolean {
     x >= interior.minX && x <= interior.maxX && z >= interior.minZ && z <= interior.maxZ,
   )
 }
+
+/**
+ * Roof tops are walkable, but only once the player is actually near roof level.
+ * Bounds are slightly inset from the visible shell to avoid edge jitter.
+ */
+export const ROOF_WALKABLE_SURFACES: RoofWalkableSurface[] = [
+  { bounds: { minX: -12.88, maxX: 12.88, minZ: -23.63, maxZ: -15.37 }, y: 8.7 },
+  { bounds: { minX: -20.63, maxX: -12.37, minZ: -4.88, maxZ: 8.88 }, y: 6.9 },
+  { bounds: { minX: 12.87, maxX: 21.13, minZ: -9.88, maxZ: 1.88 }, y: 7.0 },
+]
 
 /** Player XZ collision radius (circle vs AABB). */
 export const PLAYER_COLLISION_RADIUS = 0.34
@@ -104,22 +120,22 @@ export const HOLLOW_BUILDING_WALL_THICKNESS = 0.52
  */
 export const SOLID_BUILDING_WALLS: SolidAabb[] = [
   // North building (center ~ z=-19.5, half-depth 4.25, half-width 13)
-  { minX: -13.1, maxX: 13.1, minZ: -24.05, maxZ: -23.45 },
-  { minX: -13.55, maxX: -12.95, minZ: -23.4, maxZ: -15.45 },
-  { minX: 12.95, maxX: 13.55, minZ: -23.4, maxZ: -15.45 },
-  { minX: -13.1, maxX: -4.55, minZ: -15.72, maxZ: -15.12 },
-  { minX: 4.55, maxX: 13.1, minZ: -15.72, maxZ: -15.12 },
+  { minX: -13.1, maxX: 13.1, minZ: -24.05, maxZ: -23.45, maxY: 8.7 },
+  { minX: -13.55, maxX: -12.95, minZ: -23.4, maxZ: -15.45, maxY: 8.7 },
+  { minX: 12.95, maxX: 13.55, minZ: -23.4, maxZ: -15.45, maxY: 8.7 },
+  { minX: -13.1, maxX: -4.55, minZ: -15.72, maxZ: -15.12, maxY: 8.7 },
+  { minX: 4.55, maxX: 13.1, minZ: -15.72, maxZ: -15.12, maxY: 8.7 },
   // West building (center ~ x=-16.5, z=2, w=8.5, d=14)
-  { minX: -21.05, maxX: -20.5, minZ: -5.05, maxZ: 9.05 },
-  { minX: -20.85, maxX: -12.15, minZ: 8.65, maxZ: 9.25 },
-  { minX: -20.85, maxX: -12.15, minZ: -5.25, maxZ: -4.65 },
-  { minX: -12.95, maxX: -12.2, minZ: 6.38, maxZ: 9.35 },
-  { minX: -12.95, maxX: -12.2, minZ: -5.05, maxZ: -2.38 },
+  { minX: -21.05, maxX: -20.5, minZ: -5.05, maxZ: 9.05, maxY: 6.9 },
+  { minX: -20.85, maxX: -12.15, minZ: 8.65, maxZ: 9.25, maxY: 6.9 },
+  { minX: -20.85, maxX: -12.15, minZ: -5.25, maxZ: -4.65, maxY: 6.9 },
+  { minX: -12.95, maxX: -12.2, minZ: 6.38, maxZ: 9.35, maxY: 6.9 },
+  { minX: -12.95, maxX: -12.2, minZ: -5.05, maxZ: -2.38, maxY: 6.9 },
   // East building (center ~ x=17, z=-4, w=8.5, d=12)
-  { minX: 12.5, maxX: 13.1, minZ: -10.05, maxZ: 2.05 },
-  { minX: 12.65, maxX: 21.35, minZ: 1.45, maxZ: 2.15 },
-  { minX: 12.65, maxX: 21.35, minZ: -10.35, maxZ: -9.65 },
-  { minX: 20.9, maxX: 21.55, minZ: -10.05, maxZ: 2.05 },
+  { minX: 12.5, maxX: 13.1, minZ: -10.05, maxZ: 2.05, maxY: 7.0 },
+  { minX: 12.65, maxX: 21.35, minZ: 1.45, maxZ: 2.15, maxY: 7.0 },
+  { minX: 12.65, maxX: 21.35, minZ: -10.35, maxZ: -9.65, maxY: 7.0 },
+  { minX: 20.9, maxX: 21.55, minZ: -10.05, maxZ: 2.05, maxY: 7.0 },
 ]
 
 export type BreachZoneKind = 'shutter' | 'ivy' | 'neon'
@@ -137,16 +153,16 @@ export type BreachZone = {
 export const BREACHABLE_FACADE_ZONES: BreachZone[] = [
   {
     kind: 'shutter',
-    bounds: { minX: -4.55, maxX: 4.55, minZ: -15.72, maxZ: -14.95 },
+    bounds: { minX: -4.55, maxX: 4.55, minZ: -15.72, maxZ: -14.95, maxY: 8.7 },
   },
   {
     kind: 'ivy',
-    bounds: { minX: -12.98, maxX: -11.82, minZ: -2.38, maxZ: 6.38 },
+    bounds: { minX: -12.98, maxX: -11.82, minZ: -2.38, maxZ: 6.38, maxY: 6.9 },
   },
   {
     kind: 'neon',
     neonIndex: 0,
-    bounds: { minX: -9.1, maxX: 9.1, minZ: 8.65, maxZ: 9.35 },
+    bounds: { minX: -9.1, maxX: 9.1, minZ: 8.65, maxZ: 9.35, maxY: 6.7 },
   },
 ]
 

@@ -12,6 +12,7 @@ export type ThirdPersonControllerConfig = {
   moveSpeed: number
   sprintMultiplier: number
   jumpVelocity: number
+  doubleJumpMultiplier: number
   gravity: number
   turnLerp: number
   lookYawSpeed: number
@@ -354,6 +355,7 @@ export class ThirdPersonController {
   private jumpHeight = 0
   private jumpVelocity = 0
   private isJumping = false
+  private remainingAirJumps = 0
 
   setSpawn(position: THREE.Vector3, yaw: number, cameraYaw = yaw, cameraPitch = this.cameraPitch): void {
     this.position.copy(position)
@@ -364,6 +366,7 @@ export class ThirdPersonController {
     this.jumpHeight = 0
     this.jumpVelocity = 0
     this.isJumping = false
+    this.remainingAirJumps = 0
     this.player.setPose(this.position, this.yaw)
   }
 
@@ -424,9 +427,15 @@ export class ThirdPersonController {
       const yBlend = 1 - Math.exp(-38 * delta)
       this.groundYSmooth = THREE.MathUtils.lerp(this.groundYSmooth, targetGroundY, yBlend)
     }
-    if (!this.isJumping && input.jump) {
-      this.isJumping = true
-      this.jumpVelocity = config.jumpVelocity
+    if (input.jump) {
+      if (!this.isJumping) {
+        this.isJumping = true
+        this.jumpVelocity = config.jumpVelocity
+        this.remainingAirJumps = 1
+      } else if (this.remainingAirJumps > 0) {
+        this.remainingAirJumps -= 1
+        this.jumpVelocity = config.jumpVelocity * config.doubleJumpMultiplier
+      }
     }
 
     if (this.isJumping) {
@@ -436,6 +445,7 @@ export class ThirdPersonController {
       if (this.jumpHeight === 0 && this.jumpVelocity <= 0) {
         this.jumpVelocity = 0
         this.isJumping = false
+        this.remainingAirJumps = 0
       }
     }
 

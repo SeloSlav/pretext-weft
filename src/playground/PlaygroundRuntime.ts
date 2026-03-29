@@ -69,6 +69,7 @@ import {
   PLAYGROUND_CONTROLLER,
   PLAYGROUND_SPAWN,
   PLAYGROUND_ZOOM,
+  ROOF_WALKABLE_SURFACES,
   SHUTTER_WALL_LAYOUT,
   SOLID_BUILDING_WALLS,
   DEFAULT_GLASS_SURFACE_PARAMS,
@@ -88,6 +89,8 @@ export class PlaygroundRuntime {
   private static readonly INDOOR_CAMERA_DISTANCE_MAX = 3.15
   private static readonly INDOOR_SHOULDER_OFFSET = 0.24
   private static readonly INDOOR_CAMERA_HEIGHT = 1.95
+  private static readonly ROOF_SNAP_DOWN_DISTANCE = 0.85
+  private static readonly WALL_TOP_CLEARANCE = 0.14
   private static readonly INDOOR_FOLLOW_LERP = 14
   private static readonly OUTDOOR_FOV = 32
   private static readonly INDOOR_FOV = 37
@@ -599,7 +602,7 @@ export class PlaygroundRuntime {
       this.syncFrameInput(),
       this.controllerConfig,
       PLAYGROUND_BOUNDS,
-      this.getGroundHeightAtWorld,
+      this.getPlayerWalkHeightAtWorld,
       1,
       this.resolveHorizontalMove,
     )
@@ -641,11 +644,41 @@ export class PlaygroundRuntime {
     return gy
   }
 
+  private getPlayerWalkHeightAtWorld = (x: number, z: number): number => {
+    const gy = this.getGroundHeightAtWorld(x, z)
+    const roofY = this.getRoofHeightAtWorld(x, z, this.getPlayerCollisionProbeY())
+    return roofY == null ? gy : Math.max(gy, roofY)
+  }
+
+  private getPlayerCollisionProbeY(): number {
+    return this.activeFrame?.playerPosition.y ?? this.controller.player.group.position.y
+  }
+
+  private getRoofHeightAtWorld(x: number, z: number, referenceY: number): number | null {
+    for (const roof of ROOF_WALKABLE_SURFACES) {
+      if (
+        x >= roof.bounds.minX &&
+        x <= roof.bounds.maxX &&
+        z >= roof.bounds.minZ &&
+        z <= roof.bounds.maxZ &&
+        referenceY >= roof.y - PlaygroundRuntime.ROOF_SNAP_DOWN_DISTANCE
+      ) {
+        return roof.y
+      }
+    }
+    return null
+  }
+
+  private blocksAtProbeHeight(maxY: number | undefined, probeY: number): boolean {
+    return maxY == null || probeY < maxY - PlaygroundRuntime.WALL_TOP_CLEARANCE
+  }
+
   /** Solid building AABBs plus breach zones: pass only through Weft holes when sampled points are open enough. */
   private readonly resolveHorizontalMove: ResolveHorizontalMove = (prevX, prevZ, nextX, nextZ) => {
     const r = PLAYER_COLLISION_RADIUS
     let x = nextX
     let z = nextZ
+    const probeY = this.getPlayerCollisionProbeY()
 
     const mdx = nextX - prevX
     const mdz = nextZ - prevZ
@@ -660,6 +693,7 @@ export class PlaygroundRuntime {
       let changed = false
 
       for (const wall of SOLID_BUILDING_WALLS) {
+        if (!this.blocksAtProbeHeight(wall.maxY, probeY)) continue
         const p = pushCircleOutOfAabb(x, z, r, wall)
         if (p.x !== x || p.z !== z) changed = true
         x = p.x
@@ -667,6 +701,7 @@ export class PlaygroundRuntime {
       }
 
       for (const zone of BREACHABLE_FACADE_ZONES) {
+        if (!this.blocksAtProbeHeight(zone.bounds.maxY, probeY)) continue
         if (!circleOverlapsAabb(x, z, r, zone.bounds)) continue
         if (this.isBreachZoneOpen(zone, x, z, perpX, perpZ, breachOffsets)) continue
         const p = pushCircleOutOfAabb(x, z, r, zone.bounds)
@@ -1057,7 +1092,7 @@ export class PlaygroundRuntime {
       this.syncFrameInput(),
       this.controllerConfig,
       PLAYGROUND_BOUNDS,
-      this.getGroundHeightAtWorld,
+      this.getPlayerWalkHeightAtWorld,
       delta,
       this.resolveHorizontalMove,
     )

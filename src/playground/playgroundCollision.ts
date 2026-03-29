@@ -1,11 +1,12 @@
 import * as THREE from 'three'
 
-/** Axis-aligned box in XZ (world). */
+/** Axis-aligned box in XZ (world), with optional top cap for vertical filtering. */
 export type SolidAabb = {
   minX: number
   maxX: number
   minZ: number
   maxZ: number
+  maxY?: number
 }
 
 /**
