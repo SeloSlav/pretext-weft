@@ -1,8 +1,9 @@
 import { useState } from 'react'
+import { Docs } from './Docs'
 import { Editor } from './Editor'
 import { Landing } from './Landing'
 
-type SitePage = 'home' | 'editor'
+type SitePage = 'home' | 'docs' | 'editor'
 
 export default function App() {
   const [page, setPage] = useState<SitePage>('home')
@@ -26,6 +27,13 @@ export default function App() {
           </button>
           <button
             type="button"
+            className={`site-nav__link${page === 'docs' ? ' site-nav__link--active' : ''}`}
+            onClick={() => setPage('docs')}
+          >
+            Docs
+          </button>
+          <button
+            type="button"
             className={`site-nav__link${page === 'editor' ? ' site-nav__link--active' : ''}`}
             onClick={() => setPage('editor')}
           >
@@ -45,7 +53,15 @@ export default function App() {
         </div>
       </header>
 
-      <main className="site-main">{page === 'home' ? <Landing onEnterEditor={() => setPage('editor')} /> : <Editor />}</main>
+      <main className="site-main">
+        {page === 'home' ? (
+          <Landing onEnterEditor={() => setPage('editor')} />
+        ) : page === 'docs' ? (
+          <Docs onEnterEditor={() => setPage('editor')} />
+        ) : (
+          <Editor />
+        )}
+      </main>
     </div>
   )
 }

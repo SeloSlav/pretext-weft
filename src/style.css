@@ -831,6 +831,218 @@ body,
   pointer-events: none;
 }
 
+.docs {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(126, 184, 255, 0.12), transparent 55%),
+    linear-gradient(180deg, #07090e 0%, #05060a 100%);
+}
+
+.docs__inner {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 48px 24px 72px;
+}
+
+.docs__eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: rgba(126, 184, 255, 0.85);
+}
+
+.docs__title {
+  margin: 0 0 18px;
+  font-size: clamp(2rem, 5vw, 2.65rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.12;
+  color: #f4f7fc;
+}
+
+.docs__lead,
+.docs__text {
+  font-size: 1rem;
+  line-height: 1.65;
+  color: rgba(232, 237, 244, 0.82);
+}
+
+.docs__lead {
+  max-width: 760px;
+  margin: 0 0 28px;
+}
+
+.docs__text {
+  margin: 0 0 20px;
+}
+
+.docs__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 28px;
+}
+
+.docs__toc {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 38px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.docs__toc-link {
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: rgba(126, 184, 255, 0.92);
+  text-decoration: none;
+  background: rgba(126, 184, 255, 0.08);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.docs__toc-link:hover {
+  background: rgba(126, 184, 255, 0.14);
+}
+
+.docs__section {
+  margin: 0 0 52px;
+}
+
+.docs__section-title {
+  margin: 0 0 16px;
+  font-size: 1.3rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  color: #f0f4fa;
+}
+
+.docs__code-inline {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.88em;
+  color: rgba(126, 184, 255, 0.9);
+  background: rgba(126, 184, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.docs__code-block {
+  margin: 0 0 24px;
+  border: 1px solid rgba(126, 184, 255, 0.15);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(10, 14, 22, 0.7);
+}
+
+.docs__code-label {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(126, 184, 255, 0.8);
+  border-bottom: 1px solid rgba(126, 184, 255, 0.1);
+  background: rgba(126, 184, 255, 0.05);
+}
+
+.docs__pre {
+  margin: 0;
+  padding: 16px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: #c8d6e8;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.docs__concept-grid,
+.docs__preset-grid,
+.docs__api-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.docs__concept-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0 0 18px;
+}
+
+.docs__preset-grid,
+.docs__api-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.docs__concept-card,
+.docs__preset-card,
+.docs__api-card,
+.docs__callout {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.docs__card-title,
+.docs__callout-title {
+  margin: 0 0 10px;
+  font-size: 0.98rem;
+  font-weight: 650;
+  color: #f0f4fa;
+}
+
+.docs__card-text,
+.docs__callout-text,
+.docs__meta,
+.docs__api-list {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: rgba(232, 237, 244, 0.72);
+}
+
+.docs__card-text,
+.docs__meta,
+.docs__callout-text {
+  margin: 0 0 10px;
+}
+
+.docs__meta:last-child,
+.docs__callout-text:last-child {
+  margin-bottom: 0;
+}
+
+.docs__api-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.docs__examples {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+@media (max-width: 860px) {
+  .docs__concept-grid,
+  .docs__preset-grid,
+  .docs__api-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .docs__inner {
+    padding: 38px 18px 56px;
+  }
+}
+
 @media (max-width: 720px) {
   .app-shell {
     flex-direction: column;
