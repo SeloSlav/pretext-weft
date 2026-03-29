@@ -22,12 +22,15 @@ const tmpNormal = new THREE.Vector3()
 const tmpMatrix = new THREE.Matrix4()
 const tmpColor = new THREE.Color()
 const tmpLocalPoint = new THREE.Vector3()
+const tmpLocalDirection = new THREE.Vector3()
+const tmpWorldMatrix = new THREE.Matrix4()
 const dummy = new THREE.Object3D()
 
 type Wound = {
   x: number
   y: number
   strength: number
+  side: 1 | -1
 }
 
 type SurfaceFrame = {
@@ -133,13 +136,14 @@ export class FishScaleSample {
     this.wounds.length = 0
   }
 
-  addWoundFromWorldPoint(worldPoint: THREE.Vector3): void {
+  addWoundFromWorldPoint(worldPoint: THREE.Vector3, worldDirection: THREE.Vector3): void {
     tmpLocalPoint.copy(worldPoint)
     this.group.worldToLocal(tmpLocalPoint)
 
     const x = THREE.MathUtils.clamp(tmpLocalPoint.x, -PATCH_WIDTH * 0.48, PATCH_WIDTH * 0.48)
     const y = THREE.MathUtils.clamp(tmpLocalPoint.y, -PATCH_HEIGHT * 0.48, PATCH_HEIGHT * 0.48)
-    const mergeIndex = this.findNearbyWoundIndex(x, y)
+    const side = this.impactSideFromWorldDirection(worldDirection)
+    const mergeIndex = this.findNearbyWoundIndex(x, y, side)
 
     if (mergeIndex >= 0) {
       const wound = this.wounds[mergeIndex]!
@@ -149,7 +153,7 @@ export class FishScaleSample {
       this.wounds.splice(mergeIndex, 1)
       this.wounds.unshift(wound)
     } else {
-      this.wounds.unshift({ x, y, strength: 1 })
+      this.wounds.unshift({ x, y, strength: 1, side })
     }
   }
 
@@ -182,12 +186,19 @@ export class FishScaleSample {
     return THREE.MathUtils.clamp(damage, 0, 1)
   }
 
-  private findNearbyWoundIndex(x: number, y: number): number {
+  private impactSideFromWorldDirection(worldDirection: THREE.Vector3): 1 | -1 {
+    tmpWorldMatrix.copy(this.group.matrixWorld).invert()
+    tmpLocalDirection.copy(worldDirection).transformDirection(tmpWorldMatrix)
+    return tmpLocalDirection.z <= 0 ? 1 : -1
+  }
+
+  private findNearbyWoundIndex(x: number, y: number, side: 1 | -1): number {
     const mergeRadius = this.params.woundRadius * WOUND_MERGE_RADIUS
     const mergeRadiusSq = mergeRadius * mergeRadius
 
     for (let i = 0; i < this.wounds.length; i++) {
       const wound = this.wounds[i]!
+      if (wound.side !== side) continue
       const dx = x - wound.x
       const dy = y - wound.y
       if (dx * dx + dy * dy <= mergeRadiusSq) {
@@ -226,8 +237,7 @@ export class FishScaleSample {
       this.params.surfaceFlex *
       (0.05 * Math.sin(elapsedTime * 0.55 + x * 0.9) + 0.03 * Math.cos(elapsedTime * 0.35 + y * 1.1))
 
-    let woundDepth = 0
-    let woundRidge = 0
+    let woundOffset = 0
 
     for (const wound of this.wounds) {
       const dx = x - wound.x
@@ -240,13 +250,18 @@ export class FishScaleSample {
       const crater = smoothPulse(Math.min(n, 1))
       const intensity = this.woundIntensity01(wound)
       const presence = this.woundPresence01(wound)
-      woundDepth += crater * this.params.woundDepth * THREE.MathUtils.lerp(0.34, 0.54, intensity) * presence
+      const woundSide = wound.side
+      woundOffset +=
+        woundSide *
+        (-crater * this.params.woundDepth * THREE.MathUtils.lerp(0.34, 0.54, intensity) * presence)
 
       const ridgeT = THREE.MathUtils.clamp(1 - Math.abs(n - 0.92) / 0.22, 0, 1)
-      woundRidge += ridgeT * ridgeT * this.params.woundDepth * THREE.MathUtils.lerp(0.1, 0.16, intensity) * presence
+      woundOffset +=
+        woundSide *
+        (ridgeT * ridgeT * this.params.woundDepth * THREE.MathUtils.lerp(0.1, 0.16, intensity) * presence)
     }
 
-    return baseBulge + sway - woundDepth + woundRidge
+    return baseBulge + sway + woundOffset
   }
 
   private sampleSurface(x: number, y: number, elapsedTime: number): SurfaceFrame {

@@ -20,11 +20,20 @@ const tmpColor = new THREE.Color()
 const tmpLocalPoint = new THREE.Vector3()
 const dummy = new THREE.Object3D()
 const groundBaseColor = new THREE.Color('#8cab72')
-const groundDarkColor = new THREE.Color('#5b4a2a')
-const groundHealthyColor = new THREE.Color('#8faf6f')
-const groundDryGrassColor = new THREE.Color('#98b67b')
-const groundDirtColor = new THREE.Color('#a98458')
-const groundDirtDarkColor = new THREE.Color('#7b5a34')
+const groundDarkColor = new THREE.Color('#587044')
+
+// Each Unicode blade glyph gets its own color identity so the typographic
+// origin is visible in the field. Hue 0.27 = yellow-green, 0.32 = warm gold.
+function glyphColorIdentity(code: number): { hueShift: number; lightShift: number; satShift: number } {
+  // Map code point to a stable slot in [0,1) using a cheap mix
+  const t = ((code * 2654435761) >>> 0) / 4294967296
+  // Spread hue across a narrow yellow-green to warm-gold band
+  const hueShift = (t - 0.5) * 0.072
+  // Some glyphs are paler (tips), some richer (stems)
+  const lightShift = (t - 0.5) * 0.14
+  const satShift = (t - 0.5) * 0.18
+  return { hueShift, lightShift, satShift }
+}
 
 type Disturbance = {
   x: number
@@ -75,134 +84,103 @@ function createGroundTexture(): THREE.CanvasTexture {
     return fallback
   }
 
-  ctx.fillStyle = '#96b579'
+  ctx.fillStyle = '#5f8744'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  for (let i = 0; i < 14000; i++) {
+  for (let i = 0; i < 16000; i++) {
     const x = Math.random() * canvas.width
     const y = Math.random() * canvas.height
-    const radius = 0.8 + Math.random() * 6
-    const alpha = 0.025 + Math.random() * 0.08
-    const hue = 62 + Math.random() * 22
-    const sat = 14 + Math.random() * 16
-    const light = 28 + Math.random() * 12
+    const radius = 1.2 + Math.random() * 7.5
+    const alpha = 0.05 + Math.random() * 0.12
+    const hue = 78 + Math.random() * 16
+    const sat = 28 + Math.random() * 28
+    const light = 22 + Math.random() * 10
     ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 2400; i++) {
-    ctx.strokeStyle = `hsla(${54 + Math.random() * 16}, ${10 + Math.random() * 8}%, ${28 + Math.random() * 10}%, ${0.02 + Math.random() * 0.04})`
-    ctx.lineWidth = 0.3 + Math.random() * 1.1
+  for (let i = 0; i < 5200; i++) {
+    ctx.strokeStyle = `hsla(${86 + Math.random() * 14}, ${24 + Math.random() * 18}%, ${18 + Math.random() * 9}%, ${0.06 + Math.random() * 0.1})`
+    ctx.lineWidth = 0.7 + Math.random() * 2.1
     ctx.beginPath()
     const x = Math.random() * canvas.width
     const y = Math.random() * canvas.height
     ctx.moveTo(x, y)
-    ctx.lineTo(x + (Math.random() - 0.5) * 48, y + (Math.random() - 0.5) * 48)
+    ctx.lineTo(x + (Math.random() - 0.5) * 56, y + (Math.random() - 0.5) * 80)
     ctx.stroke()
   }
 
-  for (let i = 0; i < 520; i++) {
+  for (let i = 0; i < 900; i++) {
     const x = Math.random() * canvas.width
     const y = Math.random() * canvas.height
-    const radius = 14 + Math.random() * 52
-    const alpha = 0.02 + Math.random() * 0.04
-    ctx.fillStyle = `hsla(${72 + Math.random() * 16}, ${8 + Math.random() * 8}%, ${34 + Math.random() * 8}%, ${alpha})`
+    const radius = 18 + Math.random() * 60
+    const alpha = 0.04 + Math.random() * 0.08
+    ctx.fillStyle = `hsla(${88 + Math.random() * 18}, ${16 + Math.random() * 14}%, ${30 + Math.random() * 10}%, ${alpha})`
     ctx.beginPath()
     ctx.ellipse(x, y, radius, radius * (0.45 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 240; i++) {
+  for (let i = 0; i < 90; i++) {
     const x = Math.random() * canvas.width
     const y = Math.random() * canvas.height
-    const radius = 3 + Math.random() * 14
-    const alpha = 0.04 + Math.random() * 0.08
-    ctx.fillStyle = `hsla(${34 + Math.random() * 12}, 22%, ${52 + Math.random() * 8}%, ${alpha})`
+    const radius = 46 + Math.random() * 120
+    const alpha = 0.08 + Math.random() * 0.1
+    const broadPatch = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius)
+    broadPatch.addColorStop(0, `rgba(124, 164, 74, ${alpha})`)
+    broadPatch.addColorStop(0.55, `rgba(90, 125, 54, ${alpha * 0.82})`)
+    broadPatch.addColorStop(1, 'rgba(90, 125, 54, 0)')
+    ctx.fillStyle = broadPatch
+    ctx.beginPath()
+    ctx.ellipse(x, y, radius, radius * (0.5 + Math.random() * 0.28), Math.random() * Math.PI, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  for (let i = 0; i < 360; i++) {
+    const x = Math.random() * canvas.width
+    const y = Math.random() * canvas.height
+    const radius = 3 + Math.random() * 10
+    const alpha = 0.03 + Math.random() * 0.06
+    ctx.fillStyle = `hsla(${102 + Math.random() * 14}, 20%, ${58 + Math.random() * 8}%, ${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 28; i++) {
+  for (let i = 0; i < 110; i++) {
     const x = Math.random() * canvas.width
     const y = Math.random() * canvas.height
-    const radius = 48 + Math.random() * 82
-    const alpha = 0.08 + Math.random() * 0.08
-    const dirtPatch = ctx.createRadialGradient(x, y, radius * 0.16, x, y, radius)
-    dirtPatch.addColorStop(0, `rgba(162, 136, 94, ${alpha})`)
-    dirtPatch.addColorStop(0.55, `rgba(181, 156, 116, ${alpha * 0.76})`)
-    dirtPatch.addColorStop(1, 'rgba(181, 156, 116, 0)')
-    ctx.fillStyle = dirtPatch
+    const radius = 56 + Math.random() * 90
+    const alpha = 0.05 + Math.random() * 0.08
+    const grassPatch = ctx.createRadialGradient(x, y, radius * 0.16, x, y, radius)
+    grassPatch.addColorStop(0, `rgba(92, 128, 58, ${alpha})`)
+    grassPatch.addColorStop(0.55, `rgba(124, 162, 78, ${alpha * 0.82})`)
+    grassPatch.addColorStop(1, 'rgba(124, 162, 78, 0)')
+    ctx.fillStyle = grassPatch
     ctx.beginPath()
     ctx.ellipse(x, y, radius, radius * (0.55 + Math.random() * 0.3), Math.random() * Math.PI, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.wrapS = THREE.RepeatWrapping
-  texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(2.2, 2.2)
-  texture.colorSpace = THREE.SRGBColorSpace
-  return texture
-}
-
-function createDirtBaseTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas')
-  canvas.width = 1024
-  canvas.height = 1024
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    const fallback = new THREE.CanvasTexture(canvas)
-    fallback.colorSpace = THREE.SRGBColorSpace
-    return fallback
-  }
-
-  ctx.fillStyle = '#95b373'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  for (let i = 0; i < 16000; i++) {
-    const x = Math.random() * canvas.width
+  for (let i = 0; i < 36; i++) {
     const y = Math.random() * canvas.height
-    const radius = 0.5 + Math.random() * 3.4
-    const alpha = 0.025 + Math.random() * 0.08
-    ctx.fillStyle = `hsla(${66 + Math.random() * 18}, ${12 + Math.random() * 12}%, ${30 + Math.random() * 14}%, ${alpha})`
-    ctx.beginPath()
-    ctx.arc(x, y, radius, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  for (let i = 0; i < 180; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const radius = 40 + Math.random() * 120
-    const alpha = 0.08 + Math.random() * 0.1
-    const patch = ctx.createRadialGradient(x, y, radius * 0.15, x, y, radius)
-    patch.addColorStop(0, `rgba(124, 150, 84, ${alpha})`)
-    patch.addColorStop(0.5, `rgba(150, 176, 106, ${alpha * 0.85})`)
-    patch.addColorStop(1, 'rgba(150, 176, 106, 0)')
-    ctx.fillStyle = patch
-    ctx.beginPath()
-    ctx.ellipse(x, y, radius, radius * (0.45 + Math.random() * 0.35), Math.random() * Math.PI, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  for (let i = 0; i < 2200; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    ctx.strokeStyle = `hsla(${68 + Math.random() * 18}, 10%, ${24 + Math.random() * 10}%, ${0.03 + Math.random() * 0.04})`
-    ctx.lineWidth = 0.5 + Math.random() * 2
-    ctx.beginPath()
-    ctx.moveTo(x, y)
-    ctx.lineTo(x + (Math.random() - 0.5) * 44, y + (Math.random() - 0.5) * 20)
-    ctx.stroke()
+    const thickness = 18 + Math.random() * 40
+    const alpha = 0.03 + Math.random() * 0.05
+    const band = ctx.createLinearGradient(0, y - thickness, 0, y + thickness)
+    band.addColorStop(0, 'rgba(0,0,0,0)')
+    band.addColorStop(0.5, `rgba(68, 97, 43, ${alpha})`)
+    band.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = band
+    ctx.fillRect(0, y - thickness, canvas.width, thickness * 2)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(1.7, 1.7)
+  texture.repeat.set(4.8, 4.8)
+  texture.needsUpdate = true
   texture.colorSpace = THREE.SRGBColorSpace
   return texture
 }
@@ -214,9 +192,24 @@ function fieldNoise(x: number, z: number): number {
   return THREE.MathUtils.clamp(0.5 + a * 0.22 + b * 0.18 + c * 0.1, 0, 1)
 }
 
+function lineSignature(text: string): number {
+  let hash = 2166136261
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return (hash >>> 0) / 4294967295
+}
+
+function glyphScatter(code: number, lineSeed: number, index: number): number {
+  const waveA = Math.sin(code * 0.073 + lineSeed * 6.1 + index * 1.7)
+  const waveB = Math.sin(code * 0.031 + lineSeed * 11.3 + index * 0.83)
+  return THREE.MathUtils.clamp(waveA * 0.7 + waveB * 0.3, -1, 1)
+}
+
 export class GrassFieldSample {
   readonly group = new THREE.Group()
-  readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
+  readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
 
   private readonly bladeGeometry = makeBladeGeometry()
   private readonly bladeMaterial = new THREE.MeshPhysicalMaterial({
@@ -233,27 +226,21 @@ export class GrassFieldSample {
     sheenColor: new THREE.Color('#e8ffc8'),
   })
   private readonly bladeMesh = new THREE.InstancedMesh(this.bladeGeometry, this.bladeMaterial, MAX_INSTANCES)
-  private readonly dirtBaseTexture = createDirtBaseTexture()
-  private readonly dirtBaseGeometry = new THREE.PlaneGeometry(FIELD_WIDTH * 1.08, FIELD_DEPTH * 1.08, 1, 1)
-  private readonly dirtBaseMaterial = new THREE.MeshStandardMaterial({
-    color: '#9ab879',
-    map: this.dirtBaseTexture,
-    roughness: 0.98,
-    metalness: 0,
-    side: THREE.DoubleSide,
-  })
-  private readonly dirtBaseMesh = new THREE.Mesh(this.dirtBaseGeometry, this.dirtBaseMaterial)
   private readonly groundTexture = createGroundTexture()
   private readonly groundGeometry = new THREE.PlaneGeometry(FIELD_WIDTH, FIELD_DEPTH, 64, 52)
-  private readonly groundMaterial = new THREE.MeshStandardMaterial({
+  private readonly groundMaterial = new THREE.MeshBasicMaterial({
     color: '#ffffff',
-    roughness: 0.96,
-    metalness: 0.01,
+    map: this.groundTexture,
     side: THREE.DoubleSide,
-    vertexColors: true,
   })
+  private readonly interactionMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+  private readonly groundSurfaceMesh = new THREE.Mesh(this.groundGeometry, this.groundMaterial)
   private readonly baseGroundPositions = Float32Array.from(this.groundGeometry.attributes.position.array as ArrayLike<number>)
-  private readonly groundColors = new Float32Array(this.groundGeometry.attributes.position.count * 3)
   private readonly layoutDriver: SurfaceLayoutDriver
   private readonly disturbances: Disturbance[] = []
   private lastElapsedTime = 0
@@ -278,13 +265,13 @@ export class GrassFieldSample {
 
     this.bladeMesh.frustumCulled = false
     this.bladeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    this.groundGeometry.setAttribute('color', new THREE.BufferAttribute(this.groundColors, 3))
-    this.dirtBaseMesh.rotation.x = -Math.PI / 2
-    this.dirtBaseMesh.position.y = -0.26
-    this.interactionMesh = new THREE.Mesh(this.groundGeometry, this.groundMaterial)
+    this.interactionMesh = new THREE.Mesh(this.groundGeometry, this.interactionMaterial)
     this.interactionMesh.rotation.x = -Math.PI / 2
+    this.groundSurfaceMesh.rotation.x = -Math.PI / 2
+    this.groundSurfaceMesh.position.y = 0.01
+    this.groundSurfaceMesh.renderOrder = -1
 
-    this.group.add(this.dirtBaseMesh)
+    this.group.add(this.groundSurfaceMesh)
     this.group.add(this.interactionMesh)
     this.group.add(this.bladeMesh)
   }
@@ -338,12 +325,10 @@ export class GrassFieldSample {
   dispose(): void {
     this.bladeGeometry.dispose()
     this.bladeMaterial.dispose()
-    this.dirtBaseTexture.dispose()
-    this.dirtBaseGeometry.dispose()
-    this.dirtBaseMaterial.dispose()
     this.groundTexture.dispose()
     this.groundGeometry.dispose()
     this.groundMaterial.dispose()
+    this.interactionMaterial.dispose()
   }
 
   private disturbanceAt(x: number, z: number): number {
@@ -378,23 +363,15 @@ export class GrassFieldSample {
 
   private updateGround(): void {
     const position = this.groundGeometry.attributes.position
-    const color = this.groundGeometry.getAttribute('color') as THREE.BufferAttribute
     for (let i = 0; i < position.count; i++) {
       const x = this.baseGroundPositions[i * 3]
-      const z = this.baseGroundPositions[i * 3 + 2]
-      const disturbance = this.disturbanceAt(x, z)
-      const organicNoise = fieldNoise(x, z)
-      position.setXYZ(i, x, this.groundY(x, z), z)
-
-      tmpColor.copy(groundHealthyColor)
-      tmpColor.lerp(groundDryGrassColor, organicNoise * 0.35)
-      const exposedDirt = THREE.MathUtils.smoothstep(disturbance, 0.03, 0.24)
-      tmpColor.lerp(groundDirtColor, exposedDirt)
-      tmpColor.lerp(groundDirtDarkColor, exposedDirt * exposedDirt * 0.68)
-      color.setXYZ(i, tmpColor.r, tmpColor.g, tmpColor.b)
+      // PlaneGeometry lies in XY (normal +Z); depth of the field is local Y, not Z (Z is always 0).
+      // After rotation.x = -π/2, local Y becomes world -Z, so height samples use groundY(x, -yPlane).
+      const yPlane = this.baseGroundPositions[i * 3 + 1]
+      const h = this.groundY(x, -yPlane)
+      position.setXYZ(i, x, yPlane, h)
     }
     position.needsUpdate = true
-    color.needsUpdate = true
     this.groundGeometry.computeVertexNormals()
   }
 
@@ -408,8 +385,8 @@ export class GrassFieldSample {
       spanMax: FIELD_WIDTH * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
-      onLine: ({ slot, glyphs }) => {
-        instanceIndex = this.projectLine(slot, glyphs, rowStep, elapsedTime, instanceIndex)
+      onLine: ({ slot, glyphs, lineText }) => {
+        instanceIndex = this.projectLine(slot, glyphs, lineText, rowStep, elapsedTime, instanceIndex)
       },
     })
 
@@ -432,11 +409,17 @@ export class GrassFieldSample {
   private projectLine(
     slot: SurfaceLayoutSlot,
     glyphs: readonly string[],
+    lineText: string,
     rowStep: number,
     elapsedTime: number,
     instanceIndex: number,
   ): number {
     const n = glyphs.length
+    const lineSeed = lineSignature(lineText)
+    const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.28
+    const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.18
+    const lineClusterStrength = 0.035 + lineSeed * 0.05
+
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
 
@@ -445,15 +428,31 @@ export class GrassFieldSample {
       for (let blade = 0; blade < BLADES_PER_SLOT; blade++) {
         if (instanceIndex >= MAX_INSTANCES) break
 
-        const fieldRandom = fieldNoise(slot.spanCenter + k * 0.37 + blade * 1.9, slot.lineCoord + blade * 0.23)
+        const pretextScatter = glyphScatter(code, lineSeed, k * BLADES_PER_SLOT + blade)
+        const fieldRandom = fieldNoise(
+          slot.spanCenter + k * 0.37 + blade * 1.9 + pretextScatter * 0.9,
+          slot.lineCoord + blade * 0.23 + lineDepthShift,
+        )
         const t01 = (k + 0.18 + blade * 0.34) / (n + BLADES_PER_SLOT * 0.2)
+        const clusteredT = THREE.MathUtils.clamp(
+          t01 +
+            pretextScatter * lineClusterStrength +
+            Math.sin((t01 + lineSeed * 0.4) * Math.PI * 2) * 0.02,
+          0.04,
+          0.96,
+        )
         const x =
           slot.spanStart +
-          t01 * slot.spanSize +
+          clusteredT * slot.spanSize +
+          lineLateralShift +
           (blade - 0.5) * slot.sectorStep * 0.14 +
-          (fieldRandom - 0.5) * slot.sectorStep * 0.2
-        const zJitter = (blade - 0.5) * rowStep * 0.24 + (fieldRandom - 0.5) * rowStep * 0.18
-        const localZ = slot.lineCoord + zJitter
+          (fieldRandom - 0.5) * slot.sectorStep * 0.2 +
+          pretextScatter * slot.sectorStep * 0.11
+        const zJitter =
+          (blade - 0.5) * rowStep * 0.24 +
+          (fieldRandom - 0.5) * rowStep * 0.18 +
+          pretextScatter * rowStep * 0.12
+        const localZ = slot.lineCoord + lineDepthShift + zJitter
         const localDisturbance = this.disturbanceAt(x, localZ)
         const baseY = this.groundY(x, localZ)
         const organicNoise = fieldNoise(x, localZ)
@@ -500,13 +499,23 @@ export class GrassFieldSample {
         dummy.updateMatrix()
         this.bladeMesh.setMatrixAt(instanceIndex, dummy.matrix)
 
-        const hue = 0.27 + organicNoise * 0.04 + (code % 9) * 0.002
-        const sat = THREE.MathUtils.lerp(0.74, 0.2, localDisturbance)
-        const light = THREE.MathUtils.lerp(0.44, 0.66, 0.35 + organicNoise * 0.65)
+        const identity = glyphColorIdentity(code)
+        // Base hue drifts with field noise; glyph identity shifts it further so
+        // each distinct blade character reads as a slightly different colour family.
+        const hue = 0.275 + organicNoise * 0.038 + identity.hueShift
+        // Blades taller in the slot (blade index 1) are slightly paler — tip effect.
+        const tipFade = blade * 0.055
+        const sat = THREE.MathUtils.clamp(
+          THREE.MathUtils.lerp(0.78, 0.18, localDisturbance) + identity.satShift,
+          0.1, 1,
+        )
+        const light = THREE.MathUtils.clamp(
+          THREE.MathUtils.lerp(0.41, 0.68, 0.3 + organicNoise * 0.7) + identity.lightShift + tipFade,
+          0.28, 0.78,
+        )
         tmpColor.setHSL(hue, sat, light)
-        tmpColor.lerp(groundBaseColor, localDisturbance * 0.04)
-        tmpColor.lerp(groundDirtColor, localDisturbance * 0.52)
-        tmpColor.lerp(groundDarkColor, localDisturbance * 0.32)
+        tmpColor.lerp(groundBaseColor, localDisturbance * 0.06)
+        tmpColor.lerp(groundDarkColor, localDisturbance * 0.28)
         this.bladeMesh.setColorAt(instanceIndex, tmpColor)
 
         instanceIndex++

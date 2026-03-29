@@ -4,8 +4,10 @@ import { Timer } from 'three'
 import * as THREE from 'three'
 import { FishScaleSample } from './fishScaleSample'
 import { GrassFieldSample } from './grassFieldSample'
+import { RockFieldSample } from './rockFieldSample'
 import { getPreparedFishSurface } from './fishSurfaceText'
 import { getPreparedGrassSurface } from './grassSurfaceText'
+import { getPreparedRockSurface } from './rockSurfaceText'
 import { applyPlaygroundAtmosphere, addPlaygroundLighting } from './playgroundEnvironment'
 import {
   type PlayerAnimationState,
@@ -53,6 +55,10 @@ export class PlaygroundRuntime {
     seedCursor,
     DEFAULT_GRASS_FIELD_PARAMS,
   )
+  private readonly rockFieldSample = new RockFieldSample(
+    getPreparedRockSurface(),
+    seedCursor,
+  )
   private readonly controller = new ThirdPersonController()
   private readonly shotAudio = new Audio('/gun_shot.mp3')
   private readonly inputState = {
@@ -73,6 +79,7 @@ export class PlaygroundRuntime {
   private lastElapsed = 0
   private walkStampDistance = 0
   private pendingShoot = false
+  private pendingJump = false
   private shootAnimationTimeRemaining = 0
   private activeFrame: ThirdPersonControllerFrame | null = null
 
@@ -105,6 +112,7 @@ export class PlaygroundRuntime {
 
     this.scene.add(this.grassFieldSample.group)
     this.scene.add(this.fishScaleSample.group)
+    this.scene.add(this.rockFieldSample.group)
     this.scene.add(this.controller.player.group)
     this.camera.add(this.controller.player.reticle)
     this.controller.player.setReticleVisible(true)
@@ -182,10 +190,12 @@ export class PlaygroundRuntime {
     window.removeEventListener('blur', this.handleWindowBlur)
     this.scene.remove(this.grassFieldSample.group)
     this.scene.remove(this.fishScaleSample.group)
+    this.scene.remove(this.rockFieldSample.group)
     this.scene.remove(this.controller.player.group)
     this.camera.remove(this.controller.player.reticle)
     this.fishScaleSample.dispose()
     this.grassFieldSample.dispose()
+    this.rockFieldSample.dispose()
     this.controller.player.dispose()
     this.shotAudio.pause()
     this.shotAudio.src = ''
@@ -210,16 +220,17 @@ export class PlaygroundRuntime {
   private resetPlayer(): void {
     const spawn = new THREE.Vector3(
       PLAYGROUND_SPAWN.x,
-      this.grassFieldSample.getWalkHeightAtWorld(PLAYGROUND_SPAWN.x, PLAYGROUND_SPAWN.z),
+      this.grassFieldSample.getGroundHeightAtWorld(PLAYGROUND_SPAWN.x, PLAYGROUND_SPAWN.z),
       PLAYGROUND_SPAWN.z,
     )
 
     this.walkStampDistance = 0
+    this.pendingJump = false
     this.shootAnimationTimeRemaining = 0
     this.controller.setSpawn(spawn, PLAYGROUND_SPAWN.yaw, PLAYGROUND_SPAWN.yaw, PLAYGROUND_SPAWN.pitch)
     this.activeFrame = this.controller.update(
       this.camera,
-      this.inputState,
+      this.getFrameInput(),
       this.getControllerConfig(),
       PLAYGROUND_BOUNDS,
       this.getGroundHeightAtWorld,
@@ -240,7 +251,8 @@ export class PlaygroundRuntime {
     }
   }
 
-  private getGroundHeightAtWorld = (x: number, z: number): number => this.grassFieldSample.getWalkHeightAtWorld(x, z)
+  private getGroundHeightAtWorld = (x: number, z: number): number =>
+    this.grassFieldSample.getGroundHeightAtWorld(x, z)
 
   private handlePointerDown = (event: PointerEvent): void => {
     this.canvas.focus()
@@ -296,6 +308,10 @@ export class PlaygroundRuntime {
     if (event.code === 'KeyA') this.inputState.moveLeft = true
     if (event.code === 'KeyD') this.inputState.moveRight = true
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') this.inputState.sprint = true
+    if (event.code === 'Space' && !event.repeat) {
+      event.preventDefault()
+      this.pendingJump = true
+    }
   }
 
   private handleKeyUp = (event: KeyboardEvent): void => {
@@ -304,6 +320,9 @@ export class PlaygroundRuntime {
     if (event.code === 'KeyA') this.inputState.moveLeft = false
     if (event.code === 'KeyD') this.inputState.moveRight = false
     if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') this.inputState.sprint = false
+    if (event.code === 'Space') {
+      event.preventDefault()
+    }
   }
 
   private handleWindowBlur = (): void => {
@@ -316,6 +335,7 @@ export class PlaygroundRuntime {
     this.inputState.lookDeltaX = 0
     this.inputState.lookDeltaY = 0
     this.pendingShoot = false
+    this.pendingJump = false
     this.shootAnimationTimeRemaining = 0
   }
 
@@ -329,10 +349,12 @@ export class PlaygroundRuntime {
   private getFrameInput() {
     return {
       ...this.inputState,
+      jump: this.pendingJump,
     }
   }
 
   private getPlayerAnimationState(frame: ThirdPersonControllerFrame | null): PlayerAnimationState {
+    if (frame?.isJumping) return 'jumping'
     if (!frame?.isMoving) {
       return this.shootAnimationTimeRemaining > 0 ? 'shooting' : 'idle'
     }
@@ -342,7 +364,7 @@ export class PlaygroundRuntime {
   }
 
   private stampGrassWalkDisturbance(frame: ThirdPersonControllerFrame): void {
-    if (!frame.isMoving) {
+    if (!frame.isMoving || frame.isJumping) {
       this.walkStampDistance = 0
       return
     }
@@ -360,7 +382,7 @@ export class PlaygroundRuntime {
     }
 
     this.footstepPoint.copy(frame.playerPosition).addScaledVector(this.playerForward, -0.18)
-    this.footstepPoint.y = this.grassFieldSample.getWalkHeightAtWorld(this.footstepPoint.x, this.footstepPoint.z)
+    this.footstepPoint.y = this.grassFieldSample.getGroundHeightAtWorld(this.footstepPoint.x, this.footstepPoint.z)
     this.grassFieldSample.addDisturbanceFromWorldPoint(this.footstepPoint, {
       radiusScale: 0.42,
       strength: 0.38,
@@ -385,7 +407,7 @@ export class PlaygroundRuntime {
   }
 
   private getGrassFallbackHit(): ReticleHit | null {
-    const referenceY = this.activeFrame?.playerPosition.y ?? this.grassFieldSample.getWalkHeightAtWorld(0, 0)
+    const referenceY = this.activeFrame?.playerPosition.y ?? this.grassFieldSample.getGroundHeightAtWorld(0, 0)
     this.grassAimPlane.constant = -referenceY
     const point = this.raycaster.ray.intersectPlane(this.grassAimPlane, this.grassFallbackPoint)
     if (!point) return null
@@ -404,7 +426,7 @@ export class PlaygroundRuntime {
     if (!hit) return
 
     if (hit.targetKind === 'fish') {
-      this.fishScaleSample.addWoundFromWorldPoint(hit.point)
+      this.fishScaleSample.addWoundFromWorldPoint(hit.point, this.raycaster.ray.direction)
       return
     }
 
@@ -445,6 +467,7 @@ export class PlaygroundRuntime {
       this.getGroundHeightAtWorld,
       delta,
     )
+    this.pendingJump = false
     this.inputState.lookDeltaX = 0
     this.inputState.lookDeltaY = 0
 
@@ -461,7 +484,11 @@ export class PlaygroundRuntime {
     this.shootAnimationTimeRemaining = Math.max(0, this.shootAnimationTimeRemaining - delta)
     this.controller.player.update(delta, this.getPlayerAnimationState(this.activeFrame))
     this.fishScaleSample.update(elapsed)
+    // Grass update first — it deforms the ground geometry and advances disturbances.
     this.grassFieldSample.update(elapsed)
+    // Rocks sample ground height after grass has settled for this frame, so they
+    // sit flush on the deformed terrain including trample depressions.
+    this.rockFieldSample.update(this.getGroundHeightAtWorld)
     this.updateReticleFromCamera()
     this.renderer.render(this.scene, this.camera)
     this.rafId = requestAnimationFrame(this.frame)

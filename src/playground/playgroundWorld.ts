@@ -10,6 +10,8 @@ export const PLAYGROUND_BOUNDS: MovementBounds = {
 export const PLAYGROUND_CONTROLLER: ThirdPersonControllerConfig = {
   moveSpeed: 5.7,
   sprintMultiplier: 1.5,
+  jumpVelocity: 6.1,
+  gravity: 15.5,
   turnLerp: 10,
   lookYawSpeed: 0.008,
   lookPitchSpeed: 0.006,

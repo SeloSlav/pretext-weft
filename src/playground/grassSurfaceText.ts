@@ -8,22 +8,27 @@ import {
 const GRASS_FIELD_UNITS = [
   '⟋',
   '⟍',
-  '∣',
   '❘',
   '❙',
   '❚',
+  '∣',
+  '∣',
+  '∣',
   '⟊',
   '⟉',
+  '⟋',
+  '⟍',
   '╽',
   '╿',
   '⋮',
-  '⫽',
+  '⋮',
+  '❙',
 ] as const
 
 export function getPreparedGrassSurface(): PreparedTextWithSegments {
   return prepareCachedSurfaceText(
     'grass-surface',
-    buildRepeatedUnitStream(GRASS_FIELD_UNITS, 24),
+    buildRepeatedUnitStream(GRASS_FIELD_UNITS, 28),
     SURFACE_TEXT_FONT,
   )
 }

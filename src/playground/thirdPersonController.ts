@@ -11,6 +11,8 @@ export type MovementBounds = {
 export type ThirdPersonControllerConfig = {
   moveSpeed: number
   sprintMultiplier: number
+  jumpVelocity: number
+  gravity: number
   turnLerp: number
   lookYawSpeed: number
   lookPitchSpeed: number
@@ -29,17 +31,19 @@ export type ThirdPersonControllerInput = {
   moveLeft: boolean
   moveRight: boolean
   sprint: boolean
+  jump: boolean
   lookActive: boolean
   lookDeltaX: number
   lookDeltaY: number
 }
 
-export type PlayerAnimationState = 'idle' | 'walking' | 'running' | 'shooting'
+export type PlayerAnimationState = 'idle' | 'walking' | 'running' | 'shooting' | 'jumping'
 
 export type ThirdPersonControllerFrame = {
   movedDistance: number
   isMoving: boolean
   isSprinting: boolean
+  isJumping: boolean
   playerPosition: THREE.Vector3
   aimOrigin: THREE.Vector3
   aimDirection: THREE.Vector3
@@ -54,17 +58,15 @@ const tmpShoulder = new THREE.Vector3()
 const tmpModelSize = new THREE.Vector3()
 const tmpModelCenter = new THREE.Vector3()
 const tmpModelBox = new THREE.Box3()
-// Walk/run/shoot clips compress the rig vs the idle clip; uniform scale keeps apparent height aligned.
-const NON_IDLE_VISUAL_SCALE = 1.10
 const RETICLE_LOCAL_DISTANCE = 1.8
 const RETICLE_LOCAL_SCALE = 0.18
 
-// These clips are mislabeled in the source GLB, so we map by observed behavior.
-const CLIP_NAME_BY_STATE: Record<PlayerAnimationState, string> = {
-  idle: 'Walking',
-  walking: 'Walk_Forward_While_Shooting',
-  running: 'Idle',
-  shooting: 'Running',
+const ANIMATION_ASSET_BY_STATE: Record<PlayerAnimationState, string> = {
+  idle: '/Meshy_AI_WarHero_biped_Animation_Idle_withSkin.glb',
+  walking: '/Meshy_AI_WarHero_biped_Animation_Walking_withSkin.glb',
+  running: '/Meshy_AI_WarHero_biped_Animation_Running_withSkin.glb',
+  shooting: '/Meshy_AI_WarHero_biped_Animation_Walk_Forward_While_Shooting_withSkin.glb',
+  jumping: '/Meshy_AI_WarHero_biped_Animation_Regular_Jump_withSkin.glb',
 }
 
 function dampAngle(current: number, target: number, factor: number): number {
@@ -128,7 +130,6 @@ export class PlayerActor {
 
   update(delta: number, animationState: PlayerAnimationState): void {
     this.desiredAnimationState = animationState
-    this.visualRoot.scale.setScalar(animationState === 'idle' ? 1 : NON_IDLE_VISUAL_SCALE)
     if (this.mixer) {
       this.playAnimation(animationState)
       this.mixer.update(delta)
@@ -149,70 +150,70 @@ export class PlayerActor {
   }
 
   private loadModel(): void {
-    this.loader.load(
-      '/player.glb',
-      (gltf) => {
-        if (this.disposed) return
-
-        const model = gltf.scene
-        model.updateMatrixWorld(true)
-
-        tmpModelBox.setFromObject(model)
-        tmpModelBox.getSize(tmpModelSize)
-        tmpModelBox.getCenter(tmpModelCenter)
-
-        const targetHeight = 1.7
-        const scale = tmpModelSize.y > 0.0001 ? targetHeight / tmpModelSize.y : 1
-        model.scale.setScalar(scale)
-        model.updateMatrixWorld(true)
-
-        tmpModelBox.setFromObject(model)
-        model.position.x -= tmpModelBox.getCenter(tmpModelCenter).x
-        model.position.y -= tmpModelBox.min.y
-        model.position.z -= tmpModelCenter.z
-        model.updateMatrixWorld(true)
-
-        model.traverse((child) => {
-          const mesh = child as THREE.Mesh
-          if (!mesh.isMesh) return
-          this.geometries.add(mesh.geometry)
-
-          const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
-          meshMaterials.forEach((material) => this.materials.add(material))
-        })
-
-        this.visualRoot.add(model)
-        this.mixer = new THREE.AnimationMixer(model)
-        this.animationActions.idle = this.findAction(gltf.animations, CLIP_NAME_BY_STATE.idle)
-        this.animationActions.walking = this.findAction(gltf.animations, CLIP_NAME_BY_STATE.walking)
-        this.animationActions.running = this.findAction(gltf.animations, CLIP_NAME_BY_STATE.running)
-        this.animationActions.shooting = this.findAction(gltf.animations, CLIP_NAME_BY_STATE.shooting)
-        this.playAnimation(this.desiredAnimationState, true)
-      },
-      undefined,
-      (error) => {
-        console.error('Failed to load player.glb', error)
-      },
-    )
+    void this.loadModelAsync()
   }
 
-  private findAction(
-    animations: readonly THREE.AnimationClip[],
-    clipName: string,
-  ): THREE.AnimationAction | undefined {
-    if (!this.mixer) return undefined
+  private async loadModelAsync(): Promise<void> {
+    try {
+      const loadedAnimations = await Promise.all(
+        (Object.entries(ANIMATION_ASSET_BY_STATE) as [PlayerAnimationState, string][]).map(async ([state, assetPath]) => ({
+          state,
+          gltf: await this.loader.loadAsync(assetPath),
+        })),
+      )
 
-    const normalizedName = clipName.replace(/[^a-z0-9]+/gi, '').toLowerCase()
-    const clip = animations.find(
-      (candidate) => candidate.name.replace(/[^a-z0-9]+/gi, '').toLowerCase() === normalizedName,
-    )
-    if (!clip) return undefined
+      if (this.disposed) return
 
-    const action = this.mixer.clipAction(clip)
-    action.enabled = true
-    action.clampWhenFinished = false
-    action.setLoop(THREE.LoopRepeat, Infinity)
-    return action
+      const idleGltf = loadedAnimations.find((entry) => entry.state === 'idle')?.gltf
+      if (!idleGltf) {
+        throw new Error('Idle animation GLB did not load.')
+      }
+
+      const model = idleGltf.scene
+      model.updateMatrixWorld(true)
+
+      tmpModelBox.setFromObject(model)
+      tmpModelBox.getSize(tmpModelSize)
+      tmpModelBox.getCenter(tmpModelCenter)
+
+      const targetHeight = 1.7
+      const scale = tmpModelSize.y > 0.0001 ? targetHeight / tmpModelSize.y : 1
+      model.scale.setScalar(scale)
+      model.updateMatrixWorld(true)
+
+      tmpModelBox.setFromObject(model)
+      model.position.x -= tmpModelBox.getCenter(tmpModelCenter).x
+      model.position.y -= tmpModelBox.min.y
+      model.position.z -= tmpModelCenter.z
+      model.updateMatrixWorld(true)
+
+      model.traverse((child) => {
+        const mesh = child as THREE.Mesh
+        if (!mesh.isMesh) return
+        this.geometries.add(mesh.geometry)
+
+        const meshMaterials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        meshMaterials.forEach((material) => this.materials.add(material))
+      })
+
+      this.visualRoot.add(model)
+      this.mixer = new THREE.AnimationMixer(model)
+
+      loadedAnimations.forEach(({ state, gltf }) => {
+        const clip = gltf.animations[0]
+        if (!clip || !this.mixer) return
+
+        const action = this.mixer.clipAction(clip)
+        action.enabled = true
+        action.clampWhenFinished = state === 'jumping'
+        action.setLoop(state === 'jumping' ? THREE.LoopOnce : THREE.LoopRepeat, state === 'jumping' ? 1 : Infinity)
+        this.animationActions[state] = action
+      })
+
+      this.playAnimation(this.desiredAnimationState, true)
+    } catch (error) {
+      console.error('Failed to load player animation assets', error)
+    }
   }
 
   private playAnimation(animationState: PlayerAnimationState, immediate = false): void {
@@ -233,7 +234,7 @@ export class PlayerActor {
         if (!action || action === nextAction) return
         action.fadeOut(0.16)
       })
-      nextAction.reset().fadeIn(0.16).play()
+      nextAction.reset().fadeIn(animationState === 'jumping' ? 0.08 : 0.16).play()
     }
 
     this.activeAction = nextAction
@@ -248,6 +249,7 @@ export class ThirdPersonController {
     movedDistance: 0,
     isMoving: false,
     isSprinting: false,
+    isJumping: false,
     playerPosition: new THREE.Vector3(),
     aimOrigin: new THREE.Vector3(),
     aimDirection: new THREE.Vector3(),
@@ -258,6 +260,9 @@ export class ThirdPersonController {
   private cameraPitch = -0.18
   private groundYSmooth = 0
   private groundYSmoothReady = false
+  private jumpHeight = 0
+  private jumpVelocity = 0
+  private isJumping = false
 
   setSpawn(position: THREE.Vector3, yaw: number, cameraYaw = yaw, cameraPitch = this.cameraPitch): void {
     this.position.copy(position)
@@ -265,6 +270,9 @@ export class ThirdPersonController {
     this.cameraYaw = cameraYaw
     this.cameraPitch = cameraPitch
     this.groundYSmoothReady = false
+    this.jumpHeight = 0
+    this.jumpVelocity = 0
+    this.isJumping = false
     this.player.setPose(this.position, this.yaw)
   }
 
@@ -310,10 +318,25 @@ export class ThirdPersonController {
       this.groundYSmooth = targetGroundY
       this.groundYSmoothReady = true
     } else {
-      const yBlend = 1 - Math.exp(-22 * delta)
+      const yBlend = 1 - Math.exp(-38 * delta)
       this.groundYSmooth = THREE.MathUtils.lerp(this.groundYSmooth, targetGroundY, yBlend)
     }
-    this.position.y = this.groundYSmooth
+    if (!this.isJumping && input.jump) {
+      this.isJumping = true
+      this.jumpVelocity = config.jumpVelocity
+    }
+
+    if (this.isJumping) {
+      this.jumpVelocity -= config.gravity * delta
+      this.jumpHeight = Math.max(0, this.jumpHeight + this.jumpVelocity * delta)
+
+      if (this.jumpHeight === 0 && this.jumpVelocity <= 0) {
+        this.jumpVelocity = 0
+        this.isJumping = false
+      }
+    }
+
+    this.position.y = this.groundYSmooth + this.jumpHeight
 
     this.player.setPose(this.position, this.yaw)
 
@@ -348,6 +371,7 @@ export class ThirdPersonController {
     this.frame.movedDistance = movedDistance
     this.frame.isMoving = movedDistance > 0
     this.frame.isSprinting = this.frame.isMoving && input.sprint
+    this.frame.isJumping = this.isJumping
     this.frame.playerPosition.copy(this.position)
     return this.frame
   }

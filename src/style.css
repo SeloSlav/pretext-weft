@@ -235,6 +235,93 @@ body,
   color: rgba(232, 237, 244, 0.45);
 }
 
+.landing__section-title {
+  margin: 48px 0 16px;
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  color: #f0f4fa;
+}
+
+.landing__compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 0 0 48px;
+}
+
+.landing__compare-col {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 18px 20px 20px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.landing__compare-label {
+  margin: 0 0 14px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.landing__compare-label--bad {
+  color: rgba(255, 140, 120, 0.8);
+}
+
+.landing__compare-label--good {
+  color: rgba(126, 220, 160, 0.9);
+}
+
+.landing__compare-list {
+  margin: 0;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: rgba(232, 237, 244, 0.72);
+}
+
+.landing__code-block {
+  margin: 0 0 24px;
+  border: 1px solid rgba(126, 184, 255, 0.15);
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(10, 14, 22, 0.7);
+}
+
+.landing__code-label {
+  margin: 0;
+  padding: 10px 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: rgba(126, 184, 255, 0.8);
+  border-bottom: 1px solid rgba(126, 184, 255, 0.1);
+  background: rgba(126, 184, 255, 0.05);
+}
+
+.landing__pre {
+  margin: 0;
+  padding: 16px;
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: #c8d6e8;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.landing__code-inline {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.88em;
+  color: rgba(126, 184, 255, 0.9);
+  background: rgba(126, 184, 255, 0.1);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 .landing__features {
   margin: 0;
   padding: 0;
@@ -244,6 +331,7 @@ body,
   gap: 22px;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding-top: 36px;
+  margin-top: 48px;
 }
 
 .landing__features li {
@@ -262,6 +350,21 @@ body,
   font-size: 0.86rem;
   line-height: 1.55;
   color: rgba(232, 237, 244, 0.68);
+}
+
+.landing__features code {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.85em;
+  color: rgba(126, 184, 255, 0.85);
+  background: rgba(126, 184, 255, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+@media (max-width: 560px) {
+  .landing__compare {
+    grid-template-columns: 1fr;
+  }
 }
 
 .app-shell {
