@@ -7,7 +7,9 @@ import {
   DEFAULT_FIRE_WALL_PARAMS,
   DEFAULT_SHELL_SURFACE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
+  DEFAULT_LEAF_PILE_BAND_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
+  LEAF_PILE_SEASONS,
   DEFAULT_STAR_SKY_PARAMS,
 } from "./weft/three";
 import {
@@ -31,6 +33,12 @@ type ControlSectionProps = {
 };
 
 const GRASS_STATE_LABELS = ["Healthy", "Dry", "Corrupted", "Dead"] as const;
+const LEAF_PILE_SEASON_LABELS = {
+  spring: "Spring",
+  summer: "Summer",
+  autumn: "Autumn",
+  winter: "Winter",
+} as const;
 
 function ControlSection({ title, summary, children }: ControlSectionProps) {
   return (
@@ -103,12 +111,22 @@ export function Editor() {
   const [bandLayoutDensity, setBandLayoutDensity] = useState(
     PLAYGROUND_BAND_LAYOUT_DENSITY,
   );
-  const [bandSizeScale, setBandSizeScale] = useState(
+  const [vergeGlyphSize, setVergeGlyphSize] = useState(
     PLAYGROUND_BAND_SIZE_SCALE,
+  );
+  const [leafPileGlyphSize, setLeafPileGlyphSize] = useState(
+    PLAYGROUND_BAND_SIZE_SCALE * 1.22,
+  );
+  const [fungusGlyphSize, setFungusGlyphSize] = useState(
+    PLAYGROUND_BAND_SIZE_SCALE * 0.92,
+  );
+  const [leafPileSeason, setLeafPileSeason] = useState(
+    DEFAULT_LEAF_PILE_BAND_PARAMS.season,
   );
   const [vergeBandWidth, setVergeBandWidth] = useState(
     PLAYGROUND_VERGE_BAND_WIDTH,
   );
+  const [leafPileBandWidth, setLeafPileBandWidth] = useState(3.25);
   const [fungusBandWidth, setFungusBandWidth] = useState(
     PLAYGROUND_FUNGUS_SEAM_WIDTH,
   );
@@ -116,6 +134,7 @@ export function Editor() {
     PLAYGROUND_BAND_EDGE_SOFTNESS,
   );
   const [showVergeBand, setShowVergeBand] = useState(true);
+  const [showLeafPiles, setShowLeafPiles] = useState(true);
   const [showFungusBand, setShowFungusBand] = useState(true);
   const [fireRecoveryRate, setFireRecoveryRate] = useState(
     DEFAULT_FIRE_WALL_PARAMS.recoveryRate,
@@ -175,11 +194,16 @@ export function Editor() {
         runtime.setRockFieldParams({ layoutDensity: rockLayoutDensity, sizeScale: rockSizeScale });
         runtime.setBandFieldParams({
           layoutDensity: bandLayoutDensity,
-          sizeScale: bandSizeScale,
+          vergeSizeScale: vergeGlyphSize,
+          leafPileSizeScale: leafPileGlyphSize,
+          fungusSizeScale: fungusGlyphSize,
           vergeBandWidth,
+          leafPileBandWidth,
+          leafPileSeason,
           fungusBandWidth,
           edgeSoftness: bandEdgeSoftness,
           showVergeBand,
+          showLeafPiles,
           showFungusBand,
         });
         runtime.setFireWallParams({ recoveryRate: fireRecoveryRate, holeSize: fireHoleSize });
@@ -277,20 +301,30 @@ export function Editor() {
   useEffect(() => {
     runtimeRef.current?.setBandFieldParams({
       layoutDensity: bandLayoutDensity,
-      sizeScale: bandSizeScale,
+      vergeSizeScale: vergeGlyphSize,
+      leafPileSizeScale: leafPileGlyphSize,
+      fungusSizeScale: fungusGlyphSize,
       vergeBandWidth,
+      leafPileBandWidth,
+      leafPileSeason,
       fungusBandWidth,
       edgeSoftness: bandEdgeSoftness,
       showVergeBand,
+      showLeafPiles,
       showFungusBand,
     });
   }, [
     bandEdgeSoftness,
     bandLayoutDensity,
-    bandSizeScale,
+    fungusGlyphSize,
     fungusBandWidth,
+    leafPileGlyphSize,
+    leafPileBandWidth,
+    leafPileSeason,
     showFungusBand,
+    showLeafPiles,
     showVergeBand,
+    vergeGlyphSize,
     vergeBandWidth,
   ]);
 
@@ -598,8 +632,8 @@ export function Editor() {
                 </ControlSection>
 
                 <ControlSection
-                  title="Verge strip & fungus seam"
-                  summary="Band-field preset samples"
+                  title="Verge strip, leaf piles & fungus seam"
+                  summary="Band-field family samples"
                 >
                   <label className="control">
                     <span>Show verge strip</span>
@@ -610,12 +644,39 @@ export function Editor() {
                     />
                   </label>
                   <label className="control">
+                    <span>Show leaf piles</span>
+                    <input
+                      type="checkbox"
+                      checked={showLeafPiles}
+                      onChange={(e) => setShowLeafPiles(e.target.checked)}
+                    />
+                  </label>
+                  <label className="control">
                     <span>Show fungus seam</span>
                     <input
                       type="checkbox"
                       checked={showFungusBand}
                       onChange={(e) => setShowFungusBand(e.target.checked)}
                     />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Leaf season ({LEAF_PILE_SEASON_LABELS[leafPileSeason] ?? "Autumn"})
+                    </span>
+                    <select
+                      value={leafPileSeason}
+                      onChange={(e) =>
+                        setLeafPileSeason(
+                          e.target.value as (typeof LEAF_PILE_SEASONS)[number],
+                        )
+                      }
+                    >
+                      {LEAF_PILE_SEASONS.map((season) => (
+                        <option key={season} value={season}>
+                          {LEAF_PILE_SEASON_LABELS[season]}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                   <label className="control">
                     <span>
@@ -632,28 +693,54 @@ export function Editor() {
                   </label>
                   <label className="control">
                     <span>
-                      Glyph size ({bandSizeScale.toFixed(2)}x)
+                      Verge strip width ({vergeBandWidth.toFixed(2)} world units)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={12}
+                      step={0.05}
+                      value={vergeBandWidth}
+                      onChange={(e) => setVergeBandWidth(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Verge glyph size ({vergeGlyphSize.toFixed(2)}x)
                     </span>
                     <input
                       type="range"
                       min={0}
                       max={2.2}
                       step={0.05}
-                      value={bandSizeScale}
-                      onChange={(e) => setBandSizeScale(Number(e.target.value))}
+                      value={vergeGlyphSize}
+                      onChange={(e) => setVergeGlyphSize(Number(e.target.value))}
                     />
                   </label>
                   <label className="control">
                     <span>
-                      Verge strip width ({vergeBandWidth.toFixed(2)} world units)
+                      Leaf pile band width ({leafPileBandWidth.toFixed(2)} world units)
                     </span>
                     <input
                       type="range"
                       min={0}
-                      max={3.6}
+                      max={6}
                       step={0.05}
-                      value={vergeBandWidth}
-                      onChange={(e) => setVergeBandWidth(Number(e.target.value))}
+                      value={leafPileBandWidth}
+                      onChange={(e) => setLeafPileBandWidth(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Leaf pile glyph size ({leafPileGlyphSize.toFixed(2)}x)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={3}
+                      step={0.05}
+                      value={leafPileGlyphSize}
+                      onChange={(e) => setLeafPileGlyphSize(Number(e.target.value))}
                     />
                   </label>
                   <label className="control">
@@ -671,6 +758,19 @@ export function Editor() {
                   </label>
                   <label className="control">
                     <span>
+                      Fungus glyph size ({fungusGlyphSize.toFixed(2)}x)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2.2}
+                      step={0.05}
+                      value={fungusGlyphSize}
+                      onChange={(e) => setFungusGlyphSize(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
                       Edge softness ({bandEdgeSoftness.toFixed(2)}) — how softly the strips feather out
                     </span>
                     <input
@@ -683,7 +783,10 @@ export function Editor() {
                     />
                   </label>
                   <p className="control-hint">
-                    Use the checkboxes to isolate verge vs fungus. Setting layout density, glyph size, or either width to
+                    The original scrub verge is back. Leaf piles are now a separate clustered sample in the center of the
+                    intersection and get
+                    pushed outward when you walk through them. Use the checkboxes to isolate any band sample, and set density,
+                    glyph size, or any width to
                     <code> 0</code> now fully hides that band contribution.
                   </p>
                 </ControlSection>

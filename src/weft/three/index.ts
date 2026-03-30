@@ -58,6 +58,25 @@ export type {
 export { getPreparedBandSurface, getPreparedFungusBandSurface } from './presets/bandFieldSource.ts'
 
 export {
+  createLeafPileBandEffect,
+  DEFAULT_LEAF_PILE_BAND_PARAMS,
+  LeafPileBandEffect,
+} from './presets/leafPileBand.ts'
+export type {
+  CreateLeafPileBandEffectOptions,
+  LeafPileDisturbanceOptions,
+  LeafPileBandBounds,
+  LeafPileBandPlacementMask,
+  LeafPileBandParams,
+} from './presets/leafPileBand.ts'
+export {
+  buildLeafPileSeasonSurface,
+  getPreparedLeafPileSurface,
+  LEAF_PILE_SEASONS,
+} from './presets/leafPileBandSource.ts'
+export type { LeafPileSeason, LeafPileTokenId, LeafPileTokenMeta } from './presets/leafPileBandSource.ts'
+
+export {
   createGrassEffect,
   DEFAULT_GRASS_FIELD_PARAMS,
   GrassFieldEffect,

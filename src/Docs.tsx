@@ -31,6 +31,7 @@ const API_GROUPS = [
     description: 'High-level effect entrypoints for the shipped presets.',
     items: [
       'createBandFieldEffect()',
+      'createLeafPileBandEffect()',
       'createGrassEffect()',
       'createShellSurfaceEffect()',
       'createRockFieldEffect()',
@@ -43,6 +44,7 @@ const API_GROUPS = [
     description: 'Preset parameter defaults you can spread and override.',
     items: [
       'DEFAULT_BAND_FIELD_PARAMS',
+      'DEFAULT_LEAF_PILE_BAND_PARAMS',
       'DEFAULT_GRASS_FIELD_PARAMS',
       'DEFAULT_SHELL_SURFACE_PARAMS',
       'DEFAULT_ROCK_FIELD_PARAMS',
@@ -55,6 +57,8 @@ const API_GROUPS = [
     description: 'Preset-owned source builders for ready-made surface vocabularies.',
     items: [
       'getPreparedBandSurface()',
+      'buildLeafPileSeasonSurface()',
+      'getPreparedLeafPileSurface()',
       'buildGrassStateSurface()',
       'getPreparedGrassSurface()',
       'getPreparedShellSurface()',
@@ -72,6 +76,13 @@ const PRESET_GUIDES = [
     builders: ['getPreparedBandSurface()'],
     useCase: 'A terrain-projected strip preset for roadsides, seams, rows, roots, foam bands, and other narrow environmental corridors.',
     params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness'],
+  },
+  {
+    name: 'Leaf pile band',
+    factory: 'createLeafPileBandEffect()',
+    builders: ['buildLeafPileSeasonSurface()', 'getPreparedLeafPileSurface()'],
+    useCase: 'A flatter band-style preset for verge piles, gutter clutter, hedgerow drift, and other season-aware leaf accumulations.',
+    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness', 'season'],
   },
   {
     name: 'Grass field',
@@ -135,6 +146,29 @@ const roadsideBand = createBandFieldEffect({
 })
 
 scene.add(roadsideBand.group)`,
+  },
+  {
+    title: 'Leaf pile band setup',
+    code: `import {
+  DEFAULT_LEAF_PILE_BAND_PARAMS,
+  createLeafPileBandEffect,
+} from 'weft-sdk/three'
+import { seedCursor } from 'weft-sdk/core'
+
+const leafPile = createLeafPileBandEffect({
+  seedCursor,
+  initialParams: {
+    ...DEFAULT_LEAF_PILE_BAND_PARAMS,
+    season: 'autumn',
+    bandWidth: 2.8,
+  },
+  placementMask: {
+    bounds: { minX: -20, maxX: 20, minZ: -12, maxZ: 12 },
+    distanceToBandAtXZ: (x, z) => z - Math.sin(x * 0.18) * 1.2,
+  },
+})
+
+scene.add(leafPile.group)`,
   },
   {
     title: 'Grass quick start',
