@@ -27,5 +27,20 @@ export function isVergeStrip(x: number, z: number): boolean {
   return hNear || vNear
 }
 
+/** Distance to the nearest verge-strip centerline; useful for band-style presets that hug the road edge. */
+export function getVergeStripDistanceAtXZ(x: number, z: number): number {
+  const centerOffset = CROSS_HALF_WIDTH + 1.2
+  let best = Number.POSITIVE_INFINITY
+
+  if (Math.abs(x) <= CROSS_EXTENT) {
+    best = Math.min(best, Math.abs(z - centerOffset), Math.abs(z + centerOffset))
+  }
+  if (Math.abs(z) <= CROSS_EXTENT) {
+    best = Math.min(best, Math.abs(x - centerOffset), Math.abs(x + centerOffset))
+  }
+
+  return best
+}
+
 /** Slightly above the grass ground plane so asphalt wins depth and hides green under the cross. */
 export const TOWN_ROAD_SURFACE_Y = 0.12

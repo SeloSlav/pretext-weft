@@ -193,8 +193,42 @@ export const RUBBLE_ZONE = {
   maxZ: 17,
 }
 
+/** Curved seam inside the rubble lot for the band-field fungus sample. */
+export const FUNGUS_SEAM_ZONE = {
+  minX: 6.3,
+  maxX: 18.2,
+  minZ: 4.2,
+  maxZ: 16.9,
+}
+
+export const PLAYGROUND_BAND_LAYOUT_DENSITY = 1.1
+export const PLAYGROUND_BAND_SIZE_SCALE = 0.94
+export const PLAYGROUND_VERGE_BAND_WIDTH = 2.9
+export const PLAYGROUND_FUNGUS_SEAM_WIDTH = 1.95
+export const PLAYGROUND_BAND_EDGE_SOFTNESS = 1.05
+
 export function isInsideRubbleZone(x: number, z: number): boolean {
   return x >= RUBBLE_ZONE.minX && x <= RUBBLE_ZONE.maxX && z >= RUBBLE_ZONE.minZ && z <= RUBBLE_ZONE.maxZ
+}
+
+export function isInsideFungusSeamZone(x: number, z: number): boolean {
+  return (
+    x >= FUNGUS_SEAM_ZONE.minX &&
+    x <= FUNGUS_SEAM_ZONE.maxX &&
+    z >= FUNGUS_SEAM_ZONE.minZ &&
+    z <= FUNGUS_SEAM_ZONE.maxZ
+  )
+}
+
+/** Signed distance to a wavy fungus seam that threads through the rubble lot. */
+export function distanceToFungusSeamAtXZ(x: number, z: number): number {
+  const localX = x - FUNGUS_SEAM_ZONE.minX
+  const centerZ =
+    5.4 +
+    localX * 0.62 +
+    Math.sin(localX * 0.72) * 0.95 +
+    Math.cos(localX * 0.24) * 0.35
+  return z - centerZ
 }
 
 /** Sum of wound strengths (each capped 1) before the lamp reads as fully broken; tuned to break early. */

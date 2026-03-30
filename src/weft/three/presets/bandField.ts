@@ -13,6 +13,8 @@ import {
   type BandTokenMeta,
 } from './bandFieldSource'
 
+export type BandFieldAppearance = 'generic' | 'scrub' | 'fungus'
+
 export type BandFieldParams = {
   layoutDensity: number
   sizeScale: number
@@ -87,37 +89,73 @@ function smoothBandCoverage(distance: number, halfWidth: number, edgeSoftness: n
   return 1 - THREE.MathUtils.smoothstep(distance, halfWidth, halfWidth + edgeSoftness)
 }
 
-function makeBandGeometry(): THREE.BufferGeometry {
-  const geometry = new THREE.PlaneGeometry(0.42, 1, 1, 1)
-  geometry.translate(0, 0.5, 0)
-  return geometry
+function makeBandGeometry(appearance: BandFieldAppearance): THREE.BufferGeometry {
+  if (appearance === 'fungus') {
+    const shape = new THREE.Shape()
+    shape.moveTo(0.42, 0)
+    shape.bezierCurveTo(0.34, 0.26, 0.16, 0.44, -0.02, 0.38)
+    shape.bezierCurveTo(-0.18, 0.48, -0.42, 0.3, -0.46, 0.05)
+    shape.bezierCurveTo(-0.54, -0.16, -0.32, -0.42, -0.04, -0.38)
+    shape.bezierCurveTo(0.14, -0.48, 0.4, -0.24, 0.42, 0)
+    return new THREE.ShapeGeometry(shape)
+  }
+
+  if (appearance === 'scrub') {
+    const shape = new THREE.Shape()
+    shape.moveTo(-0.34, 0)
+    shape.quadraticCurveTo(-0.29, 0.22, -0.18, 0.44)
+    shape.quadraticCurveTo(-0.09, 0.18, -0.03, 0.62)
+    shape.quadraticCurveTo(0.02, 0.28, 0.11, 0.52)
+    shape.quadraticCurveTo(0.19, 0.18, 0.28, 0.36)
+    shape.quadraticCurveTo(0.34, 0.14, 0.37, 0)
+    shape.closePath()
+    return new THREE.ShapeGeometry(shape)
+  }
+
+  const shape = new THREE.Shape()
+  shape.moveTo(-0.18, 0)
+  shape.bezierCurveTo(-0.13, 0.18, -0.1, 0.54, -0.03, 0.84)
+  shape.lineTo(0, 1)
+  shape.lineTo(0.035, 0.82)
+  shape.bezierCurveTo(0.11, 0.52, 0.15, 0.2, 0.19, 0)
+  shape.closePath()
+
+  return new THREE.ShapeGeometry(shape)
 }
 
-function bandColor(identity: number, coverage: number, meta: BandTokenMeta): THREE.Color {
+function bandColor(
+  identity: number,
+  coverage: number,
+  meta: BandTokenMeta,
+  appearance: BandFieldAppearance,
+): THREE.Color {
   const t = uhash(identity * 2654435761)
-  const hue = 0.24 + (t - 0.5) * 0.07 + meta.hueShift
-  const sat = 0.22 + coverage * 0.14 + t * 0.08
-  const light = 0.3 + coverage * 0.12 + meta.lightShift
+  const baseHue =
+    appearance === 'fungus' ? 0.08 : appearance === 'scrub' ? 0.22 : 0.24
+  const hue = baseHue + (t - 0.5) * 0.07 + meta.hueShift
+  const sat =
+    (appearance === 'fungus' ? 0.2 : 0.28) + coverage * 0.16 + t * 0.08
+  const light =
+    (appearance === 'fungus' ? 0.22 : 0.3) + coverage * 0.12 + meta.lightShift
   return tmpColor.setHSL(hue, sat, light)
 }
 
 export class BandFieldEffect {
   readonly group = new THREE.Group()
 
-  private readonly bandGeometry = makeBandGeometry()
+  private readonly appearance: BandFieldAppearance
+  private readonly bandGeometry: THREE.BufferGeometry
   private readonly bandMaterial = new THREE.MeshStandardMaterial({
     roughness: 0.9,
     metalness: 0.04,
     side: THREE.DoubleSide,
   })
-  private readonly bandMesh = new THREE.InstancedMesh(
-    this.bandGeometry,
-    this.bandMaterial,
-    MAX_INSTANCES,
-  )
+  private readonly bandMesh: THREE.InstancedMesh
   private readonly placementMask: Required<BandFieldPlacementMask>
   private readonly fieldWidth: number
   private readonly fieldDepth: number
+  private readonly fieldCenterX: number
+  private readonly fieldCenterZ: number
   private readonly layoutDriver: SurfaceLayoutDriver<BandTokenId, BandTokenMeta>
   private params: BandFieldParams
 
@@ -125,12 +163,22 @@ export class BandFieldEffect {
     surface: PreparedSurfaceSource<BandTokenId, BandTokenMeta>,
     seedCursor: SeedCursorFactory,
     initialParams: BandFieldParams,
+    appearance: BandFieldAppearance = 'generic',
     placementMask: BandFieldPlacementMask = {},
   ) {
+    this.appearance = appearance
+    this.bandGeometry = makeBandGeometry(appearance)
+    this.bandMesh = new THREE.InstancedMesh(
+      this.bandGeometry,
+      this.bandMaterial,
+      MAX_INSTANCES,
+    )
     this.params = { ...initialParams }
     const bounds = placementMask.bounds ?? DEFAULT_BAND_FIELD_BOUNDS
     this.fieldWidth = bounds.maxX - bounds.minX
     this.fieldDepth = bounds.maxZ - bounds.minZ
+    this.fieldCenterX = (bounds.minX + bounds.maxX) * 0.5
+    this.fieldCenterZ = (bounds.minZ + bounds.maxZ) * 0.5
     this.placementMask = {
       bounds,
       includeAtXZ: placementMask.includeAtXZ ?? (() => true),
@@ -169,6 +217,16 @@ export class BandFieldEffect {
   }
 
   private updateBand(getGroundHeight: (x: number, z: number) => number): void {
+    if (
+      this.params.layoutDensity <= 0 ||
+      this.params.sizeScale <= 0 ||
+      this.params.bandWidth <= 0
+    ) {
+      this.bandMesh.count = 0
+      this.bandMesh.instanceMatrix.needsUpdate = true
+      return
+    }
+
     const rowStep = this.fieldDepth / (ROWS + 1)
     const backZ = this.fieldDepth * 0.48
     let instanceIndex = 0
@@ -218,11 +276,16 @@ export class BandFieldEffect {
 
       const t01 = THREE.MathUtils.clamp((k + hashLat * 0.85 + 0.08) / (n + 0.1), 0.02, 0.98)
       const x =
+        this.fieldCenterX +
         slot.spanStart +
         t01 * slot.spanSize +
         lineLateralShift +
         (hashLat - 0.5) * slot.sectorStep * 0.46
-      const z = slot.lineCoord + (hashDep - 0.5) * rowStep * 0.62 + lineDepthShift
+      const z =
+        this.fieldCenterZ +
+        slot.lineCoord +
+        (hashDep - 0.5) * rowStep * 0.62 +
+        lineDepthShift
       if (!this.placementMask.includeAtXZ(x, z)) continue
 
       const signedDistance = this.placementMask.distanceToBandAtXZ(x, z)
@@ -230,18 +293,29 @@ export class BandFieldEffect {
       if (coverage <= 0.02 || glyphHash(identity + 5, slot.row, k ^ 0x55) > coverage) continue
 
       const groundY = getGroundHeight(x, z)
-      const width = (0.14 + coverage * 0.18 + meta.widthBias) * this.params.sizeScale
-      const height = (0.35 + coverage * 0.75 + meta.heightBias) * this.params.sizeScale
       const yaw = hashYaw * Math.PI * 2
-      const tiltX = (hashDep - 0.5) * 0.34
-      const tiltZ = (hashLat - 0.5) * 0.24
-
-      dummy.position.set(x, groundY, z)
-      dummy.rotation.set(tiltX, yaw, tiltZ)
-      dummy.scale.set(width, height, 1)
+      if (this.appearance === 'fungus') {
+        const width = Math.max(0.08, (0.2 + coverage * 0.26 + meta.widthBias) * this.params.sizeScale)
+        const depth = Math.max(0.08, (0.16 + coverage * 0.18 + meta.heightBias * 0.18) * this.params.sizeScale)
+        dummy.position.set(x, groundY + 0.018 + depth * 0.02, z)
+        dummy.rotation.set(-Math.PI / 2 + (hashDep - 0.5) * 0.14, yaw, (hashLat - 0.5) * 0.08)
+        dummy.scale.set(width, depth, 1)
+      } else if (this.appearance === 'scrub') {
+        const width = Math.max(0.07, (0.16 + coverage * 0.14 + meta.widthBias) * this.params.sizeScale)
+        const height = Math.max(0.06, (0.09 + coverage * 0.16 + meta.heightBias * 0.42) * this.params.sizeScale)
+        dummy.position.set(x, groundY + height * 0.06, z)
+        dummy.rotation.set(-1.04 + hashDep * 0.28, yaw, (hashLat - 0.5) * 0.18)
+        dummy.scale.set(width, height, 1)
+      } else {
+        const width = Math.max(0.03, (0.08 + coverage * 0.1 + meta.widthBias) * this.params.sizeScale)
+        const height = Math.max(0.08, (0.18 + coverage * 0.38 + meta.heightBias) * this.params.sizeScale)
+        dummy.position.set(x, groundY + height * 0.12, z)
+        dummy.rotation.set(-0.35 - hashDep * 0.55, yaw, (hashLat - 0.5) * 0.28)
+        dummy.scale.set(width, height, 1)
+      }
       dummy.updateMatrix()
       this.bandMesh.setMatrixAt(instanceIndex, dummy.matrix)
-      this.bandMesh.setColorAt(instanceIndex, bandColor(identity, coverage, meta))
+      this.bandMesh.setColorAt(instanceIndex, bandColor(identity, coverage, meta, this.appearance))
       instanceIndex++
     }
 
@@ -253,6 +327,7 @@ export type CreateBandFieldEffectOptions = {
   seedCursor: SeedCursorFactory
   surface?: PreparedSurfaceSource<BandTokenId, BandTokenMeta>
   initialParams?: BandFieldParams
+  appearance?: BandFieldAppearance
   placementMask?: BandFieldPlacementMask
 }
 
@@ -260,6 +335,7 @@ export function createBandFieldEffect({
   seedCursor,
   surface = getPreparedBandSurface(),
   initialParams = DEFAULT_BAND_FIELD_PARAMS,
+  appearance = 'generic',
   placementMask,
 }: CreateBandFieldEffectOptions): BandFieldEffect {
   const effect = createSurfaceEffect({
@@ -275,5 +351,5 @@ export function createBandFieldEffect({
     seedCursor,
   })
 
-  return new BandFieldEffect(effect.source, seedCursor, initialParams, placementMask)
+  return new BandFieldEffect(effect.source, seedCursor, initialParams, appearance, placementMask)
 }

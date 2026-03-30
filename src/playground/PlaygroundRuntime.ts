@@ -1,22 +1,27 @@
 import { seedCursor } from '../weft/core'
 import {
+  createBandFieldEffect,
   buildGrassStateSurface,
   createFireWallEffect,
   createShellSurfaceEffect,
   createGrassEffect,
   createRockFieldEffect,
   createStarSkyEffect,
+  DEFAULT_BAND_FIELD_PARAMS,
   DEFAULT_FIRE_WALL_PARAMS,
   DEFAULT_SHELL_SURFACE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
+  getPreparedBandSurface,
   getPreparedFireSurface,
+  getPreparedFungusBandSurface,
   getPreparedGlassSurface,
   getPreparedShellSurface,
   getPreparedIvySurface,
   getPreparedRockSurface,
   getPreparedStarSurface,
+  type BandFieldParams,
   type FireWallEffect,
   type FireWallParams,
   type ShellSurfaceEffect,
@@ -54,16 +59,27 @@ import {
   STREET_LAMP_BULB_Y_OFFSET,
   STREET_LIGHT_XZ,
 } from './playgroundTownScene'
-import { TOWN_ROAD_SURFACE_Y, isCrossRoadAsphalt, isVergeStrip } from './townRoadMask'
+import {
+  TOWN_ROAD_SURFACE_Y,
+  getVergeStripDistanceAtXZ,
+  isCrossRoadAsphalt,
+  isVergeStrip,
+} from './townRoadMask'
 import {
   type BreachZone,
   BREACHABLE_FACADE_ZONES,
   FACADE_BREACH_DAMAGE_THRESHOLD,
   FACADE_BREACH_SAMPLE_OFFSET,
   FACADE_FISH_RECOVERY_RATE,
+  FUNGUS_SEAM_ZONE,
   INTERIOR_FLOOR_Y,
   IVY_WALL_LAYOUT,
   NEON_BARRIERS,
+  PLAYGROUND_BAND_EDGE_SOFTNESS,
+  PLAYGROUND_BAND_LAYOUT_DENSITY,
+  PLAYGROUND_BAND_SIZE_SCALE,
+  PLAYGROUND_FUNGUS_SEAM_WIDTH,
+  PLAYGROUND_VERGE_BAND_WIDTH,
   PLAYER_COLLISION_RADIUS,
   PLAYGROUND_BOUNDS,
   PLAYGROUND_CONTROLLER,
@@ -77,7 +93,9 @@ import {
   STREET_LAMP_GLOBE_EMISSIVE_MAX,
   STREET_LAMP_POINT_INTENSITY_MAX,
   WINDOW_GLASS_LAYOUTS,
+  distanceToFungusSeamAtXZ,
   isInsideBuildingInterior,
+  isInsideFungusSeamZone,
   isInsideRubbleZone,
 } from './playgroundWorld'
 
@@ -97,6 +115,7 @@ export type PlaygroundPerfStats = {
   lampCpuMs: number
   glassCpuMs: number
   grassCpuMs: number
+  bandCpuMs: number
   rockCpuMs: number
   neonCpuMs: number
   skyCpuMs: number
@@ -180,6 +199,40 @@ export class PlaygroundRuntime {
       coverageMultiplierAtXZ: (x, z) => (isVergeStrip(x, z) ? 1.14 : 1),
     },
   })
+  private readonly vergeBandEffect = createBandFieldEffect({
+    surface: getPreparedBandSurface(),
+    seedCursor,
+    appearance: 'scrub',
+    initialParams: {
+      ...DEFAULT_BAND_FIELD_PARAMS,
+      layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
+      sizeScale: PLAYGROUND_BAND_SIZE_SCALE,
+      bandWidth: PLAYGROUND_VERGE_BAND_WIDTH,
+      edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS,
+    },
+    placementMask: {
+      bounds: PLAYGROUND_BOUNDS,
+      includeAtXZ: (x, z) => isVergeStrip(x, z) && !isInsideBuildingInterior(x, z),
+      distanceToBandAtXZ: getVergeStripDistanceAtXZ,
+    },
+  })
+  private readonly fungusBandEffect = createBandFieldEffect({
+    surface: getPreparedFungusBandSurface(),
+    seedCursor,
+    appearance: 'fungus',
+    initialParams: {
+      ...DEFAULT_BAND_FIELD_PARAMS,
+      layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
+      sizeScale: PLAYGROUND_BAND_SIZE_SCALE * 0.92,
+      bandWidth: PLAYGROUND_FUNGUS_SEAM_WIDTH,
+      edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 1.25,
+    },
+    placementMask: {
+      bounds: FUNGUS_SEAM_ZONE,
+      includeAtXZ: isInsideFungusSeamZone,
+      distanceToBandAtXZ: distanceToFungusSeamAtXZ,
+    },
+  })
   private readonly rockFieldEffect = createRockFieldEffect({
     surface: getPreparedRockSurface(),
     seedCursor,
@@ -253,6 +306,20 @@ export class PlaygroundRuntime {
   }
   private glassSurfaceParams: ShellSurfaceParams = { ...DEFAULT_GLASS_SURFACE_PARAMS }
   private grassFieldParams: GrassFieldParams = { ...DEFAULT_GRASS_FIELD_PARAMS }
+  private vergeBandParams: BandFieldParams = {
+    ...DEFAULT_BAND_FIELD_PARAMS,
+    layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
+    sizeScale: PLAYGROUND_BAND_SIZE_SCALE,
+    bandWidth: PLAYGROUND_VERGE_BAND_WIDTH,
+    edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS,
+  }
+  private fungusBandParams: BandFieldParams = {
+    ...DEFAULT_BAND_FIELD_PARAMS,
+    layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
+    sizeScale: PLAYGROUND_BAND_SIZE_SCALE * 0.92,
+    bandWidth: PLAYGROUND_FUNGUS_SEAM_WIDTH,
+    edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 1.25,
+  }
   private rockFieldParams: RockFieldParams = { ...DEFAULT_ROCK_FIELD_PARAMS }
   private starSkyParams: StarSkyParams = { ...DEFAULT_STAR_SKY_PARAMS }
   private zoomDistance = PLAYGROUND_ZOOM.current
@@ -280,6 +347,7 @@ export class PlaygroundRuntime {
   private quality: PlaygroundQuality = PLAYGROUND_QUALITY_DEFAULT
   /** Editor-facing layout densities before quality scaling. */
   private userGrassLayoutDensity = DEFAULT_GRASS_FIELD_PARAMS.layoutDensity
+  private userBandLayoutDensity = PLAYGROUND_BAND_LAYOUT_DENSITY
   private userStarLayoutDensity = DEFAULT_STAR_SKY_PARAMS.layoutDensity
   private userRockLayoutDensity = DEFAULT_ROCK_FIELD_PARAMS.layoutDensity
   private indoorCameraBlend = 0
@@ -300,6 +368,7 @@ export class PlaygroundRuntime {
     lampCpuMs: 0,
     glassCpuMs: 0,
     grassCpuMs: 0,
+    bandCpuMs: 0,
     rockCpuMs: 0,
     neonCpuMs: 0,
     skyCpuMs: 0,
@@ -414,6 +483,8 @@ export class PlaygroundRuntime {
     this.collisionDebugGroup.visible = false
 
     this.scene.add(this.grassEffect.group)
+    this.scene.add(this.vergeBandEffect.group)
+    this.scene.add(this.fungusBandEffect.group)
     this.scene.add(this.shutterEffect.group)
     this.scene.add(this.ivyEffect.group)
     this.scene.add(this.rockFieldEffect.group)
@@ -512,6 +583,45 @@ export class PlaygroundRuntime {
     this.grassEffect.setParams(this.grassFieldParams)
   }
 
+  setBandFieldParams(params: {
+    layoutDensity?: number
+    sizeScale?: number
+    edgeSoftness?: number
+    vergeBandWidth?: number
+    fungusBandWidth?: number
+    showVergeBand?: boolean
+    showFungusBand?: boolean
+  }): void {
+    if (params.layoutDensity !== undefined) {
+      this.userBandLayoutDensity = params.layoutDensity
+    }
+    if (params.sizeScale !== undefined) {
+      this.vergeBandParams.sizeScale = params.sizeScale
+      this.fungusBandParams.sizeScale = params.sizeScale * 0.92
+    }
+    if (params.edgeSoftness !== undefined) {
+      this.vergeBandParams.edgeSoftness = params.edgeSoftness
+      this.fungusBandParams.edgeSoftness = params.edgeSoftness * 1.25
+    }
+    if (params.vergeBandWidth !== undefined) {
+      this.vergeBandParams.bandWidth = params.vergeBandWidth
+    }
+    if (params.fungusBandWidth !== undefined) {
+      this.fungusBandParams.bandWidth = params.fungusBandWidth
+    }
+    const scaledDensity = this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
+    this.vergeBandParams.layoutDensity = scaledDensity
+    this.fungusBandParams.layoutDensity = scaledDensity
+    this.vergeBandEffect.setParams(this.vergeBandParams)
+    this.fungusBandEffect.setParams(this.fungusBandParams)
+    if (params.showVergeBand !== undefined) {
+      this.vergeBandEffect.group.visible = params.showVergeBand
+    }
+    if (params.showFungusBand !== undefined) {
+      this.fungusBandEffect.group.visible = params.showFungusBand
+    }
+  }
+
   setRockFieldParams(params: Partial<RockFieldParams>): void {
     this.rockFieldParams = { ...this.rockFieldParams, ...params }
     if (params.layoutDensity !== undefined) {
@@ -552,6 +662,11 @@ export class PlaygroundRuntime {
     this.grassFieldParams.layoutDensity =
       this.userGrassLayoutDensity * getQualityGrassLayoutScale(this.quality)
     this.grassEffect.setParams(this.grassFieldParams)
+    this.vergeBandParams.layoutDensity =
+      this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
+    this.fungusBandParams.layoutDensity = this.vergeBandParams.layoutDensity
+    this.vergeBandEffect.setParams(this.vergeBandParams)
+    this.fungusBandEffect.setParams(this.fungusBandParams)
     this.starSkyParams.layoutDensity =
       this.userStarLayoutDensity * getQualityStarLayoutScale(this.quality)
     this.starSkyEffect.setParams(this.starSkyParams)
@@ -618,6 +733,8 @@ export class PlaygroundRuntime {
     window.removeEventListener('blur', this.handleWindowBlur)
     this.scene.remove(this.townGroup)
     this.scene.remove(this.grassEffect.group)
+    this.scene.remove(this.vergeBandEffect.group)
+    this.scene.remove(this.fungusBandEffect.group)
     this.scene.remove(this.shutterEffect.group)
     this.scene.remove(this.ivyEffect.group)
     this.scene.remove(this.rockFieldEffect.group)
@@ -648,6 +765,8 @@ export class PlaygroundRuntime {
     this.shutterEffect.dispose()
     this.ivyEffect.dispose()
     this.grassEffect.dispose()
+    this.vergeBandEffect.dispose()
+    this.fungusBandEffect.dispose()
     this.rockFieldEffect.dispose()
     this.starSkyEffect.dispose()
     for (const effect of this.neonSignEffects) {
@@ -708,6 +827,8 @@ export class PlaygroundRuntime {
       glass.update(elapsed)
     }
     this.grassEffect.update(elapsed)
+    this.vergeBandEffect.update(this.getGroundHeightAtWorld)
+    this.fungusBandEffect.update(this.getGroundHeightAtWorld)
     this.controller.player.update(0, 'idle')
   }
 
@@ -1427,6 +1548,10 @@ export class PlaygroundRuntime {
       this.grassEffect.update(elapsed)
       grassCpuMs = now() - tGrass0
     }
+    const tBand0 = now()
+    this.vergeBandEffect.update(this.getGroundHeightAtWorld)
+    this.fungusBandEffect.update(this.getGroundHeightAtWorld)
+    const bandCpuMs = now() - tBand0
     const tRock0 = now()
     this.rockFieldEffect.update(this.getGroundHeightAtWorld)
     const rockCpuMs = now() - tRock0
@@ -1471,6 +1596,7 @@ export class PlaygroundRuntime {
       lampCpuMs,
       glassCpuMs,
       grassCpuMs,
+      bandCpuMs,
       rockCpuMs,
       neonCpuMs,
       skyCpuMs,
@@ -1485,6 +1611,7 @@ export class PlaygroundRuntime {
         `[Weft perf] ${this.perfStats.fps.toFixed(1)} fps | frame ${this.perfStats.frameCpuMs.toFixed(2)} ms | ` +
           `controller ${this.perfStats.controllerCpuMs.toFixed(2)} | effects ${this.perfStats.effectsCpuMs.toFixed(2)} | ` +
           `render ${this.perfStats.renderCpuMs.toFixed(2)} | grass ${this.perfStats.grassCpuMs.toFixed(2)} | ` +
+          `band ${this.perfStats.bandCpuMs.toFixed(2)} | ` +
           `rock ${this.perfStats.rockCpuMs.toFixed(2)} | neon ${this.perfStats.neonCpuMs.toFixed(2)} | ` +
           `sky ${this.perfStats.skyCpuMs.toFixed(2)} | dpr ${this.perfStats.pixelRatio.toFixed(2)} | ` +
           `${this.perfStats.viewportWidth}x${this.perfStats.viewportHeight}`,

@@ -49,12 +49,13 @@ export {
   BandFieldEffect,
 } from './presets/bandField.ts'
 export type {
+  BandFieldAppearance,
   BandFieldBounds,
   BandFieldPlacementMask,
   BandFieldParams,
   CreateBandFieldEffectOptions,
 } from './presets/bandField.ts'
-export { getPreparedBandSurface } from './presets/bandFieldSource.ts'
+export { getPreparedBandSurface, getPreparedFungusBandSurface } from './presets/bandFieldSource.ts'
 
 export {
   createGrassEffect,

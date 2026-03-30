@@ -13,6 +13,11 @@ import {
 import {
   DEFAULT_GLASS_SURFACE_PARAMS,
   FACADE_FISH_RECOVERY_RATE,
+  PLAYGROUND_BAND_EDGE_SOFTNESS,
+  PLAYGROUND_BAND_LAYOUT_DENSITY,
+  PLAYGROUND_BAND_SIZE_SCALE,
+  PLAYGROUND_FUNGUS_SEAM_WIDTH,
+  PLAYGROUND_VERGE_BAND_WIDTH,
 } from "./playground/playgroundWorld";
 import {
   PLAYGROUND_QUALITY_DEFAULT,
@@ -95,6 +100,23 @@ export function Editor() {
   const [rockSizeScale, setRockSizeScale] = useState(
     DEFAULT_ROCK_FIELD_PARAMS.sizeScale,
   );
+  const [bandLayoutDensity, setBandLayoutDensity] = useState(
+    PLAYGROUND_BAND_LAYOUT_DENSITY,
+  );
+  const [bandSizeScale, setBandSizeScale] = useState(
+    PLAYGROUND_BAND_SIZE_SCALE,
+  );
+  const [vergeBandWidth, setVergeBandWidth] = useState(
+    PLAYGROUND_VERGE_BAND_WIDTH,
+  );
+  const [fungusBandWidth, setFungusBandWidth] = useState(
+    PLAYGROUND_FUNGUS_SEAM_WIDTH,
+  );
+  const [bandEdgeSoftness, setBandEdgeSoftness] = useState(
+    PLAYGROUND_BAND_EDGE_SOFTNESS,
+  );
+  const [showVergeBand, setShowVergeBand] = useState(true);
+  const [showFungusBand, setShowFungusBand] = useState(true);
   const [fireRecoveryRate, setFireRecoveryRate] = useState(
     DEFAULT_FIRE_WALL_PARAMS.recoveryRate,
   );
@@ -151,6 +173,15 @@ export function Editor() {
           layoutDensity: grassLayoutDensity,
         });
         runtime.setRockFieldParams({ layoutDensity: rockLayoutDensity, sizeScale: rockSizeScale });
+        runtime.setBandFieldParams({
+          layoutDensity: bandLayoutDensity,
+          sizeScale: bandSizeScale,
+          vergeBandWidth,
+          fungusBandWidth,
+          edgeSoftness: bandEdgeSoftness,
+          showVergeBand,
+          showFungusBand,
+        });
         runtime.setFireWallParams({ recoveryRate: fireRecoveryRate, holeSize: fireHoleSize });
         runtime.setStarSkyParams({
           layoutDensity: starLayoutDensity,
@@ -242,6 +273,26 @@ export function Editor() {
       sizeScale: rockSizeScale,
     });
   }, [rockLayoutDensity, rockSizeScale]);
+
+  useEffect(() => {
+    runtimeRef.current?.setBandFieldParams({
+      layoutDensity: bandLayoutDensity,
+      sizeScale: bandSizeScale,
+      vergeBandWidth,
+      fungusBandWidth,
+      edgeSoftness: bandEdgeSoftness,
+      showVergeBand,
+      showFungusBand,
+    });
+  }, [
+    bandEdgeSoftness,
+    bandLayoutDensity,
+    bandSizeScale,
+    fungusBandWidth,
+    showFungusBand,
+    showVergeBand,
+    vergeBandWidth,
+  ]);
 
   useEffect(() => {
     runtimeRef.current?.setFireWallParams({ recoveryRate: fireRecoveryRate, holeSize: fireHoleSize });
@@ -347,7 +398,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.5}
+                      min={0}
                       max={2.4}
                       step={0.02}
                       value={disturbanceRadius}
@@ -362,7 +413,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.2}
+                      min={0}
                       max={0.95}
                       step={0.02}
                       value={disturbanceStrength}
@@ -375,7 +426,7 @@ export function Editor() {
                     <span>Trample depth</span>
                     <input
                       type="range"
-                      min={0.12}
+                      min={0}
                       max={1.25}
                       step={0.02}
                       value={trampleDepth}
@@ -426,7 +477,7 @@ export function Editor() {
                     <span>Recovery rate</span>
                     <input
                       type="range"
-                      min={0.02}
+                      min={0}
                       max={0.8}
                       step={0.02}
                       value={recoveryRate}
@@ -445,7 +496,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.3}
+                      min={0}
                       max={1.1}
                       step={0.02}
                       value={woundRadius}
@@ -459,7 +510,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.08}
+                      min={0}
                       max={0.75}
                       step={0.02}
                       value={woundNarrow}
@@ -470,7 +521,7 @@ export function Editor() {
                     <span>Crater depth</span>
                     <input
                       type="range"
-                      min={0.15}
+                      min={0}
                       max={1.1}
                       step={0.02}
                       value={woundDepth}
@@ -503,7 +554,7 @@ export function Editor() {
                     <span>Recovery rate</span>
                     <input
                       type="range"
-                      min={0.02}
+                      min={0}
                       max={0.8}
                       step={0.02}
                       value={shellSurfaceRecoveryRate}
@@ -524,7 +575,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.12}
+                      min={0}
                       max={1.4}
                       step={0.02}
                       value={glassWoundRadius}
@@ -544,6 +595,97 @@ export function Editor() {
                       onChange={(e) => setGlassRecoveryRate(Number(e.target.value))}
                     />
                   </label>
+                </ControlSection>
+
+                <ControlSection
+                  title="Verge strip & fungus seam"
+                  summary="Band-field preset samples"
+                >
+                  <label className="control">
+                    <span>Show verge strip</span>
+                    <input
+                      type="checkbox"
+                      checked={showVergeBand}
+                      onChange={(e) => setShowVergeBand(e.target.checked)}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Show fungus seam</span>
+                    <input
+                      type="checkbox"
+                      checked={showFungusBand}
+                      onChange={(e) => setShowFungusBand(e.target.checked)}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Layout density ({bandLayoutDensity.toFixed(2)}x) — how many band glyphs fit along each strip
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={4}
+                      step={0.05}
+                      value={bandLayoutDensity}
+                      onChange={(e) => setBandLayoutDensity(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Glyph size ({bandSizeScale.toFixed(2)}x)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2.2}
+                      step={0.05}
+                      value={bandSizeScale}
+                      onChange={(e) => setBandSizeScale(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Verge strip width ({vergeBandWidth.toFixed(2)} world units)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={3.6}
+                      step={0.05}
+                      value={vergeBandWidth}
+                      onChange={(e) => setVergeBandWidth(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Fungus seam width ({fungusBandWidth.toFixed(2)} world units)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={4.4}
+                      step={0.05}
+                      value={fungusBandWidth}
+                      onChange={(e) => setFungusBandWidth(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Edge softness ({bandEdgeSoftness.toFixed(2)}) — how softly the strips feather out
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={3}
+                      step={0.05}
+                      value={bandEdgeSoftness}
+                      onChange={(e) => setBandEdgeSoftness(Number(e.target.value))}
+                    />
+                  </label>
+                  <p className="control-hint">
+                    Use the checkboxes to isolate verge vs fungus. Setting layout density, glyph size, or either width to
+                    <code> 0</code> now fully hides that band contribution.
+                  </p>
                 </ControlSection>
 
                 <ControlSection
@@ -571,7 +713,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.2}
+                      min={0}
                       max={2.2}
                       step={0.05}
                       value={rockSizeScale}
@@ -589,7 +731,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.005}
+                      min={0}
                       max={2.0}
                       step={0.005}
                       value={fireRecoveryRate}
@@ -602,7 +744,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.3}
+                      min={0}
                       max={2.5}
                       step={0.05}
                       value={fireHoleSize}
@@ -618,7 +760,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.2}
+                      min={0}
                       max={2.5}
                       step={0.05}
                       value={starLayoutDensity}
@@ -631,7 +773,7 @@ export function Editor() {
                     </span>
                     <input
                       type="range"
-                      min={0.05}
+                      min={0}
                       max={0.8}
                       step={0.01}
                       value={starRecoveryRate}
@@ -702,8 +844,9 @@ export function Editor() {
             <div>Effects: {perfStats.effectsCpuMs.toFixed(2)} ms | Render: {perfStats.renderCpuMs.toFixed(2)} ms</div>
             <div>Controller: {perfStats.controllerCpuMs.toFixed(2)} ms | DPR: {perfStats.pixelRatio.toFixed(2)}</div>
             <div>
-              Grass: {perfStats.grassCpuMs.toFixed(2)} | Rock: {perfStats.rockCpuMs.toFixed(2)} | Neon:{" "}
-              {perfStats.neonCpuMs.toFixed(2)} | Sky: {perfStats.skyCpuMs.toFixed(2)}
+              Grass: {perfStats.grassCpuMs.toFixed(2)} | Band: {perfStats.bandCpuMs.toFixed(2)} | Rock:{" "}
+              {perfStats.rockCpuMs.toFixed(2)} | Neon: {perfStats.neonCpuMs.toFixed(2)} | Sky:{" "}
+              {perfStats.skyCpuMs.toFixed(2)}
             </div>
             <div>
               Fish: {(perfStats.shutterCpuMs + perfStats.ivyCpuMs).toFixed(2)} | Glass:{" "}

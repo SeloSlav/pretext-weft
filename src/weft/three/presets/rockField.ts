@@ -132,6 +132,8 @@ export class RockFieldEffect {
   private readonly placementMask: Required<RockFieldPlacementMask>
   private readonly fieldWidth: number
   private readonly fieldDepth: number
+  private readonly fieldCenterX: number
+  private readonly fieldCenterZ: number
   private readonly layoutDriver: SurfaceLayoutDriver<RockTokenId, RockTokenMeta>
   private params: RockFieldParams
 
@@ -145,6 +147,8 @@ export class RockFieldEffect {
     const bounds = placementMask.bounds ?? DEFAULT_ROCK_FIELD_BOUNDS
     this.fieldWidth = bounds.maxX - bounds.minX
     this.fieldDepth = bounds.maxZ - bounds.minZ
+    this.fieldCenterX = (bounds.minX + bounds.maxX) * 0.5
+    this.fieldCenterZ = (bounds.minZ + bounds.maxZ) * 0.5
     this.placementMask = {
       bounds,
       includeAtXZ: placementMask.includeAtXZ ?? (() => true),
@@ -229,12 +233,13 @@ export class RockFieldEffect {
 
       const t01 = THREE.MathUtils.clamp((k + hashLat * 0.85 + 0.08) / (n + 0.1), 0.02, 0.98)
       const x =
+        this.fieldCenterX +
         slot.spanStart +
         t01 * slot.spanSize +
         lineLateralShift +
         (hashLat - 0.5) * slot.sectorStep * 0.42
       const zJitter = (hashDep - 0.5) * rowStep * 0.58 + lineDepthShift
-      const z = slot.lineCoord + zJitter
+      const z = this.fieldCenterZ + slot.lineCoord + zJitter
       if (!this.placementMask.includeAtXZ(x, z)) continue
       const noise = organicField(x + hashOrg * 0.3, z + hashOrg * 0.2)
 
