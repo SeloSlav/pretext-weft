@@ -112,24 +112,59 @@ type ReticleHit = THREE.Intersection & {
 
 export type PlaygroundPerfStats = {
   fps: number
+  fpsAvg: number
   frameCpuMs: number
+  frameCpuMsAvg: number
   controllerCpuMs: number
   effectsCpuMs: number
+  effectsCpuMsAvg: number
   renderCpuMs: number
+  renderCpuMsAvg: number
   playerCpuMs: number
   shutterCpuMs: number
   ivyCpuMs: number
   lampCpuMs: number
   glassCpuMs: number
+  glassCpuMsAvg: number
   grassCpuMs: number
+  grassCpuMsAvg: number
+  vergeCpuMs: number
+  vergeCpuMsAvg: number
+  leafCpuMs: number
+  leafCpuMsAvg: number
+  fungusCpuMs: number
+  fungusCpuMsAvg: number
+  bandCpuMs: number
+  bandCpuMsAvg: number
+  rockCpuMs: number
+  rockCpuMsAvg: number
+  neonCpuMs: number
+  neonCpuMsAvg: number
+  skyCpuMs: number
+  skyCpuMsAvg: number
+  lightingCpuMs: number
+  fishCpuMsAvg: number
+  ranSystems: string[]
+  viewportWidth: number
+  viewportHeight: number
+  pixelRatio: number
+}
+
+type PerfWindowSample = {
+  fps: number
+  frameCpuMs: number
+  effectsCpuMs: number
+  renderCpuMs: number
+  glassCpuMs: number
+  grassCpuMs: number
+  vergeCpuMs: number
+  leafCpuMs: number
+  fungusCpuMs: number
   bandCpuMs: number
   rockCpuMs: number
   neonCpuMs: number
   skyCpuMs: number
-  lightingCpuMs: number
-  viewportWidth: number
-  viewportHeight: number
-  pixelRatio: number
+  fishCpuMs: number
 }
 
 const INTERSECTION_LEAF_PILES = [
@@ -418,21 +453,39 @@ export class PlaygroundRuntime {
   fps = 0
   perfStats: PlaygroundPerfStats = {
     fps: 0,
+    fpsAvg: 0,
     frameCpuMs: 0,
+    frameCpuMsAvg: 0,
     controllerCpuMs: 0,
     effectsCpuMs: 0,
+    effectsCpuMsAvg: 0,
     renderCpuMs: 0,
+    renderCpuMsAvg: 0,
     playerCpuMs: 0,
     shutterCpuMs: 0,
     ivyCpuMs: 0,
     lampCpuMs: 0,
     glassCpuMs: 0,
+    glassCpuMsAvg: 0,
     grassCpuMs: 0,
+    grassCpuMsAvg: 0,
+    vergeCpuMs: 0,
+    vergeCpuMsAvg: 0,
+    leafCpuMs: 0,
+    leafCpuMsAvg: 0,
+    fungusCpuMs: 0,
+    fungusCpuMsAvg: 0,
     bandCpuMs: 0,
+    bandCpuMsAvg: 0,
     rockCpuMs: 0,
+    rockCpuMsAvg: 0,
     neonCpuMs: 0,
+    neonCpuMsAvg: 0,
     skyCpuMs: 0,
+    skyCpuMsAvg: 0,
     lightingCpuMs: 0,
+    fishCpuMsAvg: 0,
+    ranSystems: [],
     viewportWidth: 0,
     viewportHeight: 0,
     pixelRatio: 1,
@@ -440,6 +493,24 @@ export class PlaygroundRuntime {
   private readonly perfLoggingEnabled =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('perf') === '1'
   private lastPerfLogElapsed = 0
+  private readonly perfWindow: PerfWindowSample[] = []
+  private readonly perfWindowSums: PerfWindowSample = {
+    fps: 0,
+    frameCpuMs: 0,
+    effectsCpuMs: 0,
+    renderCpuMs: 0,
+    glassCpuMs: 0,
+    grassCpuMs: 0,
+    vergeCpuMs: 0,
+    leafCpuMs: 0,
+    fungusCpuMs: 0,
+    bandCpuMs: 0,
+    rockCpuMs: 0,
+    neonCpuMs: 0,
+    skyCpuMs: 0,
+    fishCpuMs: 0,
+  }
+  private static readonly PERF_WINDOW_FRAMES = 45
 
   constructor(host: HTMLElement) {
     this.host = host
@@ -1000,7 +1071,7 @@ export class PlaygroundRuntime {
     }
   }
 
-  private idleCadenceFor(kind: 'grass' | 'fish' | 'neon'): number {
+  private idleCadenceFor(kind: 'grass' | 'fish' | 'neon' | 'glass'): number {
     const base = this.cadenceFor(kind)
     if (this.quality === 'high') {
       return Math.max(base, 2)
@@ -1010,6 +1081,47 @@ export class PlaygroundRuntime {
 
   private shouldRunCadencedUpdate(interval: number, offset: number): boolean {
     return interval <= 1 || this.frameTick % interval === offset % interval
+  }
+
+  private pushPerfWindowSample(sample: PerfWindowSample): void {
+    this.perfWindow.push(sample)
+    this.perfWindowSums.fps += sample.fps
+    this.perfWindowSums.frameCpuMs += sample.frameCpuMs
+    this.perfWindowSums.effectsCpuMs += sample.effectsCpuMs
+    this.perfWindowSums.renderCpuMs += sample.renderCpuMs
+    this.perfWindowSums.glassCpuMs += sample.glassCpuMs
+    this.perfWindowSums.grassCpuMs += sample.grassCpuMs
+    this.perfWindowSums.vergeCpuMs += sample.vergeCpuMs
+    this.perfWindowSums.leafCpuMs += sample.leafCpuMs
+    this.perfWindowSums.fungusCpuMs += sample.fungusCpuMs
+    this.perfWindowSums.bandCpuMs += sample.bandCpuMs
+    this.perfWindowSums.rockCpuMs += sample.rockCpuMs
+    this.perfWindowSums.neonCpuMs += sample.neonCpuMs
+    this.perfWindowSums.skyCpuMs += sample.skyCpuMs
+    this.perfWindowSums.fishCpuMs += sample.fishCpuMs
+
+    if (this.perfWindow.length > PlaygroundRuntime.PERF_WINDOW_FRAMES) {
+      const removed = this.perfWindow.shift()!
+      this.perfWindowSums.fps -= removed.fps
+      this.perfWindowSums.frameCpuMs -= removed.frameCpuMs
+      this.perfWindowSums.effectsCpuMs -= removed.effectsCpuMs
+      this.perfWindowSums.renderCpuMs -= removed.renderCpuMs
+      this.perfWindowSums.glassCpuMs -= removed.glassCpuMs
+      this.perfWindowSums.grassCpuMs -= removed.grassCpuMs
+      this.perfWindowSums.vergeCpuMs -= removed.vergeCpuMs
+      this.perfWindowSums.leafCpuMs -= removed.leafCpuMs
+      this.perfWindowSums.fungusCpuMs -= removed.fungusCpuMs
+      this.perfWindowSums.bandCpuMs -= removed.bandCpuMs
+      this.perfWindowSums.rockCpuMs -= removed.rockCpuMs
+      this.perfWindowSums.neonCpuMs -= removed.neonCpuMs
+      this.perfWindowSums.skyCpuMs -= removed.skyCpuMs
+      this.perfWindowSums.fishCpuMs -= removed.fishCpuMs
+    }
+  }
+
+  private perfWindowAverage(key: keyof PerfWindowSample): number {
+    const count = this.perfWindow.length
+    return count === 0 ? 0 : this.perfWindowSums[key] / count
   }
 
   private getRoofHeightAtWorld(x: number, z: number, referenceY: number): number | null {
@@ -1689,35 +1801,47 @@ export class PlaygroundRuntime {
       this.shutterEffect.hasWounds() || this.ivyEffect.hasWounds()
         ? this.cadenceFor('fish')
         : this.idleCadenceFor('fish')
+    let ranShutter = false
+    let ranIvy = false
     let shutterCpuMs = 0
     let ivyCpuMs = 0
     if (this.shouldRunCadencedUpdate(fishCadence, 0)) {
       const tShutter0 = now()
       this.shutterEffect.update(elapsed)
       shutterCpuMs = now() - tShutter0
+      ranShutter = true
     }
     if (this.shouldRunCadencedUpdate(fishCadence, 1)) {
       const tIvy0 = now()
       this.ivyEffect.update(elapsed)
       ivyCpuMs = now() - tIvy0
+      ranIvy = true
     }
     const tLamp0 = now()
-    for (const lamp of this.lampEffects) {
-      if (lamp.hasWounds() || (this.frameTick & 1) === 0) {
+    let ranGlass = false
+    const glassIdleCadence = this.idleCadenceFor('glass')
+    for (let i = 0; i < this.lampEffects.length; i++) {
+      const lamp = this.lampEffects[i]!
+      if (lamp.hasWounds() || this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
         lamp.update(elapsed)
+        ranGlass = true
       }
     }
     const lampCpuMs = now() - tLamp0
     const tGlass0 = now()
-    const glassCadence = this.cadenceFor('glass')
-    for (const glass of this.windowGlassEffects) {
-      if (glass.hasWounds() || this.shouldRunCadencedUpdate(glassCadence, 1)) {
+    const glassIdleOffsetBase = this.lampEffects.length
+    for (let i = 0; i < this.windowGlassEffects.length; i++) {
+      const glass = this.windowGlassEffects[i]!
+      const idleOffset = glassIdleOffsetBase + i
+      if (glass.hasWounds() || this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
         glass.update(elapsed)
+        ranGlass = true
       }
     }
     const glassCpuMs = now() - tGlass0
     // Grass is the main dynamic ground-cover cost, so idle wind runs on a lighter cadence.
     let grassCpuMs = 0
+    let ranGrass = false
     const grassCadence = this.grassEffect.hasDisturbances()
       ? this.cadenceFor('grass')
       : this.idleCadenceFor('grass')
@@ -1725,28 +1849,44 @@ export class PlaygroundRuntime {
       const tGrass0 = now()
       this.grassEffect.update(elapsed)
       grassCpuMs = now() - tGrass0
+      ranGrass = true
     }
-    const tBand0 = now()
+    let vergeCpuMs = 0
+    let leafCpuMs = 0
+    let fungusCpuMs = 0
+    let ranBand = false
     if (this.vergeBandDirty) {
+      const tVerge0 = now()
       this.vergeBandEffect.update(this.getGroundHeightAtWorld)
+      vergeCpuMs = now() - tVerge0
       this.vergeBandDirty = false
+      ranBand = true
     }
     if (this.leafPileDirty) {
+      const tLeaf0 = now()
       this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
+      leafCpuMs = now() - tLeaf0
       this.leafPileDirty = false
+      ranBand = true
     }
     if (this.fungusBandDirty || this.fungusBandEffect.hasBurns()) {
+      const tFungus0 = now()
       this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
+      fungusCpuMs = now() - tFungus0
       this.fungusBandDirty = this.fungusBandEffect.hasBurns()
+      ranBand = true
     }
-    const bandCpuMs = now() - tBand0
+    const bandCpuMs = vergeCpuMs + leafCpuMs + fungusCpuMs
     const tRock0 = now()
+    let ranRock = false
     if (this.rockFieldDirty) {
       this.rockFieldEffect.update(this.getGroundHeightAtWorld)
       this.rockFieldDirty = false
+      ranRock = true
     }
     const rockCpuMs = now() - tRock0
     let neonCpuMs = 0
+    let ranNeon = false
     const neonCadence = this.neonSignEffects.some((effect) => effect.hasWounds())
       ? this.cadenceFor('neon')
       : this.idleCadenceFor('neon')
@@ -1756,21 +1896,25 @@ export class PlaygroundRuntime {
         effect.update(elapsed)
       }
       neonCpuMs = now() - tNeon0
+      ranNeon = true
     } else {
       const tNeon0 = now()
       for (let i = 0; i < this.neonSignEffects.length; i++) {
         const effect = this.neonSignEffects[i]!
         if (effect.hasWounds() || this.shouldRunCadencedUpdate(neonCadence, i)) {
           effect.update(elapsed)
+          ranNeon = true
         }
       }
       neonCpuMs = now() - tNeon0
     }
     let skyCpuMs = 0
+    let ranSky = false
     if (this.shouldRunCadencedUpdate(this.cadenceFor('sky'), 2)) {
       const tSky0 = now()
       this.starSkyEffect.update(elapsed)
       skyCpuMs = now() - tSky0
+      ranSky = true
     }
     const tLighting0 = now()
     this.updateStreetLampLighting()
@@ -1787,23 +1931,68 @@ export class PlaygroundRuntime {
     this.renderer.render(this.scene, this.camera)
     const renderCpuMs = now() - tRender0
     const frameCpuMs = now() - tFrame0
-    this.perfStats = {
+    const fishCpuMs = shutterCpuMs + ivyCpuMs
+    const totalGlassCpuMs = lampCpuMs + glassCpuMs
+    const ranSystems = [
+      ...(ranGrass ? ['grass'] : []),
+      ...(ranBand ? ['band'] : []),
+      ...(ranRock ? ['rock'] : []),
+      ...(ranNeon ? ['neon'] : []),
+      ...(ranSky ? ['sky'] : []),
+      ...(ranShutter || ranIvy ? ['fish'] : []),
+      ...(ranGlass ? ['glass'] : []),
+    ]
+    this.pushPerfWindowSample({
       fps: this.fps,
       frameCpuMs,
-      controllerCpuMs,
       effectsCpuMs,
       renderCpuMs,
+      glassCpuMs: totalGlassCpuMs,
+      grassCpuMs,
+      vergeCpuMs,
+      leafCpuMs,
+      fungusCpuMs,
+      bandCpuMs,
+      rockCpuMs,
+      neonCpuMs,
+      skyCpuMs,
+      fishCpuMs,
+    })
+    this.perfStats = {
+      fps: this.fps,
+      fpsAvg: this.perfWindowAverage('fps'),
+      frameCpuMs,
+      frameCpuMsAvg: this.perfWindowAverage('frameCpuMs'),
+      controllerCpuMs,
+      effectsCpuMs,
+      effectsCpuMsAvg: this.perfWindowAverage('effectsCpuMs'),
+      renderCpuMs,
+      renderCpuMsAvg: this.perfWindowAverage('renderCpuMs'),
       playerCpuMs,
       shutterCpuMs,
       ivyCpuMs,
       lampCpuMs,
       glassCpuMs,
+      glassCpuMsAvg: this.perfWindowAverage('glassCpuMs'),
       grassCpuMs,
+      grassCpuMsAvg: this.perfWindowAverage('grassCpuMs'),
+      vergeCpuMs,
+      vergeCpuMsAvg: this.perfWindowAverage('vergeCpuMs'),
+      leafCpuMs,
+      leafCpuMsAvg: this.perfWindowAverage('leafCpuMs'),
+      fungusCpuMs,
+      fungusCpuMsAvg: this.perfWindowAverage('fungusCpuMs'),
       bandCpuMs,
+      bandCpuMsAvg: this.perfWindowAverage('bandCpuMs'),
       rockCpuMs,
+      rockCpuMsAvg: this.perfWindowAverage('rockCpuMs'),
       neonCpuMs,
+      neonCpuMsAvg: this.perfWindowAverage('neonCpuMs'),
       skyCpuMs,
+      skyCpuMsAvg: this.perfWindowAverage('skyCpuMs'),
       lightingCpuMs,
+      fishCpuMsAvg: this.perfWindowAverage('fishCpuMs'),
+      ranSystems,
       viewportWidth: this.perfStats.viewportWidth,
       viewportHeight: this.perfStats.viewportHeight,
       pixelRatio: this.perfStats.pixelRatio,

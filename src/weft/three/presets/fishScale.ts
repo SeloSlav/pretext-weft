@@ -49,6 +49,8 @@ const LAYOUT_PX_PER_WORLD = 33
 const BASE_SCALE_LIFT = 0.055
 const WOUND_MERGE_RADIUS = 0.46
 const WOUND_MAX_STRENGTH = 2.1
+const MAX_TRACKED_GLASS_WOUNDS = 8
+const MAX_TRACKED_FACADE_WOUNDS = 12
 const GLASS_GLOBE_RADIUS = 2.5
 const GLASS_POLAR_MARGIN = 0.16
 const GLASS_PANE_CELL_X = 1.35
@@ -77,6 +79,16 @@ type Wound = {
   y: number
   strength: number
   side: 1 | -1
+}
+
+type CachedWoundSample = {
+  x: number
+  y: number
+  strength: number
+  side: 1 | -1
+  presence: number
+  intensity: number
+  radius: number
 }
 
 type SurfaceFrame = {
@@ -209,6 +221,7 @@ export class ShellSurfaceEffect {
   private readonly basePatchPositions = Float32Array.from(this.patchGeometry.attributes.position.array as ArrayLike<number>)
   private readonly layoutDriver: SurfaceLayoutDriver<FishTokenId, FishTokenMeta>
   private readonly wounds: Wound[] = []
+  private readonly cachedWounds: CachedWoundSample[] = []
   private lastElapsedTime = 0
   private patchUpdateAccumulator = 1
   private patchNormalAccumulator = 1
@@ -342,6 +355,8 @@ export class ShellSurfaceEffect {
     } else {
       this.wounds.unshift({ x, y, strength: 1, side })
     }
+    this.trimWoundsToBudget()
+    this.rebuildCachedWounds()
     this.needsGeometryRefresh = true
   }
 
@@ -350,6 +365,7 @@ export class ShellSurfaceEffect {
     this.lastElapsedTime = elapsedTime
     const hadWounds = this.wounds.length > 0
     this.updateWounds(delta)
+    this.rebuildCachedWounds()
     const hasWounds = this.wounds.length > 0
     if (hadWounds || hasWounds) {
       this.needsGeometryRefresh = true
@@ -532,12 +548,12 @@ export class ShellSurfaceEffect {
   private damageAt(x: number, y: number): number {
     let damage = 0
 
-    for (const wound of this.wounds) {
+    for (const wound of this.cachedWounds) {
       const dx = this.paramDeltaX(x, wound.x)
       const dy = (y - wound.y) * 1.14
-      const normalized = Math.sqrt(dx * dx + dy * dy) / Math.max(0.0001, this.woundRadiusFor(wound))
-      const woundStrength = THREE.MathUtils.lerp(1, 1.2, this.woundIntensity01(wound))
-      damage = Math.max(damage, smoothPulse(normalized) * woundStrength * this.woundPresence01(wound))
+      const normalized = Math.sqrt(dx * dx + dy * dy) / Math.max(0.0001, wound.radius)
+      const woundStrength = THREE.MathUtils.lerp(1, 1.2, wound.intensity)
+      damage = Math.max(damage, smoothPulse(normalized) * woundStrength * wound.presence)
     }
 
     return THREE.MathUtils.clamp(damage, 0, 1)
@@ -547,11 +563,11 @@ export class ShellSurfaceEffect {
     if (this.appearance !== 'shutter' && this.appearance !== 'ivy') return 0
 
     let hole = 0
-    for (const wound of this.wounds) {
+    for (const wound of this.cachedWounds) {
       const dx = this.paramDeltaX(x, wound.x)
       const dy = (y - wound.y) * 1.14
-      const presence = this.woundPresence01(wound)
-      const radius = Math.max(0.0001, this.woundRadiusFor(wound) * THREE.MathUtils.lerp(1.22, 1.38, presence))
+      const presence = wound.presence
+      const radius = Math.max(0.0001, wound.radius * THREE.MathUtils.lerp(1.22, 1.38, presence))
       const normalized = Math.sqrt(dx * dx + dy * dy) / radius
       const cut = normalized <= 1 ? presence : 0
       hole = Math.max(hole, cut)
@@ -601,6 +617,7 @@ export class ShellSurfaceEffect {
 
   private updateWounds(delta: number): void {
     updateRecoveringImpacts(this.wounds, this.params.recoveryRate, delta)
+    this.trimWoundsToBudget()
   }
 
   private isSphericalGlassSurface(): boolean {
@@ -685,17 +702,17 @@ export class ShellSurfaceEffect {
 
     let woundOffset = 0
 
-    for (const wound of this.wounds) {
+    for (const wound of this.cachedWounds) {
       const dx = x - wound.x
       const dy = (y - wound.y) * 1.18
       const dist = Math.sqrt(dx * dx + dy * dy)
-      const radius = Math.max(0.0001, this.woundRadiusFor(wound))
+      const radius = Math.max(0.0001, wound.radius)
       const n = dist / radius
       if (n >= 1.25) continue
 
       const crater = smoothPulse(Math.min(n, 1))
-      const intensity = this.woundIntensity01(wound)
-      const presence = this.woundPresence01(wound)
+      const intensity = wound.intensity
+      const presence = wound.presence
       const woundSide = wound.side
       woundOffset +=
         woundSide *
@@ -717,17 +734,17 @@ export class ShellSurfaceEffect {
       (0.014 * Math.sin(elapsedTime * 0.7 + x * 1.1) + 0.01 * Math.cos(elapsedTime * 0.45 + y * 1.35))
 
     let woundOffset = 0
-    for (const wound of this.wounds) {
+    for (const wound of this.cachedWounds) {
       const dx = x - wound.x
       const dy = (y - wound.y) * 1.16
       const dist = Math.sqrt(dx * dx + dy * dy)
-      const radius = Math.max(0.0001, this.woundRadiusFor(wound))
+      const radius = Math.max(0.0001, wound.radius)
       const n = dist / radius
       if (n >= 1.22) continue
 
       const crater = smoothPulse(Math.min(n, 1))
-      const intensity = this.woundIntensity01(wound)
-      const presence = this.woundPresence01(wound)
+      const intensity = wound.intensity
+      const presence = wound.presence
       woundOffset += -crater * this.params.woundDepth * THREE.MathUtils.lerp(0.18, 0.32, intensity) * presence
 
       const ridgeT = THREE.MathUtils.clamp(1 - Math.abs(n - 0.9) / 0.2, 0, 1)
@@ -743,17 +760,17 @@ export class ShellSurfaceEffect {
       (0.018 * Math.sin(elapsedTime * 0.8 + x * 1.15) + 0.012 * Math.cos(elapsedTime * 0.5 + y * 1.35))
 
     let woundOffset = 0
-    for (const wound of this.wounds) {
+    for (const wound of this.cachedWounds) {
       const dx = this.paramDeltaX(x, wound.x)
       const dy = (y - wound.y) * 1.14
       const dist = Math.sqrt(dx * dx + dy * dy)
-      const radius = Math.max(0.0001, this.woundRadiusFor(wound))
+      const radius = Math.max(0.0001, wound.radius)
       const n = dist / radius
       if (n >= 1.25) continue
 
       const crater = smoothPulse(Math.min(n, 1))
-      const intensity = this.woundIntensity01(wound)
-      const presence = this.woundPresence01(wound)
+      const intensity = wound.intensity
+      const presence = wound.presence
       woundOffset += -crater * this.params.woundDepth * THREE.MathUtils.lerp(0.12, 0.2, intensity) * presence
 
       const ridgeT = THREE.MathUtils.clamp(1 - Math.abs(n - 0.92) / 0.22, 0, 1)
@@ -776,6 +793,45 @@ export class ShellSurfaceEffect {
       Math.cos(phi) * radius,
       Math.cos(theta) * sinPhi * radius,
     )
+  }
+
+  private trackedWoundBudget(): number {
+    return this.isSphericalGlassSurface() || this.appearance === 'glass'
+      ? MAX_TRACKED_GLASS_WOUNDS
+      : MAX_TRACKED_FACADE_WOUNDS
+  }
+
+  private trimWoundsToBudget(): void {
+    const budget = this.trackedWoundBudget()
+    while (this.wounds.length > budget) {
+      let weakestIndex = budget
+      for (let i = budget + 1; i < this.wounds.length; i++) {
+        if ((this.wounds[i]?.strength ?? Infinity) < (this.wounds[weakestIndex]?.strength ?? Infinity)) {
+          weakestIndex = i
+        }
+      }
+      this.wounds.splice(weakestIndex, 1)
+    }
+  }
+
+  private rebuildCachedWounds(): void {
+    this.cachedWounds.length = 0
+    for (const wound of this.wounds) {
+      const presence = this.woundPresence01(wound)
+      const intensity = this.woundIntensity01(wound)
+      this.cachedWounds.push({
+        x: wound.x,
+        y: wound.y,
+        strength: wound.strength,
+        side: wound.side,
+        presence,
+        intensity,
+        radius:
+          this.params.woundRadius *
+          THREE.MathUtils.lerp(0.72, 1, presence) *
+          THREE.MathUtils.lerp(1, 1.18, intensity),
+      })
+    }
   }
 
   private sampleSurface(x: number, y: number, elapsedTime: number): SurfaceFrame {
