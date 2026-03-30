@@ -201,6 +201,16 @@ Useful exported types:
 
 If a requested effect is close to one of these, adapt the preset before proposing a fully custom effect architecture.
 
+## Preset Customization Guidance
+
+When a shipped preset is already close to the desired result, customize the preset before dropping to `createSurfaceEffect()`.
+
+- Change the authored `surface` first when the user mainly needs a different glyph vocabulary, semantic palette, metadata, or repeated-unit stream.
+- Keep the preset topology and behavior model when the surface is still fundamentally grass-like, wall-like, rock-like, fire-like, or sky-like.
+- Prefer spreading and overriding shipped defaults such as `DEFAULT_GRASS_FIELD_PARAMS` or `DEFAULT_FISH_SCALE_PARAMS` instead of rewriting large param objects from scratch.
+- Reach for placement masks, semantic palettes, and param overrides before inventing a separate runtime or projection model.
+- Only drop to `createSurfaceEffect()` when the user needs a genuinely new layout/projection/update model, not just a visual or behavioral variant of an existing preset.
+
 ## Guidance For AI Agents
 
 When helping a user integrate Weft:
