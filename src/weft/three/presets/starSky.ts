@@ -33,6 +33,8 @@ const tmpDir = new THREE.Vector3()
 const tmpLocal = new THREE.Vector3()
 const tmpPush = new THREE.Vector3()
 const tmpFallback = new THREE.Vector3()
+const tmpInward = new THREE.Vector3()
+const tmpForward = new THREE.Vector3(0, 0, 1)
 
 type SkyWound = {
   x: number
@@ -189,6 +191,8 @@ export class StarSkyEffect {
 
   private updateStars(elapsedTime: number): void {
     let instanceIndex = 0
+    const hasWounds = this.wounds.length > 0
+    const polarJitterScale = ((MAX_POLAR - MIN_POLAR) / ROWS) * 0.55
 
     this.layoutDriver.forEachLaidOutLine({
       spanMin: 0,
@@ -204,7 +208,7 @@ export class StarSkyEffect {
           const hashA = glyphHash(identity, slot.row, k)
           const hashB = glyphHash(identity + 1, slot.sector, k ^ 0xa7)
           const azimuth = slot.spanStart + (hashA * 0.84 + 0.08) * slot.spanSize
-          const polar = slot.lineCoord + (hashB - 0.5) * (MAX_POLAR - MIN_POLAR) / ROWS * 0.55
+          const polar = slot.lineCoord + (hashB - 0.5) * polarJitterScale
 
           const sinP = Math.sin(polar)
           tmpDir.set(
@@ -212,14 +216,15 @@ export class StarSkyEffect {
             Math.cos(polar),
             Math.sin(azimuth) * sinP,
           )
-          this.deformDirection(tmpDir)
+          if (hasWounds) this.deformDirection(tmpDir)
 
           const radius = SKY_RADIUS - hashB * 6
           const twinkle = Math.sin(elapsedTime * (1.1 + hashA * 1.7) + hashB * Math.PI * 2) * 0.5 + 0.5
           const size = (0.18 + hashA * 0.48 + (identity % 5) * 0.03 + (identity % 4) * 0.02 - 0.03) * (0.7 + twinkle * 0.6)
 
           dummy.position.copy(tmpDir).multiplyScalar(radius)
-          dummy.lookAt(0, 0, 0)
+          tmpInward.copy(tmpDir).multiplyScalar(-1)
+          dummy.quaternion.setFromUnitVectors(tmpForward, tmpInward)
           dummy.rotateZ(hashB * Math.PI * 2)
           dummy.scale.setScalar(size)
           dummy.updateMatrix()

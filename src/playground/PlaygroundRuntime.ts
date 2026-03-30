@@ -1075,9 +1075,10 @@ export class PlaygroundRuntime {
     }
   }
 
-  private idleCadenceFor(kind: 'grass' | 'fish' | 'neon' | 'glass'): number {
+  private idleCadenceFor(kind: 'grass' | 'fish' | 'neon' | 'sky' | 'glass'): number {
     const base = this.cadenceFor(kind)
     if (this.quality === 'high') {
+      if (kind === 'sky') return Math.max(base, 3)
       return Math.max(base, 2)
     }
     return base
@@ -1828,7 +1829,7 @@ export class PlaygroundRuntime {
     const glassIdleCadence = this.idleCadenceFor('glass')
     for (let i = 0; i < this.lampEffects.length; i++) {
       const lamp = this.lampEffects[i]!
-      if (lamp.hasWounds() || this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
+      if (lamp.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
         lamp.update(elapsed)
         ranGlass = true
       }
@@ -1839,7 +1840,7 @@ export class PlaygroundRuntime {
     for (let i = 0; i < this.windowGlassEffects.length; i++) {
       const glass = this.windowGlassEffects[i]!
       const idleOffset = glassIdleOffsetBase + i
-      if (glass.hasWounds() || this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
+      if (glass.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
         glass.update(elapsed)
         ranGlass = true
       }
@@ -1916,7 +1917,8 @@ export class PlaygroundRuntime {
     }
     let skyCpuMs = 0
     let ranSky = false
-    if (this.shouldRunCadencedUpdate(this.cadenceFor('sky'), 2)) {
+    const skyCadence = this.starSkyEffect.hasWounds() ? this.cadenceFor('sky') : this.idleCadenceFor('sky')
+    if (this.shouldRunCadencedUpdate(skyCadence, 2)) {
       const tSky0 = now()
       this.starSkyEffect.update(elapsed)
       skyCpuMs = now() - tSky0

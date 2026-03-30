@@ -83,9 +83,7 @@ export function Editor() {
   const [glassWoundRadius, setGlassWoundRadius] = useState<number>(
     DEFAULT_GLASS_SURFACE_PARAMS.woundRadius,
   );
-  const [glassRecoveryRate, setGlassRecoveryRate] = useState<number>(
-    DEFAULT_GLASS_SURFACE_PARAMS.recoveryRate,
-  );
+  const [glassRecoveryRate, setGlassRecoveryRate] = useState<number>(0.8);
   const [disturbanceRadius, setDisturbanceRadius] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.disturbanceRadius,
   );

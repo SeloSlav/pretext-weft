@@ -298,6 +298,16 @@ export class ShellSurfaceEffect {
   }
 
   /**
+   * True when the surface needs active refreshes rather than the cheaper idle cadence.
+   * Static glass can stay visually broken without continuous updates when recovery is disabled.
+   */
+  needsActiveRefresh(): boolean {
+    if (this.needsGeometryRefresh) return true
+    if (this.wounds.length === 0) return false
+    return !this.isStaticWhenIntact() || this.params.recoveryRate > 0.001
+  }
+
+  /**
    * Normalized aggregate wound strength (0 = intact, 1 = at or past `breakThreshold`).
    * Useful for gameplay tied to recoverable shell-surface damage (e.g. lamp outage while glass heals).
    */
@@ -388,16 +398,19 @@ export class ShellSurfaceEffect {
     this.rebuildCachedWounds()
     const hasWounds = this.wounds.length > 0
     this.glassDamageOptimization01 = this.computeGlassDamageOptimization01()
-    if (hadWounds || hasWounds) {
+    if (hadWounds !== hasWounds) {
       this.needsGeometryRefresh = true
     }
-    const useIdleAnimation = !this.isStaticWhenIntact() || hasWounds
+    const useIdleAnimation = this.needsActiveRefresh()
     const intactRefreshInterval = 1 / 30
     const woundedGlassRefreshInterval =
       this.appearance === 'glass'
         ? THREE.MathUtils.lerp(1 / 16, 1 / 4, this.glassDamageOptimization01)
         : THREE.MathUtils.lerp(1 / 24, 1 / 10, this.glassDamageOptimization01)
-    const woundedWindowScaleRefreshInterval = THREE.MathUtils.lerp(1 / 12, 1 / 5, this.glassDamageOptimization01)
+    const woundedGlassScaleRefreshInterval =
+      this.appearance === 'glass'
+        ? THREE.MathUtils.lerp(1 / 12, 1 / 5, this.glassDamageOptimization01)
+        : THREE.MathUtils.lerp(1 / 10, 1 / 4, this.glassDamageOptimization01)
     const sampleElapsed = useIdleAnimation ? elapsedTime : hadWounds ? elapsedTime : this.frozenElapsedTime
     this.patchUpdateAccumulator += delta
     this.scaleUpdateAccumulator += delta
@@ -419,12 +432,12 @@ export class ShellSurfaceEffect {
       if (shouldRecomputeNormals) this.patchNormalAccumulator = 0
       patchUpdated = true
     }
-    const isDamagedWindow = this.appearance === 'glass' && hasWounds
+    const isDamagedGlassLike = (this.appearance === 'glass' || this.appearance === 'glassBulb') && hasWounds
     const shouldRefreshScales =
-      !isDamagedWindow ||
+      !isDamagedGlassLike ||
       patchUpdated ||
       this.needsGeometryRefresh ||
-      this.scaleUpdateAccumulator >= woundedWindowScaleRefreshInterval
+      this.scaleUpdateAccumulator >= woundedGlassScaleRefreshInterval
     if (shouldRefreshScales) {
       this.updateScales(sampleElapsed)
       this.scaleUpdateAccumulator = 0
@@ -1015,7 +1028,9 @@ export class ShellSurfaceEffect {
         const skipChance =
           this.appearance === 'glass'
             ? this.glassDamageOptimization01 * 0.62
-            : this.glassDamageOptimization01 * 0.42
+            : this.appearance === 'glassBulb'
+              ? this.glassDamageOptimization01 * 0.56
+              : this.glassDamageOptimization01 * 0.42
         if (glyphHash(identity + 41, slot.row * 131 + slot.sector, k) < skipChance) continue
       }
       const localDamage = this.damageAt(x, y)
