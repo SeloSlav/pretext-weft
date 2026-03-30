@@ -120,6 +120,46 @@ export type {
 export { getPreparedRockSurface } from './presets/rockFieldSource.ts'
 
 export {
+  createLogFieldEffect,
+  DEFAULT_LOG_FIELD_PARAMS,
+  LogFieldEffect,
+} from './presets/logField.ts'
+export type {
+  CreateLogFieldEffectOptions,
+  LogFieldBounds,
+  LogFieldPlacementMask,
+  LogFieldParams,
+} from './presets/logField.ts'
+export { getPreparedLogSurface } from './presets/logFieldSource.ts'
+
+export {
+  createStickFieldEffect,
+  DEFAULT_STICK_FIELD_PARAMS,
+  StickFieldEffect,
+} from './presets/stickField.ts'
+export type {
+  CreateStickFieldEffectOptions,
+  StickFieldBounds,
+  StickFieldPlacementMask,
+  StickFieldParams,
+} from './presets/stickField.ts'
+export { getPreparedStickSurface } from './presets/stickFieldSource.ts'
+
+export {
+  createNeedleLitterFieldEffect,
+  DEFAULT_NEEDLE_LITTER_FIELD_PARAMS,
+  NeedleLitterFieldEffect,
+} from './presets/needleLitterField.ts'
+export type {
+  CreateNeedleLitterFieldEffectOptions,
+  NeedleLitterFieldBounds,
+  NeedleLitterFieldPlacementMask,
+  NeedleLitterFieldParams,
+  NeedleLitterBurnOptions,
+} from './presets/needleLitterField.ts'
+export { getPreparedNeedleLitterSurface } from './presets/needleLitterFieldSource.ts'
+
+export {
   createStarSkyEffect,
   DEFAULT_STAR_SKY_PARAMS,
   StarSkyEffect,

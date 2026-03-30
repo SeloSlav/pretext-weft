@@ -26,6 +26,7 @@ import {
   PLAYGROUND_QUALITY_DEFAULT,
   type PlaygroundQuality,
 } from "./playground/playgroundQuality";
+import { PERF_HUD_POLL_INTERVAL_MS } from "./playground/playgroundPerfHud";
 
 type ControlSectionProps = {
   title: string;
@@ -255,13 +256,10 @@ export function Editor() {
   }, [quality, runtimeState]);
 
   useEffect(() => {
-    let id = 0;
-    const tick = () => {
-      setPerfStats(runtimeRef.current?.perfStats ?? null);
-      id = requestAnimationFrame(tick);
-    };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
+    const tick = () => setPerfStats(runtimeRef.current?.perfStats ?? null);
+    tick();
+    const id = window.setInterval(tick, PERF_HUD_POLL_INTERVAL_MS);
+    return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {

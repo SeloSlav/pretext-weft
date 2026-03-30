@@ -15,3 +15,12 @@ export {
   updateRecoveringImpacts,
 } from './recovery'
 export type { RecoveringImpact } from './recovery'
+
+export { createSurfaceMotionField } from './motionField'
+export type {
+  SurfaceMotionField,
+  SurfaceMotionFieldBounds,
+  SurfaceMotionFieldOptions,
+  SurfaceMotionFieldSample,
+  SurfaceMotionImpulseOptions,
+} from './motionField'

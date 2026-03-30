@@ -5,7 +5,7 @@ import type {
   SeedCursorFactory,
   SurfaceLayoutSlot,
 } from '../../core'
-import { SurfaceLayoutDriver } from '../../core'
+import { createWorldField, SurfaceLayoutDriver } from '../../core'
 import { createSurfaceEffect, fieldLayout } from '../api'
 import {
   getPreparedRockSurface,
@@ -72,33 +72,15 @@ function lineSignature(text: string): number {
   return (hash >>> 0) / 4294967296
 }
 
-function organicField(x: number, z: number): number {
-  const cx = Math.floor(x * 0.22)
-  const cz = Math.floor(z * 0.22)
-  const fx = x * 0.22 - cx
-  const fz = z * 0.22 - cz
-  const ux = fx * fx * (3 - 2 * fx)
-  const uz = fz * fz * (3 - 2 * fz)
-  const v00 = uhash(cx * 1619 + cz * 31337)
-  const v10 = uhash((cx + 1) * 1619 + cz * 31337)
-  const v01 = uhash(cx * 1619 + (cz + 1) * 31337)
-  const v11 = uhash((cx + 1) * 1619 + (cz + 1) * 31337)
-  const coarse = v00 + ux * (v10 - v00) + uz * (v01 - v00) + ux * uz * (v00 - v10 - v01 + v11)
-
-  const cx2 = Math.floor(x * 0.7)
-  const cz2 = Math.floor(z * 0.7)
-  const fx2 = x * 0.7 - cx2
-  const fz2 = z * 0.7 - cz2
-  const ux2 = fx2 * fx2 * (3 - 2 * fx2)
-  const uz2 = fz2 * fz2 * (3 - 2 * fz2)
-  const w00 = uhash(cx2 * 7919 + cz2 * 104729)
-  const w10 = uhash((cx2 + 1) * 7919 + cz2 * 104729)
-  const w01 = uhash(cx2 * 7919 + (cz2 + 1) * 104729)
-  const w11 = uhash((cx2 + 1) * 7919 + (cz2 + 1) * 104729)
-  const fine = w00 + ux2 * (w10 - w00) + uz2 * (w01 - w00) + ux2 * uz2 * (w00 - w10 - w01 + w11)
-
-  return THREE.MathUtils.clamp(coarse * 0.6 + fine * 0.4, 0, 1)
-}
+const rockOrganicWorldField = createWorldField(463, {
+  scale: 5.4,
+  octaves: 4,
+  roughness: 0.52,
+  warpAmplitude: 1.15,
+  warpScale: 4.6,
+  ridge: 0.32,
+  contrast: 1.12,
+})
 
 function rockSizeIdentity(identity: number, meta: RockTokenMeta): number {
   return 0.58 + uhash(identity * 2246822519) * 0.72 + meta.sizeBias
@@ -241,7 +223,7 @@ export class RockFieldEffect {
       const zJitter = (hashDep - 0.5) * rowStep * 0.58 + lineDepthShift
       const z = this.fieldCenterZ + slot.lineCoord + zJitter
       if (!this.placementMask.includeAtXZ(x, z)) continue
-      const noise = organicField(x + hashOrg * 0.3, z + hashOrg * 0.2)
+      const noise = rockOrganicWorldField(x + hashOrg * 0.3, z + hashOrg * 0.2)
 
       const groundY = getGroundHeight(x, z)
       const sizeBase = rockSizeIdentity(identity, meta)

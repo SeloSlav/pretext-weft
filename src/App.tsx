@@ -3,8 +3,9 @@ import { Demo } from './Demo'
 import { Docs } from './Docs'
 import { Editor } from './Editor'
 import { Landing } from './Landing'
+import { SceneryDemo } from './SceneryDemo'
 
-type SitePage = 'home' | 'docs' | 'editor' | 'demo'
+type SitePage = 'home' | 'docs' | 'editor' | 'demo' | 'scenery'
 
 export default function App() {
   const [page, setPage] = useState<SitePage>('home')
@@ -40,6 +41,13 @@ export default function App() {
           >
             Playground
           </button>
+          <button
+            type="button"
+            className={`site-nav__link${page === 'scenery' ? ' site-nav__link--active' : ''}`}
+            onClick={() => setPage('scenery')}
+          >
+            Scenery
+          </button>
         </nav>
 
         <div className="site-nav__meta">
@@ -60,6 +68,8 @@ export default function App() {
           <Docs onEnterEditor={() => setPage('editor')} />
         ) : page === 'demo' ? (
           <Demo />
+        ) : page === 'scenery' ? (
+          <SceneryDemo />
         ) : (
           <Editor />
         )}

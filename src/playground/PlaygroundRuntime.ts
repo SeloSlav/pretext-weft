@@ -7,24 +7,33 @@ import {
   createFireWallEffect,
   createShellSurfaceEffect,
   createGrassEffect,
+  createLogFieldEffect,
+  createNeedleLitterFieldEffect,
   createRockFieldEffect,
   createStarSkyEffect,
+  createStickFieldEffect,
   DEFAULT_BAND_FIELD_PARAMS,
   DEFAULT_FIRE_WALL_PARAMS,
   DEFAULT_FUNGUS_SEAM_PARAMS,
   DEFAULT_SHELL_SURFACE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
   DEFAULT_LEAF_PILE_BAND_PARAMS,
+  DEFAULT_LOG_FIELD_PARAMS,
+  DEFAULT_NEEDLE_LITTER_FIELD_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
+  DEFAULT_STICK_FIELD_PARAMS,
   getPreparedBandSurface,
   getPreparedFireSurface,
   getPreparedFungusBandSurface,
   getPreparedGlassSurface,
   getPreparedShellSurface,
   getPreparedIvySurface,
+  getPreparedLogSurface,
+  getPreparedNeedleLitterSurface,
   getPreparedRockSurface,
   getPreparedStarSurface,
+  getPreparedStickSurface,
   type BandFieldParams,
   type FireWallEffect,
   type FireWallParams,
@@ -34,8 +43,11 @@ import {
   type GrassFieldParams,
   type LeafPileBandParams,
   type LeafPileSeason,
+  type LogFieldParams,
+  type NeedleLitterFieldParams,
   type RockFieldParams,
   type StarSkyParams,
+  type StickFieldParams,
 } from '../weft/three'
 import { createWebGPURenderer } from '../createWebGPURenderer'
 import { Timer } from 'three'
@@ -105,6 +117,27 @@ import {
   isInsideFungusSeamZone,
   isInsideRubbleZone,
 } from './playgroundWorld'
+import {
+  createSceneryWorldAuthoring,
+  DEFAULT_SCENERY_WORLD_FIELD_PARAMS,
+  SCENERY_BOUNDS,
+  SCENERY_LEAF_PILE_BURN_PARAMS,
+  SCENERY_NEEDLE_LITTER_BURN_PARAMS,
+  SCENERY_SPAWN,
+  type SceneryWorldAuthoring,
+  type SceneryWorldFieldParams,
+} from './playgroundSceneryWorld'
+import type { MovementBounds } from './thirdPersonController'
+
+export type PlaygroundRuntimeOptions = {
+  /** Open grass field only: no town, larger walk bounds, no building collision. */
+  scenery?: boolean
+}
+
+type SceneryMotionResponseParams = {
+  logPushScale: number
+  stickPushScale: number
+}
 
 type ReticleHit = THREE.Intersection & {
   targetKind: 'shutter' | 'ivy' | 'grass' | 'neon' | 'lamp' | 'glass'
@@ -139,6 +172,12 @@ export type PlaygroundPerfStats = {
   bandCpuMsAvg: number
   rockCpuMs: number
   rockCpuMsAvg: number
+  logCpuMs: number
+  logCpuMsAvg: number
+  stickCpuMs: number
+  stickCpuMsAvg: number
+  needleCpuMs: number
+  needleCpuMsAvg: number
   neonCpuMs: number
   neonCpuMsAvg: number
   skyCpuMs: number
@@ -164,6 +203,9 @@ type PerfWindowSample = {
   fungusCpuMs: number
   bandCpuMs: number
   rockCpuMs: number
+  logCpuMs: number
+  stickCpuMs: number
+  needleCpuMs: number
   neonCpuMs: number
   skyCpuMs: number
   fishCpuMs: number
@@ -257,51 +299,14 @@ export class PlaygroundRuntime {
     appearance: 'ivy',
     effectId: 'ivy-facade',
   })
-  private readonly grassEffect = createGrassEffect({
-    surface: buildGrassStateSurface(DEFAULT_GRASS_FIELD_PARAMS.state),
-    seedCursor,
-    initialParams: DEFAULT_GRASS_FIELD_PARAMS,
-    placementMask: {
-      bounds: PLAYGROUND_BOUNDS,
-      excludeAtXZ: (x, z) => isCrossRoadAsphalt(x, z) || isInsideBuildingInterior(x, z),
-      coverageMultiplierAtXZ: (x, z) => (isVergeStrip(x, z) ? 1.14 : 1),
-    },
-  })
-  private readonly vergeBandEffect = createBandFieldEffect({
-    surface: getPreparedBandSurface(),
-    seedCursor,
-    appearance: 'scrub',
-    initialParams: {
-      ...DEFAULT_BAND_FIELD_PARAMS,
-      layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
-      sizeScale: PLAYGROUND_BAND_SIZE_SCALE,
-      bandWidth: PLAYGROUND_VERGE_BAND_WIDTH,
-      edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS,
-    },
-    placementMask: {
-      bounds: PLAYGROUND_BOUNDS,
-      includeAtXZ: (x, z) => isVergeStrip(x, z) && !isInsideBuildingInterior(x, z),
-      distanceToBandAtXZ: getVergeStripDistanceAtXZ,
-    },
-  })
-  private readonly leafPileEffect = createLeafPileBandEffect({
-    seedCursor,
-    initialParams: {
-      ...DEFAULT_LEAF_PILE_BAND_PARAMS,
-      layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY * 1.3,
-      sizeScale: PLAYGROUND_BAND_SIZE_SCALE * 1.08,
-      bandWidth: 1.15,
-      edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 0.9,
-      season: 'autumn',
-    },
-    placementMask: {
-      bounds: { minX: -4.2, maxX: 4.2, minZ: -4.2, maxZ: 4.2 },
-      includeAtXZ: (x, z) =>
-        isCrossRoadAsphalt(x, z) &&
-        isInsideIntersectionLeafPile(x, z),
-      distanceToBandAtXZ: distanceToIntersectionLeafPileAtXZ,
-    },
-  })
+  private readonly sceneryMode: boolean
+  private readonly movementBounds: MovementBounds
+  private readonly spawnConfig: { x: number; z: number; yaw: number; pitch: number }
+  private sceneryWorldFieldParams: SceneryWorldFieldParams = { ...DEFAULT_SCENERY_WORLD_FIELD_PARAMS }
+  private sceneryWorldAuthoring: SceneryWorldAuthoring = createSceneryWorldAuthoring(this.sceneryWorldFieldParams)
+  private readonly grassEffect: ReturnType<typeof createGrassEffect>
+  private readonly vergeBandEffect: ReturnType<typeof createBandFieldEffect>
+  private readonly leafPileEffect: ReturnType<typeof createLeafPileBandEffect>
   private readonly fungusBandEffect = createFungusSeamEffect({
     surface: getPreparedFungusBandSurface(),
     seedCursor,
@@ -318,15 +323,10 @@ export class PlaygroundRuntime {
       distanceToBandAtXZ: distanceToFungusSeamAtXZ,
     },
   })
-  private readonly rockFieldEffect = createRockFieldEffect({
-    surface: getPreparedRockSurface(),
-    seedCursor,
-    initialParams: DEFAULT_ROCK_FIELD_PARAMS,
-    placementMask: {
-      bounds: PLAYGROUND_BOUNDS,
-      includeAtXZ: isInsideRubbleZone,
-    },
-  })
+  private readonly rockFieldEffect: ReturnType<typeof createRockFieldEffect>
+  private readonly logFieldEffect: ReturnType<typeof createLogFieldEffect>
+  private readonly stickFieldEffect: ReturnType<typeof createStickFieldEffect>
+  private readonly needleLitterEffect: ReturnType<typeof createNeedleLitterFieldEffect>
   private readonly neonSignEffects: FireWallEffect[] = NEON_BARRIERS.map((barrier) =>
     createFireWallEffect({
       surface: getPreparedFireSurface(),
@@ -414,7 +414,14 @@ export class PlaygroundRuntime {
     edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 1.25,
   }
   private rockFieldParams: RockFieldParams = { ...DEFAULT_ROCK_FIELD_PARAMS }
+  private logFieldParams: LogFieldParams = { ...DEFAULT_LOG_FIELD_PARAMS }
+  private stickFieldParams: StickFieldParams = { ...DEFAULT_STICK_FIELD_PARAMS }
+  private needleLitterParams: NeedleLitterFieldParams = { ...DEFAULT_NEEDLE_LITTER_FIELD_PARAMS }
   private starSkyParams: StarSkyParams = { ...DEFAULT_STAR_SKY_PARAMS }
+  private sceneryMotionResponse: SceneryMotionResponseParams = {
+    logPushScale: 1.55,
+    stickPushScale: 1,
+  }
   private zoomDistance = PLAYGROUND_ZOOM.current
   private readonly townGroup: THREE.Group
   private readonly cameraObstacles: THREE.Object3D[]
@@ -443,12 +450,18 @@ export class PlaygroundRuntime {
   private userBandLayoutDensity = PLAYGROUND_BAND_LAYOUT_DENSITY
   private userStarLayoutDensity = DEFAULT_STAR_SKY_PARAMS.layoutDensity
   private userRockLayoutDensity = DEFAULT_ROCK_FIELD_PARAMS.layoutDensity
+  private userLogLayoutDensity = DEFAULT_LOG_FIELD_PARAMS.layoutDensity
+  private userStickLayoutDensity = DEFAULT_STICK_FIELD_PARAMS.layoutDensity
+  private userNeedleLayoutDensity = DEFAULT_NEEDLE_LITTER_FIELD_PARAMS.layoutDensity
   private indoorCameraBlend = 0
   private frameTick = 0
   private vergeBandDirty = true
   private leafPileDirty = true
   private fungusBandDirty = true
   private rockFieldDirty = true
+  private logFieldDirty = true
+  private stickFieldDirty = true
+  private needleLitterDirty = true
   /** Last frame CPU time spent in effect updates (ms), for debugging. */
   effectUpdateMs = 0
   /** Smoothed presentation FPS for the current runtime. */
@@ -482,6 +495,12 @@ export class PlaygroundRuntime {
     bandCpuMsAvg: 0,
     rockCpuMs: 0,
     rockCpuMsAvg: 0,
+    logCpuMs: 0,
+    logCpuMsAvg: 0,
+    stickCpuMs: 0,
+    stickCpuMsAvg: 0,
+    needleCpuMs: 0,
+    needleCpuMsAvg: 0,
     neonCpuMs: 0,
     neonCpuMsAvg: 0,
     skyCpuMs: 0,
@@ -510,13 +529,173 @@ export class PlaygroundRuntime {
     fungusCpuMs: 0,
     bandCpuMs: 0,
     rockCpuMs: 0,
+    logCpuMs: 0,
+    stickCpuMs: 0,
+    needleCpuMs: 0,
     neonCpuMs: 0,
     skyCpuMs: 0,
     fishCpuMs: 0,
   }
   private static readonly PERF_WINDOW_FRAMES = 45
 
-  constructor(host: HTMLElement) {
+  constructor(host: HTMLElement, options?: PlaygroundRuntimeOptions) {
+    this.sceneryMode = options?.scenery === true
+    this.movementBounds = this.sceneryMode ? SCENERY_BOUNDS : PLAYGROUND_BOUNDS
+    this.spawnConfig = this.sceneryMode ? SCENERY_SPAWN : PLAYGROUND_SPAWN
+
+    this.grassEffect = createGrassEffect({
+      surface: buildGrassStateSurface(DEFAULT_GRASS_FIELD_PARAMS.state),
+      seedCursor,
+      initialParams: DEFAULT_GRASS_FIELD_PARAMS,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            excludeAtXZ: () => false,
+            coverageMultiplierAtXZ: (x, z) => this.sceneryWorldAuthoring.getGrassCoverageMultiplierAtXZ(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            excludeAtXZ: (x, z) => isCrossRoadAsphalt(x, z) || isInsideBuildingInterior(x, z),
+            coverageMultiplierAtXZ: (x, z) => (isVergeStrip(x, z) ? 1.14 : 1),
+          },
+    })
+    if (this.sceneryMode) {
+      this.userBandLayoutDensity = 0.82
+      this.vergeBandParams = {
+        ...DEFAULT_BAND_FIELD_PARAMS,
+        layoutDensity: this.userBandLayoutDensity,
+        sizeScale: 1.08,
+        bandWidth: 2.6,
+        edgeSoftness: 1.55,
+      }
+      this.leafPileParams = {
+        ...DEFAULT_LEAF_PILE_BAND_PARAMS,
+        ...SCENERY_LEAF_PILE_BURN_PARAMS,
+        layoutDensity: this.userBandLayoutDensity * 1.08,
+        sizeScale: 1.12,
+        bandWidth: 2.45,
+        edgeSoftness: 1.8,
+        season: 'autumn',
+      }
+      this.userRockLayoutDensity = 0.58
+      this.rockFieldParams = {
+        ...DEFAULT_ROCK_FIELD_PARAMS,
+        layoutDensity: this.userRockLayoutDensity,
+        sizeScale: 1.28,
+      }
+      this.userLogLayoutDensity = 0.32
+      this.logFieldParams = {
+        ...DEFAULT_LOG_FIELD_PARAMS,
+        layoutDensity: this.userLogLayoutDensity,
+        sizeScale: 1.08,
+        lengthScale: 1.36,
+      }
+      this.userStickLayoutDensity = 0.92
+      this.stickFieldParams = {
+        ...DEFAULT_STICK_FIELD_PARAMS,
+        layoutDensity: this.userStickLayoutDensity,
+        sizeScale: 2,
+        lengthScale: 2.2,
+      }
+      this.userNeedleLayoutDensity = 0.84
+      this.needleLitterParams = {
+        ...DEFAULT_NEEDLE_LITTER_FIELD_PARAMS,
+        ...SCENERY_NEEDLE_LITTER_BURN_PARAMS,
+        layoutDensity: this.userNeedleLayoutDensity,
+        sizeScale: 1.3,
+      }
+    }
+    this.vergeBandEffect = createBandFieldEffect({
+      surface: getPreparedBandSurface(),
+      seedCursor,
+      appearance: 'scrub',
+      initialParams: this.vergeBandParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideUnderstoryZone(x, z),
+            distanceToBandAtXZ: (x, z) => this.sceneryWorldAuthoring.getUnderstoryDistanceAtXZ(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: (x, z) => isVergeStrip(x, z) && !isInsideBuildingInterior(x, z),
+            distanceToBandAtXZ: getVergeStripDistanceAtXZ,
+          },
+    })
+    this.leafPileEffect = createLeafPileBandEffect({
+      seedCursor,
+      initialParams: this.leafPileParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideLeafLitterZone(x, z),
+            distanceToBandAtXZ: (x, z) => this.sceneryWorldAuthoring.getLeafLitterDistanceAtXZ(x, z),
+          }
+        : {
+            bounds: { minX: -4.2, maxX: 4.2, minZ: -4.2, maxZ: 4.2 },
+            includeAtXZ: (x, z) =>
+              isCrossRoadAsphalt(x, z) &&
+              isInsideIntersectionLeafPile(x, z),
+            distanceToBandAtXZ: distanceToIntersectionLeafPileAtXZ,
+          },
+    })
+    this.rockFieldEffect = createRockFieldEffect({
+      surface: getPreparedRockSurface(),
+      seedCursor,
+      initialParams: this.rockFieldParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideRockZone(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: isInsideRubbleZone,
+          },
+    })
+    this.logFieldEffect = createLogFieldEffect({
+      surface: getPreparedLogSurface(),
+      seedCursor,
+      initialParams: this.logFieldParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideLogZone(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: () => false,
+          },
+    })
+    this.stickFieldEffect = createStickFieldEffect({
+      surface: getPreparedStickSurface(),
+      seedCursor,
+      initialParams: this.stickFieldParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideStickZone(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: () => false,
+          },
+    })
+    this.needleLitterEffect = createNeedleLitterFieldEffect({
+      surface: getPreparedNeedleLitterSurface(),
+      seedCursor,
+      initialParams: this.needleLitterParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideNeedleZone(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: () => false,
+          },
+    })
+
     this.host = host
     this.canvas.className = 'canvas'
     this.canvas.tabIndex = 0
@@ -525,92 +704,107 @@ export class PlaygroundRuntime {
     this.skybox = applyPlaygroundAtmosphere(this.scene)
     addPlaygroundLighting(this.scene)
 
-    const townScene = createTownIntersectionScene()
-    this.townGroup = townScene.root
-    this.cameraObstacles = townScene.cameraObstacles
-    this.lampLights = townScene.lampLights
-    this.lampGlobes = townScene.lampGlobes
-    this.scene.add(this.townGroup)
+    if (this.sceneryMode) {
+      this.townGroup = new THREE.Group()
+      this.cameraObstacles = []
+      this.lampLights = []
+      this.lampGlobes = []
+    } else {
+      const townScene = createTownIntersectionScene()
+      this.townGroup = townScene.root
+      this.cameraObstacles = townScene.cameraObstacles
+      this.lampLights = townScene.lampLights
+      this.lampGlobes = townScene.lampGlobes
+      this.scene.add(this.townGroup)
+
+      const shutterGround = this.grassEffect.getWalkHeightAtWorld(SHUTTER_WALL_LAYOUT.x, SHUTTER_WALL_LAYOUT.z)
+      this.shutterEffect.group.position.set(
+        SHUTTER_WALL_LAYOUT.x,
+        shutterGround + SHUTTER_WALL_LAYOUT.wallCenterHeight,
+        SHUTTER_WALL_LAYOUT.z,
+      )
+
+      const ivyGround = this.grassEffect.getWalkHeightAtWorld(IVY_WALL_LAYOUT.x, IVY_WALL_LAYOUT.z)
+      this.ivyEffect.group.position.set(
+        IVY_WALL_LAYOUT.x,
+        ivyGround + IVY_WALL_LAYOUT.wallCenterHeight,
+        IVY_WALL_LAYOUT.z,
+      )
+      this.ivyEffect.group.rotation.y = Math.PI / 2
+
+      for (let i = 0; i < this.neonSignEffects.length; i++) {
+        const barrier = NEON_BARRIERS[i]!
+        const effect = this.neonSignEffects[i]!
+        const neonGroundY = this.grassEffect.getGroundHeightAtWorld(barrier.x, barrier.z)
+        effect.group.position.set(barrier.x, neonGroundY + 0.06, barrier.z)
+        effect.group.rotation.y = barrier.rotationY
+      }
+    }
 
     this.cameraFill.position.set(0, 0.85, 2.6)
     this.camera.add(this.cameraFill)
     this.scene.add(this.camera)
 
-    const shutterGround = this.grassEffect.getWalkHeightAtWorld(SHUTTER_WALL_LAYOUT.x, SHUTTER_WALL_LAYOUT.z)
-    this.shutterEffect.group.position.set(
-      SHUTTER_WALL_LAYOUT.x,
-      shutterGround + SHUTTER_WALL_LAYOUT.wallCenterHeight,
-      SHUTTER_WALL_LAYOUT.z,
-    )
-
-    const ivyGround = this.grassEffect.getWalkHeightAtWorld(IVY_WALL_LAYOUT.x, IVY_WALL_LAYOUT.z)
-    this.ivyEffect.group.position.set(
-      IVY_WALL_LAYOUT.x,
-      ivyGround + IVY_WALL_LAYOUT.wallCenterHeight,
-      IVY_WALL_LAYOUT.z,
-    )
-    this.ivyEffect.group.rotation.y = Math.PI / 2
-
-    for (let i = 0; i < this.neonSignEffects.length; i++) {
-      const barrier = NEON_BARRIERS[i]!
-      const effect = this.neonSignEffects[i]!
-      const neonGroundY = this.grassEffect.getGroundHeightAtWorld(barrier.x, barrier.z)
-      effect.group.position.set(barrier.x, neonGroundY + 0.06, barrier.z)
-      effect.group.rotation.y = barrier.rotationY
-    }
-
-    const bulbY = TOWN_ROAD_SURFACE_Y + STREET_LAMP_BULB_Y_OFFSET
     const lamps: ShellSurfaceEffect[] = []
-    for (let i = 0; i < STREET_LIGHT_XZ.length; i++) {
-      const pos = STREET_LIGHT_XZ[i]!
-      const lampEffect = createShellSurfaceEffect({
-        surface: getPreparedGlassSurface(),
-        seedCursor,
-        effectId: `street-lamp-glass-${i}`,
-        appearance: 'glassBulb',
-        initialParams: this.glassSurfaceParams,
-      })
-      lampEffect.group.position.set(pos.x, bulbY, pos.z)
-      lampEffect.group.rotation.y = Math.atan2(-pos.x, -pos.z)
-      lampEffect.group.scale.setScalar(0.152)
-      this.scene.add(lampEffect.group)
-      lamps.push(lampEffect)
+    if (!this.sceneryMode) {
+      const bulbY = TOWN_ROAD_SURFACE_Y + STREET_LAMP_BULB_Y_OFFSET
+      for (let i = 0; i < STREET_LIGHT_XZ.length; i++) {
+        const pos = STREET_LIGHT_XZ[i]!
+        const lampEffect = createShellSurfaceEffect({
+          surface: getPreparedGlassSurface(),
+          seedCursor,
+          effectId: `street-lamp-glass-${i}`,
+          appearance: 'glassBulb',
+          initialParams: this.glassSurfaceParams,
+        })
+        lampEffect.group.position.set(pos.x, bulbY, pos.z)
+        lampEffect.group.rotation.y = Math.atan2(-pos.x, -pos.z)
+        lampEffect.group.scale.setScalar(0.152)
+        this.scene.add(lampEffect.group)
+        lamps.push(lampEffect)
+      }
     }
     this.lampEffects = lamps
 
     const windowGlassEffects: ShellSurfaceEffect[] = []
-    for (let i = 0; i < WINDOW_GLASS_LAYOUTS.length; i++) {
-      const layout = WINDOW_GLASS_LAYOUTS[i]!
-      const glassEffect = createShellSurfaceEffect({
-        surface: getPreparedGlassSurface(),
-        seedCursor,
-        effectId: `building-window-glass-${i}`,
-        appearance: 'glass',
-        initialParams: this.glassSurfaceParams,
-      })
-      // Match static pane XY footprint (0.9). Do not mirror pane `translateZ(-0.05)` here — the Weft
-      // group’s local axes + thin `scaleZ` recess the glass into the wall if we offset the same way.
-      glassEffect.group.position.set(layout.x, layout.y, layout.z)
-      glassEffect.group.rotation.y = layout.rotationY
-      glassEffect.group.scale.set(layout.scaleX * 0.9, layout.scaleY * 0.9, layout.scaleZ)
-      this.scene.add(glassEffect.group)
-      windowGlassEffects.push(glassEffect)
+    if (!this.sceneryMode) {
+      for (let i = 0; i < WINDOW_GLASS_LAYOUTS.length; i++) {
+        const layout = WINDOW_GLASS_LAYOUTS[i]!
+        const glassEffect = createShellSurfaceEffect({
+          surface: getPreparedGlassSurface(),
+          seedCursor,
+          effectId: `building-window-glass-${i}`,
+          appearance: 'glass',
+          initialParams: this.glassSurfaceParams,
+        })
+        // Match static pane XY footprint (0.9). Do not mirror pane `translateZ(-0.05)` here — the Weft
+        // group’s local axes + thin `scaleZ` recess the glass into the wall if we offset the same way.
+        glassEffect.group.position.set(layout.x, layout.y, layout.z)
+        glassEffect.group.rotation.y = layout.rotationY
+        glassEffect.group.scale.set(layout.scaleX * 0.9, layout.scaleY * 0.9, layout.scaleZ)
+        this.scene.add(glassEffect.group)
+        windowGlassEffects.push(glassEffect)
+      }
     }
     this.windowGlassEffects = windowGlassEffects
 
-    const raycastList: THREE.Object3D[] = [
-      this.shutterEffect.interactionMesh,
-      this.ivyEffect.interactionMesh,
-      this.grassEffect.interactionMesh,
-    ]
-    for (const e of this.neonSignEffects) {
-      raycastList.push(e.interactionMesh)
-    }
-    for (const e of this.lampEffects) {
-      raycastList.push(e.interactionMesh)
-    }
-    for (const e of this.windowGlassEffects) {
-      raycastList.push(e.interactionMesh)
+    const raycastList: THREE.Object3D[] = this.sceneryMode
+      ? [this.grassEffect.interactionMesh]
+      : [
+          this.shutterEffect.interactionMesh,
+          this.ivyEffect.interactionMesh,
+          this.grassEffect.interactionMesh,
+        ]
+    if (!this.sceneryMode) {
+      for (const e of this.neonSignEffects) {
+        raycastList.push(e.interactionMesh)
+      }
+      for (const e of this.lampEffects) {
+        raycastList.push(e.interactionMesh)
+      }
+      for (const e of this.windowGlassEffects) {
+        raycastList.push(e.interactionMesh)
+      }
     }
     this.raycastTargets = raycastList
 
@@ -620,14 +814,19 @@ export class PlaygroundRuntime {
     this.scene.add(this.grassEffect.group)
     this.scene.add(this.vergeBandEffect.group)
     this.scene.add(this.leafPileEffect.group)
-    this.scene.add(this.fungusBandEffect.group)
-    this.scene.add(this.shutterEffect.group)
-    this.scene.add(this.ivyEffect.group)
     this.scene.add(this.rockFieldEffect.group)
+    this.scene.add(this.logFieldEffect.group)
+    this.scene.add(this.stickFieldEffect.group)
+    this.scene.add(this.needleLitterEffect.group)
     this.scene.add(this.starSkyEffect.group)
     this.scene.add(this.collisionDebugGroup)
-    for (const effect of this.neonSignEffects) {
-      this.scene.add(effect.group)
+    if (!this.sceneryMode) {
+      this.scene.add(this.fungusBandEffect.group)
+      this.scene.add(this.shutterEffect.group)
+      this.scene.add(this.ivyEffect.group)
+      for (const effect of this.neonSignEffects) {
+        this.scene.add(effect.group)
+      }
     }
 
     this.scene.add(this.controller.player.group)
@@ -797,7 +996,7 @@ export class PlaygroundRuntime {
     this.fungusBandDirty = true
   }
 
-  setRockFieldParams(params: Partial<RockFieldParams>): void {
+  setRockFieldParams(params: Partial<RockFieldParams> & { showRocks?: boolean }): void {
     this.rockFieldParams = { ...this.rockFieldParams, ...params }
     if (params.layoutDensity !== undefined) {
       this.userRockLayoutDensity = params.layoutDensity
@@ -805,7 +1004,73 @@ export class PlaygroundRuntime {
     this.rockFieldParams.layoutDensity =
       this.userRockLayoutDensity * getQualityRockLayoutScale(this.quality)
     this.rockFieldEffect.setParams(this.rockFieldParams)
+    if (params.showRocks !== undefined) {
+      this.rockFieldEffect.group.visible = params.showRocks
+    }
     this.rockFieldDirty = true
+  }
+
+  setLogFieldParams(params: Partial<LogFieldParams> & { showLogs?: boolean }): void {
+    this.logFieldParams = { ...this.logFieldParams, ...params }
+    if (params.layoutDensity !== undefined) {
+      this.userLogLayoutDensity = params.layoutDensity
+    }
+    this.logFieldParams.layoutDensity =
+      this.userLogLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.logFieldEffect.setParams(this.logFieldParams)
+    if (params.showLogs !== undefined) {
+      this.logFieldEffect.group.visible = params.showLogs
+    }
+    this.logFieldDirty = true
+  }
+
+  setStickFieldParams(params: Partial<StickFieldParams> & { showSticks?: boolean }): void {
+    this.stickFieldParams = { ...this.stickFieldParams, ...params }
+    if (params.layoutDensity !== undefined) {
+      this.userStickLayoutDensity = params.layoutDensity
+    }
+    this.stickFieldParams.layoutDensity =
+      this.userStickLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.stickFieldEffect.setParams(this.stickFieldParams)
+    if (params.showSticks !== undefined) {
+      this.stickFieldEffect.group.visible = params.showSticks
+    }
+    this.stickFieldDirty = true
+  }
+
+  setNeedleLitterFieldParams(
+    params: Partial<NeedleLitterFieldParams> & { showNeedles?: boolean },
+  ): void {
+    this.needleLitterParams = { ...this.needleLitterParams, ...params }
+    if (params.layoutDensity !== undefined) {
+      this.userNeedleLayoutDensity = params.layoutDensity
+    }
+    this.needleLitterParams.layoutDensity =
+      this.userNeedleLayoutDensity * getQualityGrassLayoutScale(this.quality)
+    this.needleLitterEffect.setParams(this.needleLitterParams)
+    if (params.showNeedles !== undefined) {
+      this.needleLitterEffect.group.visible = params.showNeedles
+    }
+    this.needleLitterDirty = true
+  }
+
+  setSceneryWorldFieldParams(params: Partial<SceneryWorldFieldParams>): void {
+    this.sceneryWorldFieldParams = { ...this.sceneryWorldFieldParams, ...params }
+    this.sceneryWorldAuthoring = createSceneryWorldAuthoring(this.sceneryWorldFieldParams)
+    if (!this.sceneryMode) return
+
+    // Rebuild cached grass placement so field-driven coverage changes take effect immediately.
+    this.grassEffect.setSurface(buildGrassStateSurface(this.grassFieldParams.state))
+    this.vergeBandDirty = true
+    this.leafPileDirty = true
+    this.rockFieldDirty = true
+    this.logFieldDirty = true
+    this.stickFieldDirty = true
+    this.needleLitterDirty = true
+  }
+
+  setSceneryMotionResponse(params: Partial<SceneryMotionResponseParams>): void {
+    this.sceneryMotionResponse = { ...this.sceneryMotionResponse, ...params }
   }
 
   setFireWallParams(params: Partial<FireWallParams>): void {
@@ -841,20 +1106,36 @@ export class PlaygroundRuntime {
     this.vergeBandParams.layoutDensity =
       this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
     this.leafPileParams.layoutDensity = this.vergeBandParams.layoutDensity * 1.02
-    this.fungusBandParams.layoutDensity = this.vergeBandParams.layoutDensity
     this.vergeBandEffect.setParams(this.vergeBandParams)
     this.leafPileEffect.setParams(this.leafPileParams)
-    this.fungusBandEffect.setParams(this.fungusBandParams)
+    if (!this.sceneryMode) {
+      this.fungusBandParams.layoutDensity = this.vergeBandParams.layoutDensity
+      this.fungusBandEffect.setParams(this.fungusBandParams)
+    }
     this.starSkyParams.layoutDensity =
       this.userStarLayoutDensity * getQualityStarLayoutScale(this.quality)
     this.starSkyEffect.setParams(this.starSkyParams)
+    this.vergeBandDirty = true
+    this.leafPileDirty = true
     this.rockFieldParams.layoutDensity =
       this.userRockLayoutDensity * getQualityRockLayoutScale(this.quality)
     this.rockFieldEffect.setParams(this.rockFieldParams)
-    this.vergeBandDirty = true
-    this.leafPileDirty = true
-    this.fungusBandDirty = true
     this.rockFieldDirty = true
+    this.logFieldParams.layoutDensity =
+      this.userLogLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.logFieldEffect.setParams(this.logFieldParams)
+    this.logFieldDirty = true
+    this.stickFieldParams.layoutDensity =
+      this.userStickLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.stickFieldEffect.setParams(this.stickFieldParams)
+    this.stickFieldDirty = true
+    this.needleLitterParams.layoutDensity =
+      this.userNeedleLayoutDensity * getQualityGrassLayoutScale(this.quality)
+    this.needleLitterEffect.setParams(this.needleLitterParams)
+    this.needleLitterDirty = true
+    if (!this.sceneryMode) {
+      this.fungusBandDirty = true
+    }
     this.resize()
   }
 
@@ -885,6 +1166,21 @@ export class PlaygroundRuntime {
     this.leafPileDirty = true
   }
 
+  clearLeafPileBurns(): void {
+    this.leafPileEffect.clearBurns()
+    this.leafPileDirty = true
+  }
+
+  clearStickFieldDisturbances(): void {
+    this.stickFieldEffect.clearMotion()
+    this.stickFieldDirty = true
+  }
+
+  clearLogFieldReactions(): void {
+    this.logFieldEffect.clearMotion()
+    this.logFieldDirty = true
+  }
+
   clearFireWounds(): void {
     for (const effect of this.neonSignEffects) {
       effect.clearWounds()
@@ -895,12 +1191,21 @@ export class PlaygroundRuntime {
     this.starSkyEffect.clearWounds()
   }
 
+  clearNeedleLitterBurns(): void {
+    this.needleLitterEffect.clearBurns()
+    this.needleLitterDirty = true
+  }
+
   clearAllEffects(): void {
     this.clearFishWounds()
     this.clearGlassWounds()
     this.clearGrassDisturbances()
     this.clearLeafPileDisturbances()
+    this.clearLeafPileBurns()
+    this.clearStickFieldDisturbances()
+    this.clearLogFieldReactions()
     this.clearFireWounds()
+    this.clearNeedleLitterBurns()
     this.clearSkyWounds()
   }
 
@@ -927,6 +1232,9 @@ export class PlaygroundRuntime {
     this.scene.remove(this.shutterEffect.group)
     this.scene.remove(this.ivyEffect.group)
     this.scene.remove(this.rockFieldEffect.group)
+    this.scene.remove(this.logFieldEffect.group)
+    this.scene.remove(this.stickFieldEffect.group)
+    this.scene.remove(this.needleLitterEffect.group)
     this.scene.remove(this.starSkyEffect.group)
     for (const effect of this.neonSignEffects) {
       this.scene.remove(effect.group)
@@ -958,6 +1266,9 @@ export class PlaygroundRuntime {
     this.leafPileEffect.dispose()
     this.fungusBandEffect.dispose()
     this.rockFieldEffect.dispose()
+    this.logFieldEffect.dispose()
+    this.stickFieldEffect.dispose()
+    this.needleLitterEffect.dispose()
     this.starSkyEffect.dispose()
     for (const effect of this.neonSignEffects) {
       effect.dispose()
@@ -988,38 +1299,42 @@ export class PlaygroundRuntime {
 
   private resetPlayer(): void {
     const spawn = new THREE.Vector3(
-      PLAYGROUND_SPAWN.x,
-      this.grassEffect.getGroundHeightAtWorld(PLAYGROUND_SPAWN.x, PLAYGROUND_SPAWN.z),
-      PLAYGROUND_SPAWN.z,
+      this.spawnConfig.x,
+      this.grassEffect.getGroundHeightAtWorld(this.spawnConfig.x, this.spawnConfig.z),
+      this.spawnConfig.z,
     )
 
     this.walkStampDistance = 0
     this.pendingJump = false
-    this.controller.setSpawn(spawn, PLAYGROUND_SPAWN.yaw, PLAYGROUND_SPAWN.yaw, PLAYGROUND_SPAWN.pitch)
+    this.controller.setSpawn(spawn, this.spawnConfig.yaw, this.spawnConfig.yaw, this.spawnConfig.pitch)
     this.controllerConfig.cameraDistance = this.zoomDistance
     this.activeFrame = this.controller.update(
       this.camera,
       this.syncFrameInput(),
       this.controllerConfig,
-      PLAYGROUND_BOUNDS,
+      this.movementBounds,
       this.getPlayerWalkHeightAtWorld,
       1,
       this.resolveHorizontalMove,
     )
 
     const elapsed = this.timer.getElapsed()
-    this.shutterEffect.update(elapsed)
-    this.ivyEffect.update(elapsed)
-    for (const lamp of this.lampEffects) {
-      lamp.update(elapsed)
-    }
-    for (const glass of this.windowGlassEffects) {
-      glass.update(elapsed)
+    if (!this.sceneryMode) {
+      this.shutterEffect.update(elapsed)
+      this.ivyEffect.update(elapsed)
+      for (const lamp of this.lampEffects) {
+        lamp.update(elapsed)
+      }
+      for (const glass of this.windowGlassEffects) {
+        glass.update(elapsed)
+      }
     }
     this.grassEffect.update(elapsed)
     this.vergeBandEffect.update(this.getGroundHeightAtWorld)
     this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
-    this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
+    if (!this.sceneryMode) {
+      this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
+    }
     this.controller.player.update(0, 'idle')
   }
 
@@ -1038,6 +1353,9 @@ export class PlaygroundRuntime {
 
   private getGroundHeightAtWorld = (x: number, z: number): number => {
     const gy = this.grassEffect.getGroundHeightAtWorld(x, z)
+    if (this.sceneryMode) {
+      return gy
+    }
     if (isInsideBuildingInterior(x, z)) {
       return Math.max(gy, INTERIOR_FLOOR_Y)
     }
@@ -1049,6 +1367,9 @@ export class PlaygroundRuntime {
 
   private getPlayerWalkHeightAtWorld = (x: number, z: number): number => {
     const gy = this.getGroundHeightAtWorld(x, z)
+    if (this.sceneryMode) {
+      return gy
+    }
     const roofY = this.getRoofHeightAtWorld(x, z, this.getPlayerCollisionProbeY())
     return roofY == null ? gy : Math.max(gy, roofY)
   }
@@ -1102,6 +1423,9 @@ export class PlaygroundRuntime {
     this.perfWindowSums.fungusCpuMs += sample.fungusCpuMs
     this.perfWindowSums.bandCpuMs += sample.bandCpuMs
     this.perfWindowSums.rockCpuMs += sample.rockCpuMs
+    this.perfWindowSums.logCpuMs += sample.logCpuMs
+    this.perfWindowSums.stickCpuMs += sample.stickCpuMs
+    this.perfWindowSums.needleCpuMs += sample.needleCpuMs
     this.perfWindowSums.neonCpuMs += sample.neonCpuMs
     this.perfWindowSums.skyCpuMs += sample.skyCpuMs
     this.perfWindowSums.fishCpuMs += sample.fishCpuMs
@@ -1120,6 +1444,9 @@ export class PlaygroundRuntime {
       this.perfWindowSums.fungusCpuMs -= removed.fungusCpuMs
       this.perfWindowSums.bandCpuMs -= removed.bandCpuMs
       this.perfWindowSums.rockCpuMs -= removed.rockCpuMs
+      this.perfWindowSums.logCpuMs -= removed.logCpuMs
+      this.perfWindowSums.stickCpuMs -= removed.stickCpuMs
+      this.perfWindowSums.needleCpuMs -= removed.needleCpuMs
       this.perfWindowSums.neonCpuMs -= removed.neonCpuMs
       this.perfWindowSums.skyCpuMs -= removed.skyCpuMs
       this.perfWindowSums.fishCpuMs -= removed.fishCpuMs
@@ -1184,6 +1511,9 @@ export class PlaygroundRuntime {
 
   /** Solid building AABBs plus breach zones: pass only through Weft holes when sampled points are open enough. */
   private readonly resolveHorizontalMove: ResolveHorizontalMove = (prevX, prevZ, nextX, nextZ) => {
+    if (this.sceneryMode) {
+      return { x: nextX, z: nextZ }
+    }
     const r = PLAYER_COLLISION_RADIUS
     let x = nextX
     let z = nextZ
@@ -1277,6 +1607,9 @@ export class PlaygroundRuntime {
   }
 
   private createCollisionDebugTiles(): CollisionDebugTile[] {
+    if (this.sceneryMode) {
+      return []
+    }
     const tiles: CollisionDebugTile[] = []
     this.collisionDebugGroup.name = 'collision-debug-overlay'
 
@@ -1518,9 +1851,28 @@ export class PlaygroundRuntime {
       displacementScale: 1.55,
       mergeRadius: 0.7,
     })
+    this.stampStickFieldDisturbance(this.footstepPoint, {
+      radiusScale: 0.95,
+      strength: 0.7,
+      displacementScale: 1.2,
+      mergeRadius: 0.65,
+      directionX: this.playerForward.x,
+      directionZ: this.playerForward.z,
+      tangentialStrength: 0.12,
+    })
+    this.stampLogFieldReaction(this.footstepPoint, {
+      radiusScale: 0.65,
+      strength: 0.55,
+      mergeRadius: 1.2,
+      directionX: this.playerForward.x,
+      directionZ: this.playerForward.z,
+      tangentialStrength: 0.18,
+      spin: 0.32,
+    })
     if (
-      isCrossRoadAsphalt(this.footstepPoint.x, this.footstepPoint.z) ||
-      isInsideBuildingInterior(this.footstepPoint.x, this.footstepPoint.z)
+      !this.sceneryMode &&
+      (isCrossRoadAsphalt(this.footstepPoint.x, this.footstepPoint.z) ||
+        isInsideBuildingInterior(this.footstepPoint.x, this.footstepPoint.z))
     ) {
       return
     }
@@ -1546,6 +1898,66 @@ export class PlaygroundRuntime {
     this.leafPileDirty = true
   }
 
+  private stampLeafPileBurn(point: THREE.Vector3): void {
+    if (isInsideBuildingInterior(point.x, point.z)) return
+    const opts = this.sceneryMode
+      ? {
+          radiusScale: 0.88,
+          maxRadiusScale: 1.02,
+          strength: 0.82,
+          mergeRadius: 0.55,
+        }
+      : {
+          radiusScale: 1.15,
+          maxRadiusScale: 1.35,
+          strength: 1.12,
+          mergeRadius: 0.6,
+        }
+    this.leafPileEffect.addBurnFromWorldPoint(point, opts)
+    this.leafPileDirty = true
+  }
+
+  private stampStickFieldDisturbance(
+    point: THREE.Vector3,
+    options: {
+      radiusScale?: number
+      strength?: number
+      displacementScale?: number
+      mergeRadius?: number
+      directionX?: number
+      directionZ?: number
+      tangentialStrength?: number
+      spin?: number
+    } = {},
+  ): void {
+    if (!this.sceneryMode) return
+    this.stickFieldEffect.addMotionFromWorldPoint(point, {
+      ...options,
+      strength: (options.strength ?? 1) * this.sceneryMotionResponse.stickPushScale,
+    })
+    this.stickFieldDirty = true
+  }
+
+  private stampLogFieldReaction(
+    point: THREE.Vector3,
+    options: {
+      radiusScale?: number
+      strength?: number
+      mergeRadius?: number
+      directionX?: number
+      directionZ?: number
+      tangentialStrength?: number
+      spin?: number
+    } = {},
+  ): void {
+    if (!this.sceneryMode) return
+    this.logFieldEffect.addMotionFromWorldPoint(point, {
+      ...options,
+      strength: (options.strength ?? 1) * this.sceneryMotionResponse.logPushScale,
+    })
+    this.logFieldDirty = true
+  }
+
   private stampFungusBurn(point: THREE.Vector3): void {
     if (!isInsideFungusSeamZone(point.x, point.z)) return
     const seamDistance = Math.abs(distanceToFungusSeamAtXZ(point.x, point.z))
@@ -1558,6 +1970,17 @@ export class PlaygroundRuntime {
       mergeRadius: 0.9,
     })
     this.fungusBandDirty = true
+  }
+
+  private stampNeedleLitterBurn(point: THREE.Vector3): void {
+    if (!this.sceneryMode) return
+    this.needleLitterEffect.addBurnFromWorldPoint(point, {
+      radiusScale: 0.92,
+      maxRadiusScale: 1.06,
+      strength: 0.88,
+      mergeRadius: 0.6,
+    })
+    this.needleLitterDirty = true
   }
 
   private getCenterRayHit(): ReticleHit | null {
@@ -1695,13 +2118,36 @@ export class PlaygroundRuntime {
     if (!hit) {
       const grassHit = this.getGrassFallbackHit()
       if (!grassHit) return
-      this.stampFungusBurn(grassHit.point)
+      if (!this.sceneryMode) {
+        this.stampFungusBurn(grassHit.point)
+      }
+      this.stampLeafPileBurn(grassHit.point)
       this.stampLeafPileDisturbance(grassHit.point, {
         radiusScale: 1.2,
         strength: 1.7,
         displacementScale: 1.85,
         mergeRadius: 0.35,
       })
+      this.stampStickFieldDisturbance(grassHit.point, {
+        radiusScale: 1.25,
+        strength: 2.3,
+        displacementScale: 1.4,
+        mergeRadius: 0.45,
+        directionX: this.raycaster.ray.direction.x,
+        directionZ: this.raycaster.ray.direction.z,
+        tangentialStrength: 0.18,
+        spin: 0.18,
+      })
+      this.stampLogFieldReaction(grassHit.point, {
+        radiusScale: 0.8,
+        strength: 3.4,
+        mergeRadius: 0.9,
+        directionX: this.raycaster.ray.direction.x,
+        directionZ: this.raycaster.ray.direction.z,
+        tangentialStrength: 0.28,
+        spin: 0.5,
+      })
+      this.stampNeedleLitterBurn(grassHit.point)
       this.grassEffect.addDisturbanceFromWorldPoint(grassHit.point, {
         radiusScale: 1.15,
         strength: 1.45,
@@ -1710,13 +2156,36 @@ export class PlaygroundRuntime {
       return
     }
 
-    this.stampFungusBurn(hit.point)
+    if (!this.sceneryMode) {
+      this.stampFungusBurn(hit.point)
+    }
+    this.stampLeafPileBurn(hit.point)
     this.stampLeafPileDisturbance(hit.point, {
       radiusScale: 1.2,
       strength: 1.7,
       displacementScale: 1.85,
       mergeRadius: 0.35,
     })
+    this.stampStickFieldDisturbance(hit.point, {
+      radiusScale: 1.25,
+      strength: 2.3,
+      displacementScale: 1.4,
+      mergeRadius: 0.45,
+      directionX: this.raycaster.ray.direction.x,
+      directionZ: this.raycaster.ray.direction.z,
+      tangentialStrength: 0.18,
+      spin: 0.18,
+    })
+    this.stampLogFieldReaction(hit.point, {
+      radiusScale: 0.8,
+      strength: 3.4,
+      mergeRadius: 0.9,
+      directionX: this.raycaster.ray.direction.x,
+      directionZ: this.raycaster.ray.direction.z,
+      tangentialStrength: 0.28,
+      spin: 0.5,
+    })
+    this.stampNeedleLitterBurn(hit.point)
     this.grassEffect.addDisturbanceFromWorldPoint(hit.point, { radiusScale: 1.15, strength: 1.45, deformGround: false })
   }
 
@@ -1763,7 +2232,7 @@ export class PlaygroundRuntime {
       this.camera,
       this.syncFrameInput(),
       this.controllerConfig,
-      PLAYGROUND_BOUNDS,
+      this.movementBounds,
       this.getPlayerWalkHeightAtWorld,
       delta,
       this.resolveHorizontalMove,
@@ -1804,48 +2273,143 @@ export class PlaygroundRuntime {
     const tPlayer0 = now()
     this.controller.player.update(delta, this.getPlayerAnimationState(this.activeFrame))
     const playerCpuMs = now() - tPlayer0
-    const fishCadence =
-      this.shutterEffect.hasWounds() || this.ivyEffect.hasWounds()
-        ? this.cadenceFor('fish')
-        : this.idleCadenceFor('fish')
     let ranShutter = false
     let ranIvy = false
     let shutterCpuMs = 0
     let ivyCpuMs = 0
-    if (this.shouldRunCadencedUpdate(fishCadence, 0)) {
-      const tShutter0 = now()
-      this.shutterEffect.update(elapsed)
-      shutterCpuMs = now() - tShutter0
-      ranShutter = true
-    }
-    if (this.shouldRunCadencedUpdate(fishCadence, 1)) {
-      const tIvy0 = now()
-      this.ivyEffect.update(elapsed)
-      ivyCpuMs = now() - tIvy0
-      ranIvy = true
-    }
-    const tLamp0 = now()
+    let lampCpuMs = 0
+    let glassCpuMs = 0
     let ranGlass = false
-    const glassIdleCadence = this.idleCadenceFor('glass')
-    for (let i = 0; i < this.lampEffects.length; i++) {
-      const lamp = this.lampEffects[i]!
-      if (lamp.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
-        lamp.update(elapsed)
-        ranGlass = true
+    let vergeCpuMs = 0
+    let leafCpuMs = 0
+    let fungusCpuMs = 0
+    let ranBand = false
+    let bandCpuMs = 0
+    let rockCpuMs = 0
+    let ranRock = false
+    let logCpuMs = 0
+    let ranLog = false
+    let stickCpuMs = 0
+    let ranStick = false
+    let needleCpuMs = 0
+    let ranNeedles = false
+    let neonCpuMs = 0
+    let ranNeon = false
+
+    if (!this.sceneryMode) {
+      const fishCadence =
+        this.shutterEffect.hasWounds() || this.ivyEffect.hasWounds()
+          ? this.cadenceFor('fish')
+          : this.idleCadenceFor('fish')
+      if (this.shouldRunCadencedUpdate(fishCadence, 0)) {
+        const tShutter0 = now()
+        this.shutterEffect.update(elapsed)
+        shutterCpuMs = now() - tShutter0
+        ranShutter = true
+      }
+      if (this.shouldRunCadencedUpdate(fishCadence, 1)) {
+        const tIvy0 = now()
+        this.ivyEffect.update(elapsed)
+        ivyCpuMs = now() - tIvy0
+        ranIvy = true
+      }
+      const tLamp0 = now()
+      const glassIdleCadence = this.idleCadenceFor('glass')
+      for (let i = 0; i < this.lampEffects.length; i++) {
+        const lamp = this.lampEffects[i]!
+        if (lamp.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
+          lamp.update(elapsed)
+          ranGlass = true
+        }
+      }
+      lampCpuMs = now() - tLamp0
+      const tGlass0 = now()
+      const glassIdleOffsetBase = this.lampEffects.length
+      for (let i = 0; i < this.windowGlassEffects.length; i++) {
+        const glass = this.windowGlassEffects[i]!
+        const idleOffset = glassIdleOffsetBase + i
+        if (glass.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
+          glass.update(elapsed)
+          ranGlass = true
+        }
+      }
+      glassCpuMs = now() - tGlass0
+      if (!this.sceneryMode) {
+        const neonCadence = this.neonSignEffects.some((effect) => effect.hasWounds())
+          ? this.cadenceFor('neon')
+          : this.idleCadenceFor('neon')
+        if (neonCadence <= 1) {
+          const tNeon0 = now()
+          for (const effect of this.neonSignEffects) {
+            effect.update(elapsed)
+          }
+          neonCpuMs = now() - tNeon0
+          ranNeon = true
+        } else {
+          const tNeon0 = now()
+          for (let i = 0; i < this.neonSignEffects.length; i++) {
+            const effect = this.neonSignEffects[i]!
+            if (effect.hasWounds() || this.shouldRunCadencedUpdate(neonCadence, i)) {
+              effect.update(elapsed)
+              ranNeon = true
+            }
+          }
+          neonCpuMs = now() - tNeon0
+        }
       }
     }
-    const lampCpuMs = now() - tLamp0
-    const tGlass0 = now()
-    const glassIdleOffsetBase = this.lampEffects.length
-    for (let i = 0; i < this.windowGlassEffects.length; i++) {
-      const glass = this.windowGlassEffects[i]!
-      const idleOffset = glassIdleOffsetBase + i
-      if (glass.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
-        glass.update(elapsed)
-        ranGlass = true
-      }
+
+    if (this.vergeBandDirty) {
+      const tVerge0 = now()
+      this.vergeBandEffect.update(this.getGroundHeightAtWorld)
+      vergeCpuMs = now() - tVerge0
+      this.vergeBandDirty = false
+      ranBand = true
     }
-    const glassCpuMs = now() - tGlass0
+    if (this.leafPileDirty || this.leafPileEffect.hasBurns()) {
+      const tLeaf0 = now()
+      this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
+      leafCpuMs = now() - tLeaf0
+      this.leafPileDirty = this.leafPileEffect.hasBurns()
+      ranBand = true
+    }
+    if (!this.sceneryMode && (this.fungusBandDirty || this.fungusBandEffect.hasBurns())) {
+      const tFungus0 = now()
+      this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
+      fungusCpuMs = now() - tFungus0
+      this.fungusBandDirty = this.fungusBandEffect.hasBurns()
+      ranBand = true
+    }
+    bandCpuMs = vergeCpuMs + leafCpuMs + fungusCpuMs
+    const tRock0 = now()
+    if (this.rockFieldDirty) {
+      this.rockFieldEffect.update(this.getGroundHeightAtWorld)
+      this.rockFieldDirty = false
+      ranRock = true
+    }
+    rockCpuMs = now() - tRock0
+    const tLog0 = now()
+    if (this.logFieldDirty || this.logFieldEffect.hasMotion()) {
+      this.logFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
+      this.logFieldDirty = this.logFieldEffect.hasMotion()
+      ranLog = true
+    }
+    logCpuMs = now() - tLog0
+    const tStick0 = now()
+    if (this.stickFieldDirty || this.stickFieldEffect.hasMotion()) {
+      this.stickFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
+      this.stickFieldDirty = this.stickFieldEffect.hasMotion()
+      ranStick = true
+    }
+    stickCpuMs = now() - tStick0
+    const tNeedle0 = now()
+    if (this.needleLitterDirty || this.needleLitterEffect.hasBurns()) {
+      this.needleLitterEffect.update(elapsed, this.getGroundHeightAtWorld)
+      this.needleLitterDirty = this.needleLitterEffect.hasBurns()
+      ranNeedles = true
+    }
+    needleCpuMs = now() - tNeedle0
+
     // Grass is the main dynamic ground-cover cost, so idle wind runs on a lighter cadence.
     let grassCpuMs = 0
     let ranGrass = false
@@ -1858,63 +2422,6 @@ export class PlaygroundRuntime {
       grassCpuMs = now() - tGrass0
       ranGrass = true
     }
-    let vergeCpuMs = 0
-    let leafCpuMs = 0
-    let fungusCpuMs = 0
-    let ranBand = false
-    if (this.vergeBandDirty) {
-      const tVerge0 = now()
-      this.vergeBandEffect.update(this.getGroundHeightAtWorld)
-      vergeCpuMs = now() - tVerge0
-      this.vergeBandDirty = false
-      ranBand = true
-    }
-    if (this.leafPileDirty) {
-      const tLeaf0 = now()
-      this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
-      leafCpuMs = now() - tLeaf0
-      this.leafPileDirty = false
-      ranBand = true
-    }
-    if (this.fungusBandDirty || this.fungusBandEffect.hasBurns()) {
-      const tFungus0 = now()
-      this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
-      fungusCpuMs = now() - tFungus0
-      this.fungusBandDirty = this.fungusBandEffect.hasBurns()
-      ranBand = true
-    }
-    const bandCpuMs = vergeCpuMs + leafCpuMs + fungusCpuMs
-    const tRock0 = now()
-    let ranRock = false
-    if (this.rockFieldDirty) {
-      this.rockFieldEffect.update(this.getGroundHeightAtWorld)
-      this.rockFieldDirty = false
-      ranRock = true
-    }
-    const rockCpuMs = now() - tRock0
-    let neonCpuMs = 0
-    let ranNeon = false
-    const neonCadence = this.neonSignEffects.some((effect) => effect.hasWounds())
-      ? this.cadenceFor('neon')
-      : this.idleCadenceFor('neon')
-    if (neonCadence <= 1) {
-      const tNeon0 = now()
-      for (const effect of this.neonSignEffects) {
-        effect.update(elapsed)
-      }
-      neonCpuMs = now() - tNeon0
-      ranNeon = true
-    } else {
-      const tNeon0 = now()
-      for (let i = 0; i < this.neonSignEffects.length; i++) {
-        const effect = this.neonSignEffects[i]!
-        if (effect.hasWounds() || this.shouldRunCadencedUpdate(neonCadence, i)) {
-          effect.update(elapsed)
-          ranNeon = true
-        }
-      }
-      neonCpuMs = now() - tNeon0
-    }
     let skyCpuMs = 0
     let ranSky = false
     const skyCadence = this.starSkyEffect.hasWounds() ? this.cadenceFor('sky') : this.idleCadenceFor('sky')
@@ -1925,7 +2432,9 @@ export class PlaygroundRuntime {
       ranSky = true
     }
     const tLighting0 = now()
-    this.updateStreetLampLighting()
+    if (!this.sceneryMode) {
+      this.updateStreetLampLighting()
+    }
     const lightingCpuMs = now() - tLighting0
     if (this.collisionDebugVisible) {
       this.updateCollisionDebugOverlay()
@@ -1944,6 +2453,9 @@ export class PlaygroundRuntime {
       ...(ranGrass ? ['grass'] : []),
       ...(ranBand ? ['band'] : []),
       ...(ranRock ? ['rock'] : []),
+      ...(ranLog ? ['log'] : []),
+      ...(ranStick ? ['stick'] : []),
+      ...(ranNeedles ? ['needles'] : []),
       ...(ranNeon ? ['neon'] : []),
       ...(ranSky ? ['sky'] : []),
       ...(ranShutter || ranIvy ? ['fish'] : []),
@@ -1962,6 +2474,9 @@ export class PlaygroundRuntime {
       fungusCpuMs,
       bandCpuMs,
       rockCpuMs,
+      logCpuMs,
+      stickCpuMs,
+      needleCpuMs,
       neonCpuMs,
       skyCpuMs,
       fishCpuMs,
@@ -1995,6 +2510,12 @@ export class PlaygroundRuntime {
       bandCpuMsAvg: this.perfWindowAverage('bandCpuMs'),
       rockCpuMs,
       rockCpuMsAvg: this.perfWindowAverage('rockCpuMs'),
+      logCpuMs,
+      logCpuMsAvg: this.perfWindowAverage('logCpuMs'),
+      stickCpuMs,
+      stickCpuMsAvg: this.perfWindowAverage('stickCpuMs'),
+      needleCpuMs,
+      needleCpuMsAvg: this.perfWindowAverage('needleCpuMs'),
       neonCpuMs,
       neonCpuMsAvg: this.perfWindowAverage('neonCpuMs'),
       skyCpuMs,
@@ -2013,7 +2534,9 @@ export class PlaygroundRuntime {
           `controller ${this.perfStats.controllerCpuMs.toFixed(2)} | effects ${this.perfStats.effectsCpuMs.toFixed(2)} | ` +
           `render ${this.perfStats.renderCpuMs.toFixed(2)} | grass ${this.perfStats.grassCpuMs.toFixed(2)} | ` +
           `band ${this.perfStats.bandCpuMs.toFixed(2)} | ` +
-          `rock ${this.perfStats.rockCpuMs.toFixed(2)} | neon ${this.perfStats.neonCpuMs.toFixed(2)} | ` +
+          `rock ${this.perfStats.rockCpuMs.toFixed(2)} | log ${this.perfStats.logCpuMs.toFixed(2)} | ` +
+          `stick ${this.perfStats.stickCpuMs.toFixed(2)} | needle ${this.perfStats.needleCpuMs.toFixed(2)} | ` +
+          `neon ${this.perfStats.neonCpuMs.toFixed(2)} | ` +
           `sky ${this.perfStats.skyCpuMs.toFixed(2)} | dpr ${this.perfStats.pixelRatio.toFixed(2)} | ` +
           `${this.perfStats.viewportWidth}x${this.perfStats.viewportHeight}`,
       )
@@ -2022,6 +2545,19 @@ export class PlaygroundRuntime {
   }
 
   private updateCameraProfile(delta: number): void {
+    if (this.sceneryMode) {
+      this.indoorCameraBlend = 0
+      this.controllerConfig.cameraDistance = this.zoomDistance
+      this.controllerConfig.shoulderOffset = PLAYGROUND_CONTROLLER.shoulderOffset
+      this.controllerConfig.cameraHeight = PLAYGROUND_CONTROLLER.cameraHeight
+      this.controllerConfig.cameraFollowLerp = PLAYGROUND_CONTROLLER.cameraFollowLerp
+      const targetFov = PlaygroundRuntime.OUTDOOR_FOV
+      if (Math.abs(this.camera.fov - targetFov) > 0.01) {
+        this.camera.fov = targetFov
+        this.camera.updateProjectionMatrix()
+      }
+      return
+    }
     const playerPos = this.activeFrame?.playerPosition ?? this.controller.player.group.position
     const isIndoor = isInsideBuildingInterior(playerPos.x, playerPos.z)
     if (delta <= 0) {

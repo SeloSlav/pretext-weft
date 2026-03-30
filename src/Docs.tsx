@@ -27,6 +27,13 @@ const API_GROUPS = [
     ],
   },
   {
+    title: 'Runtime helpers',
+    description: 'Persistent sampled state for recovery, motion, and other field-driven runtime layers.',
+    items: [
+      'createSurfaceMotionField()',
+    ],
+  },
+  {
     title: 'Preset factories',
     description: 'High-level effect entrypoints for the shipped presets.',
     items: [
@@ -195,6 +202,67 @@ const grass = createGrassEffect({
 })
 
 scene.add(grass.group)`,
+  },
+  {
+    title: 'World field mask setup',
+    code: `import {
+  DEFAULT_GRASS_FIELD_PARAMS,
+  createGrassEffect,
+  createSurfaceSource,
+} from 'weft-sdk/three'
+import { createWorldField, seedCursor } from 'weft-sdk/core'
+
+const surface = createSurfaceSource({
+  cacheKey: 'field-shell',
+  units: ['⟋', '⟍', '❘', '❙'],
+  repeat: 28,
+})
+
+const fertility = createWorldField(17, {
+  scale: 24,
+  roughness: 0.56,
+  warpAmplitude: 8,
+})
+
+const grass = createGrassEffect({
+  seedCursor,
+  surface,
+  initialParams: DEFAULT_GRASS_FIELD_PARAMS,
+  placementMask: {
+    bounds: { minX: -48, maxX: 48, minZ: -48, maxZ: 48 },
+    coverageMultiplierAtXZ: (x, z) => 0.25 + fertility(x, z) * 0.75,
+  },
+})
+
+scene.add(grass.group)`,
+  },
+  {
+    title: 'Persistent motion field',
+    code: `import { createSurfaceMotionField } from 'weft-sdk/runtime'
+
+const motionField = createSurfaceMotionField(
+  { minX: -32, maxX: 32, minZ: -32, maxZ: 32 },
+  { cellSize: 1.25, drag: 1.9, maxOffset: 12 },
+)
+
+function update(dt: number) {
+  motionField.update(dt)
+}
+
+function shoveLogs(x: number, z: number, dirX: number, dirZ: number) {
+  motionField.writeImpulse(x, z, {
+    radius: 1.8,
+    strength: 1.2,
+    directionX: dirX,
+    directionZ: dirZ,
+    tangentialStrength: 0.3,
+    spin: 0.45,
+  })
+}
+
+const motion = motionField.sample(worldX, worldZ)
+dummy.position.x += motion.offsetX
+dummy.position.z += motion.offsetZ`,
   },
   {
     title: 'Where Weft goes in your app',
@@ -538,6 +606,11 @@ scene.add(grass.group)`}</pre>
               topology or projection is new, keep Weft for source/layout/behavior and write a new renderer or
               runtime wrapper around those helpers.
             </p>
+            <p className="docs__callout-text">
+              If you need persistent object-less motion, keep authored layout as the baseline and layer sampled
+              runtime state on top with <code className="docs__code-inline">createSurfaceMotionField()</code>{' '}
+              from <code className="docs__code-inline">weft-sdk/runtime</code>.
+            </p>
           </div>
         </section>
 
@@ -576,7 +649,8 @@ scene.add(grass.group)`}</pre>
           <h2 className="docs__section-title">API reference</h2>
           <p className="docs__text">
             These groups mirror the public surface currently exported from{' '}
-            <code className="docs__code-inline">weft-sdk/three</code>.
+            <code className="docs__code-inline">weft-sdk/three</code> and the runtime helpers in{' '}
+            <code className="docs__code-inline">weft-sdk/runtime</code>.
           </p>
           <div className="docs__api-grid">
             {API_GROUPS.map((group) => (

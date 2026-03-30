@@ -5,7 +5,8 @@ import type {
   SeedCursorFactory,
   SurfaceLayoutSlot,
 } from '../../core'
-import { SurfaceLayoutDriver } from '../../core'
+import { createWorldField, SurfaceLayoutDriver } from '../../core'
+import { updateRecoveringImpacts } from '../../runtime'
 import { createSurfaceEffect, fieldLayout } from '../api'
 import {
   buildLeafPileSeasonSurface,
@@ -23,6 +24,10 @@ export type LeafPileBandParams = {
   disturbanceRadius: number
   disturbanceStrength: number
   displacementDistance: number
+  recoveryRate: number
+  burnRadius: number
+  burnSpreadSpeed: number
+  burnMaxRadius: number
 }
 
 export const DEFAULT_LEAF_PILE_BAND_PARAMS: LeafPileBandParams = {
@@ -34,6 +39,10 @@ export const DEFAULT_LEAF_PILE_BAND_PARAMS: LeafPileBandParams = {
   disturbanceRadius: 1.45,
   disturbanceStrength: 1.45,
   displacementDistance: 1.05,
+  recoveryRate: 0.075,
+  burnRadius: 0.7,
+  burnSpreadSpeed: 2.4,
+  burnMaxRadius: 4.2,
 }
 
 export type LeafPileBandBounds = {
@@ -61,9 +70,12 @@ const SECTORS = 30
 const MAX_INSTANCES = 8_000
 const BASE_LAYOUT_PX_PER_WORLD = 9
 const MAX_ACTIVE_DISTURBANCES = 40
+const MAX_BURNS = 18
 const tmpLocalPoint = new THREE.Vector3()
 
 const tmpColor = new THREE.Color()
+const tmpAshColor = new THREE.Color()
+const tmpEmberColor = new THREE.Color()
 const dummy = new THREE.Object3D()
 
 const SEASON_STYLE: Record<
@@ -139,10 +151,25 @@ type Disturbance = {
   displacement: number
 }
 
+type LeafPileBurn = {
+  x: number
+  z: number
+  radius: number
+  maxRadius: number
+  strength: number
+}
+
 export type LeafPileDisturbanceOptions = {
   radiusScale?: number
   strength?: number
   displacementScale?: number
+  mergeRadius?: number
+}
+
+export type LeafPileBurnOptions = {
+  radiusScale?: number
+  maxRadiusScale?: number
+  strength?: number
   mergeRadius?: number
 }
 
@@ -174,6 +201,15 @@ function smoothBandCoverage(distance: number, halfWidth: number, edgeSoftness: n
   return 1 - THREE.MathUtils.smoothstep(distance, halfWidth, halfWidth + edgeSoftness)
 }
 
+const leafOrganicWorldField = createWorldField(823, {
+  scale: 7.2,
+  octaves: 4,
+  roughness: 0.58,
+  warpAmplitude: 1.65,
+  warpScale: 5.9,
+  contrast: 1.16,
+})
+
 function makeLeafGeometry(): THREE.BufferGeometry {
   const shape = new THREE.Shape()
   shape.moveTo(0, 0.56)
@@ -189,12 +225,20 @@ function leafColor(
   coverage: number,
   meta: LeafPileTokenMeta,
   season: LeafPileSeason,
+  burn = 0,
+  front = 0,
 ): THREE.Color {
+  if (burn > 0.82) {
+    return tmpAshColor.setHSL(0.08 + front * 0.05, 0.06 + front * 0.14, 0.1 + front * 0.3)
+  }
+  if (front > 0.04) {
+    return tmpEmberColor.setHSL(0.06 + front * 0.03, 0.8, 0.18 + front * 0.28)
+  }
   const seasonStyle = SEASON_STYLE[season]
   const t = uhash(identity * 2654435761)
   const hue = seasonStyle.baseHue + (t - 0.5) * 0.06 + meta.hueShift
   const sat = seasonStyle.saturation + coverage * 0.16 + t * 0.08
-  const light = seasonStyle.lightness + coverage * 0.12 + meta.lightShift
+  const light = seasonStyle.lightness + coverage * 0.12 + meta.lightShift - burn * 0.28
   return tmpColor.setHSL(hue, sat, light)
 }
 
@@ -218,6 +262,8 @@ export class LeafPileBandEffect {
   private params: LeafPileBandParams
   private usesCustomSurface: boolean
   private readonly disturbances: Disturbance[] = []
+  private readonly burns: LeafPileBurn[] = []
+  private lastElapsed = 0
 
   constructor(
     surface: PreparedSurfaceSource<LeafPileTokenId, LeafPileTokenMeta>,
@@ -252,6 +298,9 @@ export class LeafPileBandEffect {
     if (this.params.season !== prevSeason && !this.usesCustomSurface) {
       this.layoutDriver = this.createLayoutDriver(buildLeafPileSeasonSurface(this.params.season))
     }
+    for (const burn of this.burns) {
+      burn.maxRadius = this.params.burnMaxRadius
+    }
   }
 
   setSurface(surface: PreparedSurfaceSource<LeafPileTokenId, LeafPileTokenMeta>): void {
@@ -261,6 +310,14 @@ export class LeafPileBandEffect {
 
   clearDisturbances(): void {
     this.disturbances.length = 0
+  }
+
+  clearBurns(): void {
+    this.burns.length = 0
+  }
+
+  hasBurns(): boolean {
+    return this.burns.length > 0
   }
 
   addDisturbanceFromWorldPoint(
@@ -297,7 +354,47 @@ export class LeafPileBandEffect {
     }
   }
 
-  update(_elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
+  addBurnFromWorldPoint(worldPoint: THREE.Vector3, options: LeafPileBurnOptions = {}): void {
+    tmpLocalPoint.copy(worldPoint)
+    this.group.worldToLocal(tmpLocalPoint)
+    const x = THREE.MathUtils.clamp(tmpLocalPoint.x, -this.fieldWidth * 0.48, this.fieldWidth * 0.48)
+    const z = THREE.MathUtils.clamp(tmpLocalPoint.z, -this.fieldDepth * 0.48, this.fieldDepth * 0.48)
+    const radius = this.params.burnRadius * (options.radiusScale ?? 1)
+    const maxRadius = this.params.burnMaxRadius * (options.maxRadiusScale ?? 1)
+    const strength = THREE.MathUtils.clamp(options.strength ?? 1, 0.05, 1.4)
+    const mergeRadius = options.mergeRadius ?? 0
+
+    if (mergeRadius > 0) {
+      const mergeRadiusSq = mergeRadius * mergeRadius
+      for (const burn of this.burns) {
+        const dx = burn.x - x
+        const dz = burn.z - z
+        if (dx * dx + dz * dz > mergeRadiusSq) continue
+        burn.x = THREE.MathUtils.lerp(burn.x, x, 0.35)
+        burn.z = THREE.MathUtils.lerp(burn.z, z, 0.35)
+        burn.radius = Math.max(burn.radius, radius)
+        burn.maxRadius = Math.max(burn.maxRadius, maxRadius)
+        burn.strength = Math.min(1.35, Math.max(burn.strength, strength))
+        return
+      }
+    }
+
+    this.burns.unshift({ x, z, radius, maxRadius, strength })
+    if (this.burns.length > MAX_BURNS) {
+      this.burns.length = MAX_BURNS
+    }
+  }
+
+  update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
+    const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
+    this.lastElapsed = elapsedTime
+    if (delta > 0) {
+      for (const burn of this.burns) {
+        const growth = this.params.burnSpreadSpeed * delta * (0.6 + burn.strength * 0.9)
+        burn.radius = Math.min(burn.maxRadius, burn.radius + growth)
+      }
+      updateRecoveringImpacts(this.burns, this.params.recoveryRate, delta, 0.02)
+    }
     if (
       this.params.layoutDensity <= 0 ||
       this.params.sizeScale <= 0 ||
@@ -339,6 +436,33 @@ export class LeafPileBandEffect {
   dispose(): void {
     this.leafGeometry.dispose()
     this.leafMaterial.dispose()
+  }
+
+  private burnFieldAt(x: number, z: number): { burn: number; front: number } {
+    if (this.burns.length === 0) return { burn: 0, front: 0 }
+
+    let burn = 0
+    let front = 0
+    for (const impact of this.burns) {
+      const radius = Math.max(0.001, impact.radius)
+      const distance = Math.hypot(x - impact.x, z - impact.z)
+      if (distance > radius + 0.85) continue
+
+      const localBurn =
+        impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(distance, 0, radius), 0.55)
+      burn = Math.max(burn, localBurn)
+
+      const frontWidth = Math.max(0.22, radius * 0.32)
+      const frontDistance = Math.abs(distance - radius)
+      const localFront =
+        impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(frontDistance, 0, frontWidth), 0.72)
+      front = Math.max(front, localFront)
+    }
+
+    return {
+      burn: THREE.MathUtils.clamp(burn, 0, 1),
+      front: THREE.MathUtils.clamp(front, 0, 1),
+    }
   }
 
   private createLayoutDriver(surface: PreparedSurfaceSource<LeafPileTokenId, LeafPileTokenMeta>) {
@@ -477,15 +601,31 @@ export class LeafPileBandEffect {
       if (!this.placementMask.includeAtXZ(clumpX, clumpZ)) continue
 
       const signedDistance = this.placementMask.distanceToBandAtXZ(clumpX, clumpZ)
-      const coverage = smoothBandCoverage(Math.abs(signedDistance), halfWidth, edgeSoftness)
-      if (coverage <= 0.02) continue
-      if (glyphHash(identity + 5, slot.row, k ^ 0x55) > coverage * seasonStyle.presence) continue
+      const organicNoise = leafOrganicWorldField(clumpX + hashYaw * 0.45, clumpZ + hashDep * 0.4)
+      const organicDistanceOffset = (organicNoise - 0.5) * edgeSoftness * 0.85
+      const baseCoverage = smoothBandCoverage(
+        Math.abs(signedDistance + organicDistanceOffset),
+        halfWidth,
+        edgeSoftness,
+      )
+      const burnField = this.burnFieldAt(clumpX, clumpZ)
+      const coverage = THREE.MathUtils.clamp(
+        baseCoverage * THREE.MathUtils.lerp(0.56, 1.22, organicNoise),
+        0,
+        1,
+      )
+      const remainingCoverage = coverage * (1 - burnField.burn * 0.995)
+      if (remainingCoverage <= 0.02) continue
+      if (glyphHash(identity + 5, slot.row, k ^ 0x55) > remainingCoverage * seasonStyle.presence) continue
 
       const leavesInClump = Math.min(
         14,
-        Math.max(5, seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 4 + hashYaw * 3)),
+        Math.max(
+          5,
+          seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 4 + hashYaw * 3 + organicNoise * 3),
+        ),
       )
-      const spreadScale = seasonStyle.spread * 1.15
+      const spreadScale = seasonStyle.spread * (1.02 + organicNoise * 0.36)
 
       for (let leafIndex = 0; leafIndex < leavesInClump; leafIndex++) {
         if (instanceIndex >= MAX_INSTANCES) break
@@ -499,7 +639,7 @@ export class LeafPileBandEffect {
           (0.04 + coverage * 0.1 + Math.max(-0.02, meta.widthBias) * 0.3) *
           this.params.sizeScale *
           spreadScale *
-          (0.45 + leafHashB * 0.95)
+          (0.45 + leafHashB * 0.95 + organicNoise * 0.14)
         const angle = leafHashA * Math.PI * 2
         const baseLeafX = clumpX + Math.cos(angle) * radius
         const baseLeafZ = clumpZ + Math.sin(angle) * radius
@@ -513,26 +653,29 @@ export class LeafPileBandEffect {
         const leafX = baseLeafX + displacement.offsetX
         const leafZ = baseLeafZ + displacement.offsetZ
         const groundY = getGroundHeight(leafX, leafZ)
+        const leafBurnField = this.burnFieldAt(leafX, leafZ)
         const pushAngle =
           displacement.push > 0.001 ? Math.atan2(displacement.offsetZ, displacement.offsetX) : angle
         const width = Math.max(
           0.06,
-          (0.11 + coverage * 0.1 + meta.widthBias * 0.35) *
+          (0.11 + remainingCoverage * 0.1 + meta.widthBias * 0.35 + organicNoise * 0.03) *
             this.params.sizeScale *
             seasonStyle.widthScale *
             (0.72 + leafHashC * 0.6) *
-            (1 - displacement.stretch * 0.18),
+            (1 - displacement.stretch * 0.18) *
+            (1 - leafBurnField.burn * 0.58 + leafBurnField.front * 0.08),
         )
         const length = Math.max(
           0.08,
-          (0.13 + coverage * 0.12 + meta.heightBias * 0.26) *
+          (0.13 + remainingCoverage * 0.12 + meta.heightBias * 0.26 + organicNoise * 0.05) *
             this.params.sizeScale *
             seasonStyle.lengthScale *
             (0.84 + leafHashD * 0.44) *
-            (1 + displacement.stretch * 0.28),
+            (1 + displacement.stretch * 0.28) *
+            (1 - leafBurnField.burn * 0.72 + leafBurnField.front * 0.12),
         )
         const stackLift =
-          Math.max(0.004, 0.007 + coverage * 0.01 + meta.liftBias * 0.018) *
+          Math.max(0.004, 0.007 + remainingCoverage * 0.01 + meta.liftBias * 0.018) *
           seasonStyle.lift *
           (1 + leafIndex * 0.05)
         const pitch =
@@ -558,7 +701,14 @@ export class LeafPileBandEffect {
         this.leafMesh.setMatrixAt(instanceIndex, dummy.matrix)
         this.leafMesh.setColorAt(
           instanceIndex,
-          leafColor(identity + leafIndex * 17, coverage, meta, this.params.season),
+          leafColor(
+            identity + leafIndex * 17,
+            remainingCoverage,
+            meta,
+            this.params.season,
+            leafBurnField.burn,
+            leafBurnField.front,
+          ),
         )
         instanceIndex++
       }

@@ -4,7 +4,7 @@ import type {
   SeedCursorFactory,
   SurfaceLayoutSlot,
 } from '../../core'
-import { SurfaceLayoutDriver } from '../../core'
+import { createWorldField, SurfaceLayoutDriver } from '../../core'
 import { decayRecoveringStrength } from '../../runtime'
 import {
   createSurfaceEffect,
@@ -313,33 +313,14 @@ function glyphScatter(code: number, lineSeed: number, index: number): number {
   return THREE.MathUtils.clamp(waveA * 0.7 + waveB * 0.3, -1, 1)
 }
 
-function organicField(x: number, z: number): number {
-  const cx = Math.floor(x * 0.18)
-  const cz = Math.floor(z * 0.18)
-  const fx = x * 0.18 - cx
-  const fz = z * 0.18 - cz
-  const ux = fx * fx * (3 - 2 * fx)
-  const uz = fz * fz * (3 - 2 * fz)
-  const v00 = uhash(cx * 1619 + cz * 31337)
-  const v10 = uhash((cx + 1) * 1619 + cz * 31337)
-  const v01 = uhash(cx * 1619 + (cz + 1) * 31337)
-  const v11 = uhash((cx + 1) * 1619 + (cz + 1) * 31337)
-  const coarse = v00 + ux * (v10 - v00) + uz * (v01 - v00) + ux * uz * (v00 - v10 - v01 + v11)
-
-  const cx2 = Math.floor(x * 0.55)
-  const cz2 = Math.floor(z * 0.55)
-  const fx2 = x * 0.55 - cx2
-  const fz2 = z * 0.55 - cz2
-  const ux2 = fx2 * fx2 * (3 - 2 * fx2)
-  const uz2 = fz2 * fz2 * (3 - 2 * fz2)
-  const w00 = uhash(cx2 * 7919 + cz2 * 104729)
-  const w10 = uhash((cx2 + 1) * 7919 + cz2 * 104729)
-  const w01 = uhash(cx2 * 7919 + (cz2 + 1) * 104729)
-  const w11 = uhash((cx2 + 1) * 7919 + (cz2 + 1) * 104729)
-  const fine = w00 + ux2 * (w10 - w00) + uz2 * (w01 - w00) + ux2 * uz2 * (w00 - w10 - w01 + w11)
-
-  return THREE.MathUtils.clamp(coarse * 0.65 + fine * 0.35, 0, 1)
-}
+const grassOrganicWorldField = createWorldField(271, {
+  scale: 6.2,
+  octaves: 4,
+  roughness: 0.58,
+  warpAmplitude: 1.7,
+  warpScale: 5.4,
+  contrast: 1.18,
+})
 
 export class GrassFieldEffect {
   readonly group = new THREE.Group()
@@ -769,7 +750,7 @@ export class GrassFieldEffect {
             const coverageMultiplier = this.placementMask.coverageMultiplierAtXZ(x, localZ)
             if (hashPresence > statePresence * coverageMultiplier) continue
 
-            const organicNoise = organicField(x + hashOrganic * 0.4, localZ + hashOrganic * 0.3)
+            const organicNoise = grassOrganicWorldField(x + hashOrganic * 0.4, localZ + hashOrganic * 0.3)
             const tipFade = blade * 0.055
             const stateBrightness = THREE.MathUtils.clamp(
               0.18 + organicNoise * 0.64 + meta.lightShift + tipFade,

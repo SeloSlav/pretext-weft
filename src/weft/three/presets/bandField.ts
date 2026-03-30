@@ -5,7 +5,7 @@ import type {
   SeedCursorFactory,
   SurfaceLayoutSlot,
 } from '../../core'
-import { SurfaceLayoutDriver } from '../../core'
+import { createWorldField, SurfaceLayoutDriver } from '../../core'
 import { createSurfaceEffect, fieldLayout } from '../api'
 import {
   getPreparedBandSurface,
@@ -88,6 +88,15 @@ function smoothBandCoverage(distance: number, halfWidth: number, edgeSoftness: n
   if (edgeSoftness <= 1e-6) return 0
   return 1 - THREE.MathUtils.smoothstep(distance, halfWidth, halfWidth + edgeSoftness)
 }
+
+const bandOrganicWorldField = createWorldField(691, {
+  scale: 8.5,
+  octaves: 4,
+  roughness: 0.54,
+  warpAmplitude: 1.35,
+  warpScale: 6.8,
+  contrast: 1.1,
+})
 
 function makeBandGeometry(appearance: BandFieldAppearance): THREE.BufferGeometry {
   if (appearance === 'fungus') {
@@ -289,26 +298,55 @@ export class BandFieldEffect {
       if (!this.placementMask.includeAtXZ(x, z)) continue
 
       const signedDistance = this.placementMask.distanceToBandAtXZ(x, z)
-      const coverage = smoothBandCoverage(Math.abs(signedDistance), halfWidth, edgeSoftness)
+      const organicNoise = bandOrganicWorldField(x + hashYaw * 0.55, z + hashDep * 0.45)
+      const organicDistanceOffset = (organicNoise - 0.5) * edgeSoftness * 0.7
+      const baseCoverage = smoothBandCoverage(
+        Math.abs(signedDistance + organicDistanceOffset),
+        halfWidth,
+        edgeSoftness,
+      )
+      const coverage = THREE.MathUtils.clamp(
+        baseCoverage * THREE.MathUtils.lerp(0.62, 1.18, organicNoise),
+        0,
+        1,
+      )
       if (coverage <= 0.02 || glyphHash(identity + 5, slot.row, k ^ 0x55) > coverage) continue
 
       const groundY = getGroundHeight(x, z)
-      const yaw = hashYaw * Math.PI * 2
+      const yaw = hashYaw * Math.PI * 2 + (organicNoise - 0.5) * 0.22
       if (this.appearance === 'fungus') {
-        const width = Math.max(0.08, (0.2 + coverage * 0.26 + meta.widthBias) * this.params.sizeScale)
-        const depth = Math.max(0.08, (0.16 + coverage * 0.18 + meta.heightBias * 0.18) * this.params.sizeScale)
+        const width = Math.max(
+          0.08,
+          (0.2 + coverage * 0.26 + meta.widthBias + organicNoise * 0.04) * this.params.sizeScale,
+        )
+        const depth = Math.max(
+          0.08,
+          (0.16 + coverage * 0.18 + meta.heightBias * 0.18 + organicNoise * 0.03) * this.params.sizeScale,
+        )
         dummy.position.set(x, groundY + 0.018 + depth * 0.02, z)
         dummy.rotation.set(-Math.PI / 2 + (hashDep - 0.5) * 0.14, yaw, (hashLat - 0.5) * 0.08)
         dummy.scale.set(width, depth, 1)
       } else if (this.appearance === 'scrub') {
-        const width = Math.max(0.07, (0.16 + coverage * 0.14 + meta.widthBias) * this.params.sizeScale)
-        const height = Math.max(0.06, (0.09 + coverage * 0.16 + meta.heightBias * 0.42) * this.params.sizeScale)
+        const width = Math.max(
+          0.07,
+          (0.16 + coverage * 0.14 + meta.widthBias + organicNoise * 0.05) * this.params.sizeScale,
+        )
+        const height = Math.max(
+          0.06,
+          (0.09 + coverage * 0.16 + meta.heightBias * 0.42 + organicNoise * 0.08) * this.params.sizeScale,
+        )
         dummy.position.set(x, groundY + height * 0.06, z)
-        dummy.rotation.set(-1.04 + hashDep * 0.28, yaw, (hashLat - 0.5) * 0.18)
+        dummy.rotation.set(-1.04 + hashDep * 0.28 + (organicNoise - 0.5) * 0.08, yaw, (hashLat - 0.5) * 0.18)
         dummy.scale.set(width, height, 1)
       } else {
-        const width = Math.max(0.03, (0.08 + coverage * 0.1 + meta.widthBias) * this.params.sizeScale)
-        const height = Math.max(0.08, (0.18 + coverage * 0.38 + meta.heightBias) * this.params.sizeScale)
+        const width = Math.max(
+          0.03,
+          (0.08 + coverage * 0.1 + meta.widthBias + organicNoise * 0.03) * this.params.sizeScale,
+        )
+        const height = Math.max(
+          0.08,
+          (0.18 + coverage * 0.38 + meta.heightBias + organicNoise * 0.09) * this.params.sizeScale,
+        )
         dummy.position.set(x, groundY + height * 0.12, z)
         dummy.rotation.set(-0.35 - hashDep * 0.55, yaw, (hashLat - 0.5) * 0.28)
         dummy.scale.set(width, height, 1)
