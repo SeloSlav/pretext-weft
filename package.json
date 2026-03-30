@@ -1,6 +1,6 @@
 {
   "name": "weft-sdk",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "description": "Reactive surface-layout SDK for Three.js/WebGPU.",
   "type": "module",
   "main": "./dist/index.js",
