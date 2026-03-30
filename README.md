@@ -6,6 +6,8 @@ Deterministic reactive surface SDK for Three.js. Author grass, facades, debris b
 - Video demo: [x.com/SeloSlav/status/2038245103643333014](https://x.com/SeloSlav/status/2038245103643333014)
 - npm package: [`weft-sdk`](https://www.npmjs.com/package/weft-sdk)
 
+Current release: `0.1.6` as of March 30, 2026.
+
 > Start here for SDK integration guidance and agent-ready context: [`weft.md`](./weft.md)
 >
 > Future preset backlog: [`preset-ideas.md`](./preset-ideas.md)
