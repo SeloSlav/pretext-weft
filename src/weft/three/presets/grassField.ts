@@ -130,6 +130,8 @@ type CachedBladeInstance = {
   baseHeight: number
   baseRotateX: number
   baseBendDirection: number
+  windPhaseA: number
+  windPhaseB: number
   coverageMultiplier: number
   hashPresence: number
   baseColorR: number
@@ -440,6 +442,10 @@ export class GrassFieldEffect {
     this.baseBladeColorsDirty = true
   }
 
+  hasDisturbances(): boolean {
+    return this.disturbances.length > 0
+  }
+
   addDisturbanceFromWorldPoint(worldPoint: THREE.Vector3, options: GrassDisturbanceOptions = {}): void {
     tmpLocalPoint.copy(worldPoint)
     this.group.worldToLocal(tmpLocalPoint)
@@ -610,6 +616,9 @@ export class GrassFieldEffect {
     const disturbanceLift = STATE_DISTURBANCE_LIFT[stateIndex]!
     const bladeWidthScale = Math.max(0.01, this.params.bladeWidthScale)
     const bladeHeightScale = Math.max(0.01, this.params.bladeHeightScale)
+    const disturbanceBounds = hasDisturbances ? this.activeDisturbanceBounds() : null
+    const gustTimeA = elapsedTime * 1.55
+    const gustTimeB = elapsedTime * 2.8
     if (!hasDisturbances && this.baseBladeColorsDirty) {
       this.applyBaseBladeColors()
     }
@@ -620,7 +629,13 @@ export class GrassFieldEffect {
       let localDisturbance = 0
       let awayX = 0
       let awayZ = 1
-      if (hasDisturbances) {
+      if (
+        disturbanceBounds &&
+        blade.x >= disturbanceBounds.minX &&
+        blade.x <= disturbanceBounds.maxX &&
+        blade.z >= disturbanceBounds.minZ &&
+        blade.z <= disturbanceBounds.maxZ
+      ) {
         const disturbance = this.disturbanceAndBend(blade.x, blade.z)
         localDisturbance = disturbance.disturbance
         awayX = disturbance.awayX
@@ -630,8 +645,8 @@ export class GrassFieldEffect {
       }
 
       const gust =
-        Math.sin(elapsedTime * 1.55 + blade.x * 0.52 + blade.z * 0.34) +
-        0.55 * Math.sin(elapsedTime * 2.8 + blade.x * 1.1 - blade.z * 0.62)
+        Math.sin(gustTimeA + blade.windPhaseA) +
+        0.55 * Math.sin(gustTimeB + blade.windPhaseB)
       const windYaw = gust * this.params.wind * 0.14
       const windBend = (0.24 + Math.abs(gust) * 0.18) * this.params.wind
       const trampleBend = localDisturbance * 1.15 * disturbanceLift
@@ -669,6 +684,30 @@ export class GrassFieldEffect {
       this.bladeMesh.instanceColor.needsUpdate = true
       this.baseBladeColorsDirty = true
     }
+  }
+
+  private activeDisturbanceBounds():
+    | {
+        minX: number
+        maxX: number
+        minZ: number
+        maxZ: number
+      }
+    | null {
+    if (this.disturbances.length === 0) return null
+
+    let minX = Infinity
+    let maxX = -Infinity
+    let minZ = Infinity
+    let maxZ = -Infinity
+    for (const disturbance of this.disturbances) {
+      const radius = Math.max(0.001, disturbance.radius)
+      minX = Math.min(minX, disturbance.x - radius)
+      maxX = Math.max(maxX, disturbance.x + radius)
+      minZ = Math.min(minZ, disturbance.z - radius)
+      maxZ = Math.max(maxZ, disturbance.z + radius)
+    }
+    return { minX, maxX, minZ, maxZ }
   }
 
   private rebuildBladeCache(): void {
@@ -751,6 +790,8 @@ export class GrassFieldEffect {
                 stateHeight,
               baseRotateX: (organicNoise - 0.5) * 0.12 * stateBend,
               baseBendDirection: (organicNoise - 0.5) * 0.35,
+              windPhaseA: x * 0.52 + localZ * 0.34,
+              windPhaseB: x * 1.1 - localZ * 0.62,
               coverageMultiplier,
               hashPresence,
               baseColorR: tmpColor.r,

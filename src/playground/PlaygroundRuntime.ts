@@ -1000,6 +1000,14 @@ export class PlaygroundRuntime {
     }
   }
 
+  private idleCadenceFor(kind: 'grass' | 'fish' | 'neon'): number {
+    const base = this.cadenceFor(kind)
+    if (this.quality === 'high') {
+      return Math.max(base, 2)
+    }
+    return base
+  }
+
   private shouldRunCadencedUpdate(interval: number, offset: number): boolean {
     return interval <= 1 || this.frameTick % interval === offset % interval
   }
@@ -1677,7 +1685,10 @@ export class PlaygroundRuntime {
     const tPlayer0 = now()
     this.controller.player.update(delta, this.getPlayerAnimationState(this.activeFrame))
     const playerCpuMs = now() - tPlayer0
-    const fishCadence = this.cadenceFor('fish')
+    const fishCadence =
+      this.shutterEffect.hasWounds() || this.ivyEffect.hasWounds()
+        ? this.cadenceFor('fish')
+        : this.idleCadenceFor('fish')
     let shutterCpuMs = 0
     let ivyCpuMs = 0
     if (this.shouldRunCadencedUpdate(fishCadence, 0)) {
@@ -1705,9 +1716,12 @@ export class PlaygroundRuntime {
       }
     }
     const glassCpuMs = now() - tGlass0
-    // Grass update first so later samples read the current flattened field state.
+    // Grass is the main dynamic ground-cover cost, so idle wind runs on a lighter cadence.
     let grassCpuMs = 0
-    if (this.shouldRunCadencedUpdate(this.cadenceFor('grass'), 0)) {
+    const grassCadence = this.grassEffect.hasDisturbances()
+      ? this.cadenceFor('grass')
+      : this.idleCadenceFor('grass')
+    if (this.shouldRunCadencedUpdate(grassCadence, 0)) {
       const tGrass0 = now()
       this.grassEffect.update(elapsed)
       grassCpuMs = now() - tGrass0
@@ -1733,10 +1747,22 @@ export class PlaygroundRuntime {
     }
     const rockCpuMs = now() - tRock0
     let neonCpuMs = 0
-    if (this.shouldRunCadencedUpdate(this.cadenceFor('neon'), 0)) {
+    const neonCadence = this.neonSignEffects.some((effect) => effect.hasWounds())
+      ? this.cadenceFor('neon')
+      : this.idleCadenceFor('neon')
+    if (neonCadence <= 1) {
       const tNeon0 = now()
       for (const effect of this.neonSignEffects) {
         effect.update(elapsed)
+      }
+      neonCpuMs = now() - tNeon0
+    } else {
+      const tNeon0 = now()
+      for (let i = 0; i < this.neonSignEffects.length; i++) {
+        const effect = this.neonSignEffects[i]!
+        if (effect.hasWounds() || this.shouldRunCadencedUpdate(neonCadence, i)) {
+          effect.update(elapsed)
+        }
       }
       neonCpuMs = now() - tNeon0
     }
