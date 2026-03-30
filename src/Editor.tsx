@@ -164,6 +164,7 @@ export function Editor() {
     PLAYGROUND_QUALITY_DEFAULT,
   );
   const [perfStats, setPerfStats] = useState<PlaygroundPerfStats | null>(null);
+  const [perfHudMinimized, setPerfHudMinimized] = useState(true);
   const [showCollisionDebug, setShowCollisionDebug] = useState(false);
 
   useEffect(() => {
@@ -1044,37 +1045,55 @@ export function Editor() {
       <main className="viewport">
         <div ref={hostRef} className="viewport-host" />
         {perfStats !== null && (
-          <div className="perf-hud" aria-hidden>
-            <div>
-              FPS: {perfStats.fps.toFixed(1)} | Avg: {perfStats.fpsAvg.toFixed(1)} | Frame:{" "}
-              {perfStats.frameCpuMs.toFixed(2)} ms | Avg: {perfStats.frameCpuMsAvg.toFixed(2)} ms
-            </div>
-            <div>
-              Effects: {perfStats.effectsCpuMs.toFixed(2)} ms | Avg: {perfStats.effectsCpuMsAvg.toFixed(2)} ms |
-              Render: {perfStats.renderCpuMs.toFixed(2)} ms | Avg: {perfStats.renderCpuMsAvg.toFixed(2)} ms
-            </div>
-            <div>Controller: {perfStats.controllerCpuMs.toFixed(2)} ms | DPR: {perfStats.pixelRatio.toFixed(2)}</div>
-            <div>
-              Grass: {perfStats.grassCpuMs.toFixed(2)} / {perfStats.grassCpuMsAvg.toFixed(2)} | Verge:{" "}
-              {perfStats.vergeCpuMs.toFixed(2)} / {perfStats.vergeCpuMsAvg.toFixed(2)} | Leaf:{" "}
-              {perfStats.leafCpuMs.toFixed(2)} / {perfStats.leafCpuMsAvg.toFixed(2)} | Fungus:{" "}
-              {perfStats.fungusCpuMs.toFixed(2)} / {perfStats.fungusCpuMsAvg.toFixed(2)}
-            </div>
-            <div>
-              Band: {perfStats.bandCpuMs.toFixed(2)} / {perfStats.bandCpuMsAvg.toFixed(2)} | Rock:{" "}
-              {perfStats.rockCpuMs.toFixed(2)} / {perfStats.rockCpuMsAvg.toFixed(2)} | Neon:{" "}
-              {perfStats.neonCpuMs.toFixed(2)} / {perfStats.neonCpuMsAvg.toFixed(2)} | Sky:{" "}
-              {perfStats.skyCpuMs.toFixed(2)} / {perfStats.skyCpuMsAvg.toFixed(2)}
-            </div>
-            <div>
-              Fish: {(perfStats.shutterCpuMs + perfStats.ivyCpuMs).toFixed(2)} / {perfStats.fishCpuMsAvg.toFixed(2)} |
-              Lamp: {perfStats.lampCpuMs.toFixed(2)} / {perfStats.lampCpuMsAvg.toFixed(2)} |
-              Window: {perfStats.glassCpuMs.toFixed(2)} / {perfStats.glassCpuMsAvg.toFixed(2)} |
-              Glass total: {(perfStats.lampCpuMs + perfStats.glassCpuMs).toFixed(2)} /{" "}
-              {(perfStats.lampCpuMsAvg + perfStats.glassCpuMsAvg).toFixed(2)} | Ran:{" "}
-              {perfStats.ranSystems.length > 0 ? perfStats.ranSystems.join(", ") : "none"} | Size:{" "}
-              {perfStats.viewportWidth}x{perfStats.viewportHeight}
-            </div>
+          <div
+            className={`perf-hud${perfHudMinimized ? " perf-hud--minimized" : ""}`}
+            aria-hidden
+          >
+            <button
+              type="button"
+              className="perf-hud__toggle"
+              onClick={() => setPerfHudMinimized((value) => !value)}
+              aria-label={perfHudMinimized ? "Expand profiler" : "Minimize profiler"}
+              aria-expanded={!perfHudMinimized}
+            >
+              {perfHudMinimized
+                ? `Profiler ${perfStats.fps.toFixed(1)} FPS`
+                : "Minimize profiler"}
+            </button>
+            {!perfHudMinimized && (
+              <>
+                <div>
+                  FPS: {perfStats.fps.toFixed(1)} | Avg: {perfStats.fpsAvg.toFixed(1)} | Frame:{" "}
+                  {perfStats.frameCpuMs.toFixed(2)} ms | Avg: {perfStats.frameCpuMsAvg.toFixed(2)} ms
+                </div>
+                <div>
+                  Effects: {perfStats.effectsCpuMs.toFixed(2)} ms | Avg: {perfStats.effectsCpuMsAvg.toFixed(2)} ms |
+                  Render: {perfStats.renderCpuMs.toFixed(2)} ms | Avg: {perfStats.renderCpuMsAvg.toFixed(2)} ms
+                </div>
+                <div>Controller: {perfStats.controllerCpuMs.toFixed(2)} ms | DPR: {perfStats.pixelRatio.toFixed(2)}</div>
+                <div>
+                  Grass: {perfStats.grassCpuMs.toFixed(2)} / {perfStats.grassCpuMsAvg.toFixed(2)} | Verge:{" "}
+                  {perfStats.vergeCpuMs.toFixed(2)} / {perfStats.vergeCpuMsAvg.toFixed(2)} | Leaf:{" "}
+                  {perfStats.leafCpuMs.toFixed(2)} / {perfStats.leafCpuMsAvg.toFixed(2)} | Fungus:{" "}
+                  {perfStats.fungusCpuMs.toFixed(2)} / {perfStats.fungusCpuMsAvg.toFixed(2)}
+                </div>
+                <div>
+                  Band: {perfStats.bandCpuMs.toFixed(2)} / {perfStats.bandCpuMsAvg.toFixed(2)} | Rock:{" "}
+                  {perfStats.rockCpuMs.toFixed(2)} / {perfStats.rockCpuMsAvg.toFixed(2)} | Neon:{" "}
+                  {perfStats.neonCpuMs.toFixed(2)} / {perfStats.neonCpuMsAvg.toFixed(2)} | Sky:{" "}
+                  {perfStats.skyCpuMs.toFixed(2)} / {perfStats.skyCpuMsAvg.toFixed(2)}
+                </div>
+                <div>
+                  Fish: {(perfStats.shutterCpuMs + perfStats.ivyCpuMs).toFixed(2)} / {perfStats.fishCpuMsAvg.toFixed(2)} |
+                  Lamp: {perfStats.lampCpuMs.toFixed(2)} / {perfStats.lampCpuMsAvg.toFixed(2)} |
+                  Window: {perfStats.glassCpuMs.toFixed(2)} / {perfStats.glassCpuMsAvg.toFixed(2)} |
+                  Glass total: {(perfStats.lampCpuMs + perfStats.glassCpuMs).toFixed(2)} /{" "}
+                  {(perfStats.lampCpuMsAvg + perfStats.glassCpuMsAvg).toFixed(2)} | Ran:{" "}
+                  {perfStats.ranSystems.length > 0 ? perfStats.ranSystems.join(", ") : "none"} | Size:{" "}
+                  {perfStats.viewportWidth}x{perfStats.viewportHeight}
+                </div>
+              </>
+            )}
           </div>
         )}
         {runtimeState !== "ready" && (

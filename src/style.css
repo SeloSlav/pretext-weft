@@ -976,7 +976,36 @@ body,
   line-height: 1.45;
   font-variant-numeric: tabular-nums;
   color: rgba(200, 230, 255, 0.92);
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+.perf-hud--minimized {
+  min-width: 0;
+  padding: 6px;
+}
+
+.perf-hud__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  padding: 6px 10px;
+  border: 1px solid rgba(126, 184, 255, 0.28);
+  border-radius: 999px;
+  background: rgba(19, 31, 46, 0.92);
+  color: rgba(220, 238, 255, 0.96);
+  font: inherit;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.perf-hud__toggle:hover {
+  background: rgba(30, 48, 70, 0.96);
+}
+
+.perf-hud__toggle:focus-visible {
+  outline: 2px solid rgba(126, 184, 255, 0.9);
+  outline-offset: 2px;
 }
 
 .control-hint {
