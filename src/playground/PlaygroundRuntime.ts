@@ -2,25 +2,25 @@ import { seedCursor } from '../weft/core'
 import {
   buildGrassStateSurface,
   createFireWallEffect,
-  createFishScaleEffect,
+  createShellSurfaceEffect,
   createGrassEffect,
   createRockFieldEffect,
   createStarSkyEffect,
   DEFAULT_FIRE_WALL_PARAMS,
-  DEFAULT_FISH_SCALE_PARAMS,
+  DEFAULT_SHELL_SURFACE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
   getPreparedFireSurface,
   getPreparedGlassSurface,
-  getPreparedFishSurface,
+  getPreparedShellSurface,
   getPreparedIvySurface,
   getPreparedRockSurface,
   getPreparedStarSurface,
   type FireWallEffect,
   type FireWallParams,
-  type FishScaleEffect,
-  type FishScaleParams,
+  type ShellSurfaceEffect,
+  type ShellSurfaceParams,
   type GrassFieldParams,
   type RockFieldParams,
   type StarSkyParams,
@@ -156,17 +156,17 @@ export class PlaygroundRuntime {
   private readonly cameraSafePosition = new THREE.Vector3()
   private readonly collisionSample = new THREE.Vector3()
   private readonly ndcCenter = new THREE.Vector2(0, 0)
-  private readonly shutterEffect = createFishScaleEffect({
-    surface: getPreparedFishSurface(),
+  private readonly shutterEffect = createShellSurfaceEffect({
+    surface: getPreparedShellSurface(),
     seedCursor,
-    initialParams: { ...DEFAULT_FISH_SCALE_PARAMS, recoveryRate: FACADE_FISH_RECOVERY_RATE },
+    initialParams: { ...DEFAULT_SHELL_SURFACE_PARAMS, recoveryRate: FACADE_FISH_RECOVERY_RATE },
     appearance: 'shutter',
     effectId: 'shutter-facade',
   })
-  private readonly ivyEffect = createFishScaleEffect({
+  private readonly ivyEffect = createShellSurfaceEffect({
     surface: getPreparedIvySurface(),
     seedCursor,
-    initialParams: { ...DEFAULT_FISH_SCALE_PARAMS, recoveryRate: FACADE_FISH_RECOVERY_RATE },
+    initialParams: { ...DEFAULT_SHELL_SURFACE_PARAMS, recoveryRate: FACADE_FISH_RECOVERY_RATE },
     appearance: 'ivy',
     effectId: 'ivy-facade',
   })
@@ -247,11 +247,11 @@ export class PlaygroundRuntime {
   private readonly collisionDebugTiles: CollisionDebugTile[]
   private collisionDebugVisible = false
 
-  private fishScaleParams: FishScaleParams = {
-    ...DEFAULT_FISH_SCALE_PARAMS,
+  private shellSurfaceParams: ShellSurfaceParams = {
+    ...DEFAULT_SHELL_SURFACE_PARAMS,
     recoveryRate: FACADE_FISH_RECOVERY_RATE,
   }
-  private glassSurfaceParams: FishScaleParams = { ...DEFAULT_GLASS_SURFACE_PARAMS }
+  private glassSurfaceParams: ShellSurfaceParams = { ...DEFAULT_GLASS_SURFACE_PARAMS }
   private grassFieldParams: GrassFieldParams = { ...DEFAULT_GRASS_FIELD_PARAMS }
   private rockFieldParams: RockFieldParams = { ...DEFAULT_ROCK_FIELD_PARAMS }
   private starSkyParams: StarSkyParams = { ...DEFAULT_STAR_SKY_PARAMS }
@@ -260,8 +260,8 @@ export class PlaygroundRuntime {
   private readonly cameraObstacles: THREE.Object3D[]
   private readonly lampLights: THREE.PointLight[]
   private readonly lampGlobes: THREE.Mesh[]
-  private readonly lampEffects: FishScaleEffect[]
-  private readonly windowGlassEffects: FishScaleEffect[]
+  private readonly lampEffects: ShellSurfaceEffect[]
+  private readonly windowGlassEffects: ShellSurfaceEffect[]
   /** Stable interaction targets for raycasts (no per-frame array allocation). */
   private readonly raycastTargets: THREE.Object3D[]
   /** Reused controller input to avoid per-frame object allocation. */
@@ -356,10 +356,10 @@ export class PlaygroundRuntime {
     }
 
     const bulbY = TOWN_ROAD_SURFACE_Y + STREET_LAMP_BULB_Y_OFFSET
-    const lamps: FishScaleEffect[] = []
+    const lamps: ShellSurfaceEffect[] = []
     for (let i = 0; i < STREET_LIGHT_XZ.length; i++) {
       const pos = STREET_LIGHT_XZ[i]!
-      const lampEffect = createFishScaleEffect({
+      const lampEffect = createShellSurfaceEffect({
         surface: getPreparedGlassSurface(),
         seedCursor,
         effectId: `street-lamp-glass-${i}`,
@@ -374,10 +374,10 @@ export class PlaygroundRuntime {
     }
     this.lampEffects = lamps
 
-    const windowGlassEffects: FishScaleEffect[] = []
+    const windowGlassEffects: ShellSurfaceEffect[] = []
     for (let i = 0; i < WINDOW_GLASS_LAYOUTS.length; i++) {
       const layout = WINDOW_GLASS_LAYOUTS[i]!
-      const glassEffect = createFishScaleEffect({
+      const glassEffect = createShellSurfaceEffect({
         surface: getPreparedGlassSurface(),
         seedCursor,
         effectId: `building-window-glass-${i}`,
@@ -483,13 +483,13 @@ export class PlaygroundRuntime {
     this.frame()
   }
 
-  setFishScaleParams(params: Partial<FishScaleParams>): void {
-    this.fishScaleParams = { ...this.fishScaleParams, ...params }
-    this.shutterEffect.setParams(this.fishScaleParams)
-    this.ivyEffect.setParams(this.fishScaleParams)
+  setShellSurfaceParams(params: Partial<ShellSurfaceParams>): void {
+    this.shellSurfaceParams = { ...this.shellSurfaceParams, ...params }
+    this.shutterEffect.setParams(this.shellSurfaceParams)
+    this.ivyEffect.setParams(this.shellSurfaceParams)
   }
 
-  setGlassSurfaceParams(params: Partial<FishScaleParams>): void {
+  setGlassSurfaceParams(params: Partial<ShellSurfaceParams>): void {
     this.glassSurfaceParams = { ...this.glassSurfaceParams, ...params }
     for (const lamp of this.lampEffects) {
       lamp.setParams(this.glassSurfaceParams)

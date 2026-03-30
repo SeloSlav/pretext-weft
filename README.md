@@ -88,7 +88,7 @@ The repo includes these `Weft` layers:
 Shipped preset entrypoints:
 
 - `createGrassEffect()`
-- `createFishScaleEffect()`
+- `createShellSurfaceEffect()`
 - `createRockFieldEffect()`
 - `createFireWallEffect()`
 - `createStarSkyEffect()`
@@ -151,12 +151,14 @@ The usual paths are:
 
 Use the first path when the surface is still grass-like, wall-like, rock-like, fire-like, or sky-like and you mainly want a different authored look or behavior. Use the second path when you want a new projection model, shader system, or update flow while keeping Weft's source/layout/behavior model.
 
+For shell-like walls, the shared preset is `createShellSurfaceEffect()`. It supports multiple subtype appearances such as `fish`, `shutter`, `ivy`, `glass`, and `glassBulb` while keeping the same wound/recovery model.
+
 ### Customize a preset
 
 ```ts
 import {
-  DEFAULT_FISH_SCALE_PARAMS,
-  createFishScaleEffect,
+  DEFAULT_SHELL_SURFACE_PARAMS,
+  createShellSurfaceEffect,
   createSurfaceSource,
 } from 'weft-sdk/three'
 import { seedCursor } from 'weft-sdk/core'
@@ -171,12 +173,12 @@ const ivySurface = createSurfaceSource({
   ],
 })
 
-const ivyWall = createFishScaleEffect({
+const ivyWall = createShellSurfaceEffect({
   seedCursor,
   surface: ivySurface,
   appearance: 'ivy',
   initialParams: {
-    ...DEFAULT_FISH_SCALE_PARAMS,
+    ...DEFAULT_SHELL_SURFACE_PARAMS,
     woundNarrow: 0.12,
     recoveryRate: 0.2,
     surfaceFlex: 0.18,
@@ -238,7 +240,7 @@ const emberEffect = createSurfaceEffect({
 The `Editor` hosts a **town-edge intersection** built from static meshes plus multiple reactive surfaces sharing one runtime:
 
 - **Grass**: trampling, disturbance, wind, seasonal palette shifts, density tuning, and recovery
-- **Shutter facade** + **ivy facade**: two `createFishScaleEffect()` instances with different authored surfaces
+- **Shell surfaces**: multiple `createShellSurfaceEffect()` instances with different subtypes such as `shutter`, `ivy`, and `glass`
 - **Rubble lot**: `createRockFieldEffect()` constrained to a lot zone with deterministic fracture-like density
 - **Neon sign**: `createFireWallEffect()` in `appearance: 'neon'` mode
 - **Star sky**: density tuning plus recoverable sky wounds

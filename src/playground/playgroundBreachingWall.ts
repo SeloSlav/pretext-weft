@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import type { FishScaleEffect } from '../weft/three'
+import type { ShellSurfaceEffect } from '../weft/three'
 
-/** Same half-extents as fish-scale patch clamp in `fishScale.ts` (PATCH * 0.48). */
+/** Same half-extents as the shell-surface patch clamp in `fishScale.ts` (PATCH * 0.48). */
 const PATCH_HALF_W = 5.8 * 0.48
 const PATCH_HALF_H = 4.4 * 0.48
 
@@ -17,10 +17,10 @@ export type BreachingWallUniforms = {
 }
 
 /**
- * Shell wall stays a full box; fragments align with the Weft patch in fish local space and discard
- * where wounds are (like seeing through the neon wall’s suppressed region, but driven by fish wounds).
+ * Shell wall stays a full box; fragments align with the Weft patch in shell local space and discard
+ * where wounds are (like seeing through the neon wall’s suppressed region, but driven by shell-surface wounds).
  */
-export function applyBreachingWallShader(mesh: THREE.Mesh, fishEffect: FishScaleEffect): void {
+export function applyBreachingWallShader(mesh: THREE.Mesh, shellEffect: ShellSurfaceEffect): void {
   const base = mesh.material as THREE.MeshStandardMaterial
   const mat = base.clone()
 
@@ -35,7 +35,7 @@ export function applyBreachingWallShader(mesh: THREE.Mesh, fishEffect: FishScale
     uHoleThreshold: { value: 0.38 },
   }
 
-  mat.userData.fishEffect = fishEffect
+  mat.userData.fishEffect = shellEffect
   mat.userData.breachUniforms = uniforms
   mat.side = THREE.DoubleSide
 
@@ -117,14 +117,14 @@ export function applyBreachingWallShader(mesh: THREE.Mesh, fishEffect: FishScale
 }
 
 export function updateBreachingWallShaderUniforms(material: THREE.MeshStandardMaterial): void {
-  const fish = material.userData.fishEffect as FishScaleEffect | undefined
+  const shell = material.userData.fishEffect as ShellSurfaceEffect | undefined
   const u = material.userData.breachUniforms as BreachingWallUniforms | undefined
-  if (!fish || !u) return
+  if (!shell || !u) return
 
-  fish.group.updateMatrixWorld(true)
-  u.uFishInvWorldMatrix.value.copy(fish.group.matrixWorld).invert()
+  shell.group.updateMatrixWorld(true)
+  u.uFishInvWorldMatrix.value.copy(shell.group.matrixWorld).invert()
 
-  const wounds = fish.getWoundCircles(8)
+  const wounds = shell.getWoundCircles(8)
   u.uWoundCount.value = wounds.length
   u.uWoundXY.value.fill(0)
   u.uWoundRadius.value.fill(0)

@@ -5,7 +5,7 @@ import {
 } from "./playground/PlaygroundRuntime";
 import {
   DEFAULT_FIRE_WALL_PARAMS,
-  DEFAULT_FISH_SCALE_PARAMS,
+  DEFAULT_SHELL_SURFACE_PARAMS,
   DEFAULT_GRASS_FIELD_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
@@ -49,21 +49,21 @@ export function Editor() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const [woundRadius, setWoundRadius] = useState(
-    DEFAULT_FISH_SCALE_PARAMS.woundRadius,
+    DEFAULT_SHELL_SURFACE_PARAMS.woundRadius,
   );
   const [woundNarrow, setWoundNarrow] = useState(
-    DEFAULT_FISH_SCALE_PARAMS.woundNarrow,
+    DEFAULT_SHELL_SURFACE_PARAMS.woundNarrow,
   );
   const [woundDepth, setWoundDepth] = useState(
-    DEFAULT_FISH_SCALE_PARAMS.woundDepth,
+    DEFAULT_SHELL_SURFACE_PARAMS.woundDepth,
   );
   const [scaleLift, setScaleLift] = useState(
-    DEFAULT_FISH_SCALE_PARAMS.scaleLift,
+    DEFAULT_SHELL_SURFACE_PARAMS.scaleLift,
   );
   const [surfaceFlex, setSurfaceFlex] = useState(
-    DEFAULT_FISH_SCALE_PARAMS.surfaceFlex,
+    DEFAULT_SHELL_SURFACE_PARAMS.surfaceFlex,
   );
-  const [fishRecoveryRate, setFishRecoveryRate] = useState(
+  const [shellSurfaceRecoveryRate, setShellSurfaceRecoveryRate] = useState(
     FACADE_FISH_RECOVERY_RATE,
   );
   const [glassWoundRadius, setGlassWoundRadius] = useState<number>(
@@ -129,13 +129,13 @@ export function Editor() {
         // Apply current slider values now that the runtime exists.
         // The change-driven useEffects fire on mount but runtimeRef is null then,
         // so we push the initial state here after initialization completes.
-        runtime.setFishScaleParams({
+        runtime.setShellSurfaceParams({
           woundRadius,
           woundNarrow,
           woundDepth,
           scaleLift,
           surfaceFlex,
-          recoveryRate: fishRecoveryRate,
+          recoveryRate: shellSurfaceRecoveryRate,
         });
         runtime.setGlassSurfaceParams({
           woundRadius: glassWoundRadius,
@@ -192,16 +192,16 @@ export function Editor() {
   }, []);
 
   useEffect(() => {
-    runtimeRef.current?.setFishScaleParams({
+    runtimeRef.current?.setShellSurfaceParams({
       woundRadius,
       woundNarrow,
       woundDepth,
       scaleLift,
       surfaceFlex,
-      recoveryRate: fishRecoveryRate,
+      recoveryRate: shellSurfaceRecoveryRate,
     });
   }, [
-    fishRecoveryRate,
+    shellSurfaceRecoveryRate,
     scaleLift,
     surfaceFlex,
     woundDepth,
@@ -506,9 +506,9 @@ export function Editor() {
                       min={0.02}
                       max={0.8}
                       step={0.02}
-                      value={fishRecoveryRate}
+                      value={shellSurfaceRecoveryRate}
                       onChange={(e) =>
-                        setFishRecoveryRate(Number(e.target.value))
+                        setShellSurfaceRecoveryRate(Number(e.target.value))
                       }
                     />
                   </label>

@@ -31,7 +31,7 @@ const API_GROUPS = [
     description: 'High-level effect entrypoints for the shipped presets.',
     items: [
       'createGrassEffect()',
-      'createFishScaleEffect()',
+      'createShellSurfaceEffect()',
       'createRockFieldEffect()',
       'createFireWallEffect()',
       'createStarSkyEffect()',
@@ -42,7 +42,7 @@ const API_GROUPS = [
     description: 'Preset parameter defaults you can spread and override.',
     items: [
       'DEFAULT_GRASS_FIELD_PARAMS',
-      'DEFAULT_FISH_SCALE_PARAMS',
+      'DEFAULT_SHELL_SURFACE_PARAMS',
       'DEFAULT_ROCK_FIELD_PARAMS',
       'DEFAULT_FIRE_WALL_PARAMS',
       'DEFAULT_STAR_SKY_PARAMS',
@@ -54,7 +54,7 @@ const API_GROUPS = [
     items: [
       'buildGrassStateSurface()',
       'getPreparedGrassSurface()',
-      'getPreparedFishSurface()',
+      'getPreparedShellSurface()',
       'getPreparedRockSurface()',
       'getPreparedFireSurface()',
       'getPreparedStarSurface()',
@@ -71,10 +71,10 @@ const PRESET_GUIDES = [
     params: ['disturbanceRadius', 'disturbanceStrength', 'trampleDepth', 'wind', 'recoveryRate', 'state', 'layoutDensity'],
   },
   {
-    name: 'Fish scale wall',
-    factory: 'createFishScaleEffect()',
-    builders: ['getPreparedFishSurface()'],
-    useCase: 'A curved wall surface with persistent wounds, deformation, and scale-level thinning.',
+    name: 'Shell surface',
+    factory: 'createShellSurfaceEffect()',
+    builders: ['getPreparedShellSurface()', "appearance: 'fish' | 'shutter' | 'ivy' | 'glass' | 'glassBulb'"],
+    useCase: 'A layered shell-surface family for fish, shutter, ivy, and glass variants with persistent wounds, deformation, and subtype-specific reads.',
     params: ['woundRadius', 'woundNarrow', 'woundDepth', 'scaleLift', 'surfaceFlex', 'recoveryRate'],
   },
   {
@@ -186,8 +186,8 @@ scene.add(fireWall.group)`,
   {
     title: 'Customize a shipped preset',
     code: `import {
-  DEFAULT_FISH_SCALE_PARAMS,
-  createFishScaleEffect,
+  DEFAULT_SHELL_SURFACE_PARAMS,
+  createShellSurfaceEffect,
   createSurfaceSource,
 } from 'weft-sdk/three'
 import { seedCursor } from 'weft-sdk/core'
@@ -202,12 +202,12 @@ const ivySurface = createSurfaceSource({
   ],
 })
 
-const ivyWall = createFishScaleEffect({
+const ivyWall = createShellSurfaceEffect({
   seedCursor,
   surface: ivySurface,
   appearance: 'ivy',
   initialParams: {
-    ...DEFAULT_FISH_SCALE_PARAMS,
+    ...DEFAULT_SHELL_SURFACE_PARAMS,
     woundNarrow: 0.12,
     recoveryRate: 0.2,
     surfaceFlex: 0.18,
@@ -447,8 +447,9 @@ scene.add(grass.group)`}</pre>
               <h3 className="docs__card-title">1. Push a preset further</h3>
               <p className="docs__card-text">
                 Keep the preset projection and behavior model, but swap in your own source, semantic palette,
-                placement mask, and param overrides. This is the right path when your surface is still "grass-like",
-                "wall-like", "rock-like", or "fire-like" but needs a different authored look or response.
+                placement mask, subtype appearance, and param overrides. This is the right path when your surface is
+                still "grass-like", "shell-like", "rock-like", or "fire-like" but needs a different authored look
+                or response.
               </p>
             </article>
             <article className="docs__concept-card">

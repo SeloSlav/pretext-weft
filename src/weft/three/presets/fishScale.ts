@@ -10,14 +10,15 @@ import { updateRecoveringImpacts } from '../../runtime'
 import { createSurfaceEffect, recoverableDamage, wallLayout } from '../api'
 import { smoothPulse } from './sharedMath'
 import {
-  getPreparedFishSurface,
+  getPreparedShellSurface,
   type FishTokenId,
   type FishTokenMeta,
 } from './fishScaleSource'
 
-export type FishScaleAppearance = 'fish' | 'shutter' | 'ivy' | 'glass' | 'glassBulb'
+export type ShellSurfaceAppearance = 'fish' | 'shutter' | 'ivy' | 'glass' | 'glassBulb'
+export type ShellSurfaceSubtype = ShellSurfaceAppearance
 
-export type FishScaleParams = {
+export type ShellSurfaceParams = {
   woundRadius: number
   woundNarrow: number
   woundDepth: number
@@ -26,7 +27,7 @@ export type FishScaleParams = {
   recoveryRate: number
 }
 
-export const DEFAULT_FISH_SCALE_PARAMS: FishScaleParams = {
+export const DEFAULT_SHELL_SURFACE_PARAMS: ShellSurfaceParams = {
   woundRadius: 0.68,
   woundNarrow: 0.26,
   woundDepth: 0.72,
@@ -159,7 +160,7 @@ function createGlassShardGeometry(): THREE.ExtrudeGeometry {
   return geometry
 }
 
-function createGlyphGeometry(appearance: FishScaleAppearance): THREE.ExtrudeGeometry {
+function createGlyphGeometry(appearance: ShellSurfaceAppearance): THREE.ExtrudeGeometry {
   return appearance === 'glass' || appearance === 'glassBulb'
     ? createGlassShardGeometry()
     : createScaleGeometry()
@@ -186,7 +187,7 @@ function createPatchMaterial(): THREE.MeshStandardMaterial {
   })
 }
 
-export class FishScaleEffect {
+export class ShellSurfaceEffect {
   readonly group = new THREE.Group()
   readonly interactionMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>
 
@@ -213,14 +214,14 @@ export class FishScaleEffect {
   private patchNormalAccumulator = 1
   private needsGeometryRefresh = true
   private frozenElapsedTime = 0
-  private params: FishScaleParams
-  private readonly appearance: FishScaleAppearance
+  private params: ShellSurfaceParams
+  private readonly appearance: ShellSurfaceAppearance
 
   constructor(
     surface: PreparedSurfaceSource<FishTokenId, FishTokenMeta>,
     seedCursor: SeedCursorFactory,
-    initialParams: FishScaleParams,
-    appearance: FishScaleAppearance = 'fish',
+    initialParams: ShellSurfaceParams,
+    appearance: ShellSurfaceAppearance = 'fish',
   ) {
     this.params = { ...initialParams }
     this.appearance = appearance
@@ -248,7 +249,7 @@ export class FishScaleEffect {
     this.group.add(this.scaleMesh)
   }
 
-  setParams(params: Partial<FishScaleParams>): void {
+  setParams(params: Partial<ShellSurfaceParams>): void {
     this.params = { ...this.params, ...params }
     this.needsGeometryRefresh = true
   }
@@ -265,7 +266,7 @@ export class FishScaleEffect {
 
   /**
    * Normalized aggregate wound strength (0 = intact, 1 = at or past `breakThreshold`).
-   * Useful for gameplay tied to recoverable fish-scale damage (e.g. lamp outage while glass heals).
+   * Useful for gameplay tied to recoverable shell-surface damage (e.g. lamp outage while glass heals).
    */
   getWoundLoad01(breakThreshold = 4): number {
     if (breakThreshold <= 0) return 0
@@ -277,7 +278,7 @@ export class FishScaleEffect {
   }
 
   /**
-   * Local wound damage at a world point projected onto the fish-scale patch (0 = intact, 1 = fully damaged).
+   * Local wound damage at a world point projected onto the shell-surface patch (0 = intact, 1 = fully damaged).
    * Matches the same (x,y) parameterization as `addWoundFromWorldPoint` and the internal `damageAt` field.
    */
   getSurfaceDamage01AtWorldPoint(worldPoint: THREE.Vector3): number {
@@ -965,23 +966,23 @@ export class FishScaleEffect {
   }
 }
 
-export type CreateFishScaleEffectOptions = {
+export type CreateShellSurfaceEffectOptions = {
   seedCursor: SeedCursorFactory
   surface?: PreparedSurfaceSource<FishTokenId, FishTokenMeta>
-  initialParams?: FishScaleParams
-  /** Visual preset for storefront slats vs ivy vs lamp glass vs default fish metal. */
-  appearance?: FishScaleAppearance
-  /** Unique id when multiple fish-scale walls exist in one scene. */
+  initialParams?: ShellSurfaceParams
+  /** Visual subtype for fish, shutter, ivy, glass, or glass-bulb shell surfaces. */
+  appearance?: ShellSurfaceAppearance
+  /** Unique id when multiple shell-surface walls exist in one scene. */
   effectId?: string
 }
 
-export function createFishScaleEffect({
+export function createShellSurfaceEffect({
   seedCursor,
-  surface = getPreparedFishSurface(),
-  initialParams = DEFAULT_FISH_SCALE_PARAMS,
+  surface = getPreparedShellSurface(),
+  initialParams = DEFAULT_SHELL_SURFACE_PARAMS,
   appearance = 'fish',
-  effectId = 'fish-scale',
-}: CreateFishScaleEffectOptions): FishScaleEffect {
+  effectId = 'shell-surface',
+}: CreateShellSurfaceEffectOptions): ShellSurfaceEffect {
   const effect = createSurfaceEffect({
     id: effectId,
     source: surface,
@@ -1002,5 +1003,12 @@ export function createFishScaleEffect({
     seedCursor,
   })
 
-  return new FishScaleEffect(effect.source, seedCursor, initialParams, appearance)
+  return new ShellSurfaceEffect(effect.source, seedCursor, initialParams, appearance)
 }
+
+export type FishScaleAppearance = ShellSurfaceAppearance
+export type FishScaleParams = ShellSurfaceParams
+export type CreateFishScaleEffectOptions = CreateShellSurfaceEffectOptions
+export const DEFAULT_FISH_SCALE_PARAMS = DEFAULT_SHELL_SURFACE_PARAMS
+export const createFishScaleEffect = createShellSurfaceEffect
+export { ShellSurfaceEffect as FishScaleEffect }

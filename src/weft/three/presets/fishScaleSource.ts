@@ -56,9 +56,9 @@ const GLASS_SCALE_PALETTE: readonly SurfacePaletteEntry<FishTokenId, FishTokenMe
   { id: 'open-ring', glyph: '✧', meta: { widthBias: -0.05, heightBias: 0.06, depthBias: -0.01, hueBias: 0.006 } },
 ] as const
 
-export function getPreparedFishSurface(): PreparedSurfaceSource<FishTokenId, FishTokenMeta> {
+export function getPreparedShellSurface(): PreparedSurfaceSource<FishTokenId, FishTokenMeta> {
   return prepareSemanticSurfaceText(
-    'fish-surface',
+    'shell-surface',
     FISH_SCALE_PALETTE,
     22,
     WEFT_TEXT_FONT,
@@ -73,3 +73,5 @@ export function getPreparedGlassSurface(): PreparedSurfaceSource<FishTokenId, Fi
     WEFT_TEXT_FONT,
   )
 }
+
+export const getPreparedFishSurface = getPreparedShellSurface

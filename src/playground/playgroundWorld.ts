@@ -99,7 +99,7 @@ export const ROOF_WALKABLE_SURFACES: RoofWalkableSurface[] = [
 /** Player XZ collision radius (circle vs AABB). */
 export const PLAYER_COLLISION_RADIUS = 0.34
 
-/** Minimum fish-scale damage (0–1) at a point to pass through shutter/ivy breach zones. */
+/** Minimum shell-surface damage (0–1) at a point to pass through shutter/ivy breach zones. */
 export const FACADE_BREACH_DAMAGE_THRESHOLD = 0.24
 
 /** Lateral offset (m) for multi-sample breach checks; ~player radius for fair hole width. */

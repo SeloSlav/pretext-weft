@@ -17,12 +17,22 @@ export { createInstancedMesh } from './helpers/instancing.ts'
 export type { ThreeInstancedMeshRendererConfig } from './helpers/instancing.ts'
 
 export {
+  createShellSurfaceEffect,
+  DEFAULT_SHELL_SURFACE_PARAMS,
+  ShellSurfaceEffect,
   createFishScaleEffect,
   DEFAULT_FISH_SCALE_PARAMS,
   FishScaleEffect,
 } from './presets/fishScale.ts'
-export type { CreateFishScaleEffectOptions, FishScaleAppearance, FishScaleParams } from './presets/fishScale.ts'
-export { getPreparedFishSurface, getPreparedGlassSurface } from './presets/fishScaleSource.ts'
+export type {
+  CreateShellSurfaceEffectOptions,
+  CreateFishScaleEffectOptions,
+  ShellSurfaceAppearance,
+  ShellSurfaceParams,
+  FishScaleAppearance,
+  FishScaleParams,
+} from './presets/fishScale.ts'
+export { getPreparedShellSurface, getPreparedFishSurface, getPreparedGlassSurface } from './presets/fishScaleSource.ts'
 export { getPreparedIvySurface } from './presets/ivyScaleSource.ts'
 
 export {

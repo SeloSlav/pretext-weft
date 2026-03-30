@@ -7,7 +7,7 @@ import {
 import type { FishTokenId, FishTokenMeta } from './fishScaleSource'
 
 /**
- * Ivy facade uses the same token ids as the fish-scale wall so it can share FishScaleEffect,
+ * Ivy facade uses the same token ids as the shell-surface wall so it can share ShellSurfaceEffect,
  * with glyphs and meta tuned for a vine/leaf read.
  */
 const IVY_PALETTE: readonly SurfacePaletteEntry<FishTokenId, FishTokenMeta>[] = [
