@@ -86,6 +86,10 @@ function rockSizeIdentity(identity: number, meta: RockTokenMeta): number {
   return 0.58 + uhash(identity * 2246822519) * 0.72 + meta.sizeBias
 }
 
+function rockOutcropChance(meta: RockTokenMeta, noise: number): number {
+  return THREE.MathUtils.clamp(0.03 + meta.outcropBias * 0.72 + noise * 0.14, 0.02, 0.72)
+}
+
 function rockStoneColor(identity: number, noise: number, meta: RockTokenMeta): THREE.Color {
   const t = uhash(identity * 2654435761)
   const hue = (t < 0.4 ? 0.06 + t * 0.05 : 0.55 + (t - 0.4) * 0.08) + meta.warmth
@@ -212,6 +216,9 @@ export class RockFieldEffect {
       const hashLat = glyphHash(identity, slot.row, k)
       const hashDep = glyphHash(identity + 1, slot.sector, k ^ 0xab)
       const hashOrg = glyphHash(identity + 2, slot.row ^ slot.sector, k + 17)
+      const hashTier = glyphHash(identity + 3, slot.row + slot.sector, k ^ 0x13)
+      const hashProfile = glyphHash(identity + 5, slot.sector + 7, k ^ 0x39)
+      const hashHero = glyphHash(identity + 7, slot.row ^ 0x31, k ^ 0x57)
 
       const t01 = THREE.MathUtils.clamp((k + hashLat * 0.85 + 0.08) / (n + 0.1), 0.02, 0.98)
       const x =
@@ -227,14 +234,27 @@ export class RockFieldEffect {
 
       const groundY = getGroundHeight(x, z)
       const sizeBase = rockSizeIdentity(identity, meta)
-      const size = sizeBase * (0.28 + noise * 0.38) * this.params.sizeScale
+      const tierScale = THREE.MathUtils.lerp(0.72, 1.48, hashTier)
+      const heroScale = hashHero > 0.9 ? THREE.MathUtils.lerp(1.18, 1.72, hashProfile) : 1
+      const size = sizeBase * tierScale * heroScale * (0.24 + noise * 0.44) * this.params.sizeScale
+      const isOutcrop = hashProfile < rockOutcropChance(meta, noise)
+      const widthScale = isOutcrop
+        ? THREE.MathUtils.clamp(0.44 + hashTier * 0.22 - meta.slendernessBias * 0.12, 0.38, 0.82)
+        : THREE.MathUtils.clamp(0.72 + hashTier * 0.34 - meta.slendernessBias * 0.1, 0.58, 1.18)
+      const depthScale = isOutcrop
+        ? THREE.MathUtils.clamp(0.48 + noise * 0.24 + (0.5 - hashTier) * 0.1, 0.4, 0.9)
+        : THREE.MathUtils.clamp(0.74 + noise * 0.28 + meta.slendernessBias * 0.08, 0.6, 1.18)
+      const heightScale = isOutcrop
+        ? THREE.MathUtils.clamp(1.28 + meta.heightBias * 0.95 + noise * 0.38 + heroScale * 0.12, 1.02, 2.35)
+        : THREE.MathUtils.clamp(0.48 + noise * 0.3 + meta.heightBias * 0.35 + hashProfile * 0.16, 0.38, 1.08)
       const yaw = lineSeed * Math.PI * 2 + k * 1.17 + noise * 0.9
-      const tiltX = (noise - 0.5) * 0.18
-      const tiltZ = Math.sin(identity * 0.13 + lineSeed * 3.1) * 0.5 * 0.14
+      const tiltX = (noise - 0.5) * (isOutcrop ? 0.1 : 0.18)
+      const tiltZ = Math.sin(identity * 0.13 + lineSeed * 3.1) * 0.5 * (isOutcrop ? 0.08 : 0.14)
+      const height = size * heightScale
 
-      dummy.position.set(x, groundY + size * 0.06, z)
+      dummy.position.set(x, groundY + height * (isOutcrop ? 0.24 : 0.14), z)
       dummy.rotation.set(tiltX, yaw, tiltZ)
-      dummy.scale.set(size, size * (0.55 + noise * 0.3), size * (0.82 + noise * 0.22))
+      dummy.scale.set(size * widthScale, height, size * depthScale)
       dummy.updateMatrix()
       this.rockMesh.setMatrixAt(instanceIndex, dummy.matrix)
       this.rockMesh.setColorAt(instanceIndex, rockStoneColor(identity, noise, meta))

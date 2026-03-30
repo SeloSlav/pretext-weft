@@ -1378,29 +1378,43 @@ export class PlaygroundRuntime {
     return this.activeFrame?.playerPosition.y ?? this.controller.player.group.position.y
   }
 
-  private cadenceFor(kind: 'grass' | 'fish' | 'neon' | 'sky' | 'glass'): number {
+  private cadenceFor(kind: 'grass' | 'leaf' | 'stick' | 'needle' | 'fish' | 'neon' | 'sky' | 'glass'): number {
     switch (this.quality) {
       case 'low':
         if (kind === 'grass') return 3
+        if (kind === 'leaf') return 3
+        if (kind === 'stick') return 3
+        if (kind === 'needle') return 4
         if (kind === 'sky') return 3
         if (kind === 'glass') return 3
         return 2
       case 'medium':
         if (kind === 'grass') return 2
+        if (kind === 'leaf') return 3
+        if (kind === 'stick') return 3
+        if (kind === 'needle') return 3
         if (kind === 'sky') return 3
         if (kind === 'glass') return 3
         return 2
       case 'high':
       default:
+        if (kind === 'grass') return 2
+        if (kind === 'leaf') return 3
+        if (kind === 'stick') return 3
+        if (kind === 'needle') return 4
+        if (kind === 'sky') return 2
+        if (kind === 'glass') return 2
         return 1
     }
   }
 
-  private idleCadenceFor(kind: 'grass' | 'fish' | 'neon' | 'sky' | 'glass'): number {
+  private idleCadenceFor(kind: 'grass' | 'leaf' | 'stick' | 'needle' | 'fish' | 'neon' | 'sky' | 'glass'): number {
     const base = this.cadenceFor(kind)
     if (this.quality === 'high') {
       if (kind === 'sky') return Math.max(base, 3)
-      return Math.max(base, 2)
+      if (kind === 'needle') return Math.max(base, 5)
+      if (kind === 'leaf' || kind === 'stick') return Math.max(base, 4)
+      return Math.max(base, 3)
     }
     return base
   }
@@ -2367,7 +2381,13 @@ export class PlaygroundRuntime {
       this.vergeBandDirty = false
       ranBand = true
     }
-    if (this.leafPileDirty || this.leafPileEffect.hasBurns() || this.leafPileEffect.hasDisturbances()) {
+    const leafHasDisturbances = this.leafPileEffect.hasDisturbances()
+    const leafHasBurns = this.leafPileEffect.hasBurns()
+    const leafCadence = leafHasDisturbances ? this.cadenceFor('leaf') : this.idleCadenceFor('leaf')
+    if (
+      this.leafPileDirty ||
+      ((leafHasBurns || leafHasDisturbances) && this.shouldRunCadencedUpdate(leafCadence, 0))
+    ) {
       const tLeaf0 = now()
       this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
       leafCpuMs = now() - tLeaf0
@@ -2397,14 +2417,17 @@ export class PlaygroundRuntime {
     }
     logCpuMs = now() - tLog0
     const tStick0 = now()
-    if (this.stickFieldDirty || this.stickFieldEffect.hasMotion()) {
+    const stickHasMotion = this.stickFieldEffect.hasMotion()
+    if (this.stickFieldDirty || (stickHasMotion && this.shouldRunCadencedUpdate(this.cadenceFor('stick'), 1))) {
       this.stickFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
       this.stickFieldDirty = this.stickFieldEffect.hasMotion()
       ranStick = true
     }
     stickCpuMs = now() - tStick0
     const tNeedle0 = now()
-    if (this.needleLitterDirty || this.needleLitterEffect.hasBurns()) {
+    const needleHasBurns = this.needleLitterEffect.hasBurns()
+    const needleCadence = needleHasBurns ? this.cadenceFor('needle') : this.idleCadenceFor('needle')
+    if (this.needleLitterDirty || (needleHasBurns && this.shouldRunCadencedUpdate(needleCadence, 0))) {
       this.needleLitterEffect.update(elapsed, this.getGroundHeightAtWorld)
       this.needleLitterDirty = this.needleLitterEffect.hasBurns()
       ranNeedles = true
@@ -2417,7 +2440,7 @@ export class PlaygroundRuntime {
     const grassCadence = this.grassEffect.hasDisturbances()
       ? this.cadenceFor('grass')
       : this.idleCadenceFor('grass')
-    if (this.shouldRunCadencedUpdate(grassCadence, 0)) {
+    if (this.shouldRunCadencedUpdate(grassCadence, 1)) {
       const tGrass0 = now()
       this.grassEffect.update(elapsed)
       grassCpuMs = now() - tGrass0

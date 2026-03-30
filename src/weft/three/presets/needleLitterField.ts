@@ -68,7 +68,7 @@ const DEFAULT_NEEDLE_LITTER_FIELD_BOUNDS: NeedleLitterFieldBounds = {
 
 const ROWS = 20
 const SECTORS = 24
-const MAX_INSTANCES = 6_400
+const MAX_INSTANCES = 4_800
 const BASE_LAYOUT_PX_PER_WORLD = 8.2
 const MAX_BURNS = 24
 const tmpLocalPoint = new THREE.Vector3()
@@ -110,7 +110,8 @@ const needleOrganicWorldField = createWorldField(1703, {
 })
 
 function makeNeedleGeometry(): THREE.BufferGeometry {
-  return new THREE.ConeGeometry(0.5, 1, 6, 1)
+  // Needles are passive scenery, so keep their render path intentionally cheap.
+  return new THREE.ConeGeometry(0.5, 1, 3, 1)
 }
 
 function needleColor(
@@ -137,10 +138,7 @@ export class NeedleLitterFieldEffect {
   readonly group = new THREE.Group()
 
   private readonly needleGeometry = makeNeedleGeometry()
-  private readonly needleMaterial = new THREE.MeshStandardMaterial({
-    roughness: 0.96,
-    metalness: 0.01,
-  })
+  private readonly needleMaterial = new THREE.MeshLambertMaterial()
   private readonly needleMesh = new THREE.InstancedMesh(
     this.needleGeometry,
     this.needleMaterial,
@@ -183,7 +181,7 @@ export class NeedleLitterFieldEffect {
     })
 
     this.needleMesh.frustumCulled = false
-    this.needleMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.needleMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
     this.group.add(this.needleMesh)
   }
 
@@ -354,7 +352,7 @@ export class NeedleLitterFieldEffect {
       const remainingCoverage = Math.max(0, (0.32 + noise * 0.86) * (1 - burnField.burn * 0.985))
       if (remainingCoverage <= 0.04 || hashKeep > remainingCoverage) continue
 
-      const clumpCount = THREE.MathUtils.clamp(2 + Math.round(noise * 3 + meta.coneBias * 2), 1, 5)
+      const clumpCount = THREE.MathUtils.clamp(1 + Math.round(noise * 2 + meta.coneBias * 2), 1, 4)
       for (let j = 0; j < clumpCount; j++) {
         if (instanceIndex >= MAX_INSTANCES) break
         const pieceHash = glyphHash(identity + j * 17, slot.row ^ j, slot.sector, k)

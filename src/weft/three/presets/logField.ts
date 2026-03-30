@@ -375,6 +375,10 @@ export class LogFieldEffect {
       const hashLat = glyphHash(identity, slot.row, k)
       const hashDep = glyphHash(identity + 1, slot.sector, k ^ 0xab)
       const hashOrg = glyphHash(identity + 2, slot.row ^ slot.sector, k + 17)
+      const hashRadius = glyphHash(identity + 3, slot.row + 5, k ^ 0x15)
+      const hashLength = glyphHash(identity + 5, slot.sector + 7, k ^ 0x37)
+      const hashCross = glyphHash(identity + 7, slot.row ^ slot.sector, k ^ 0x59)
+      const hashHero = glyphHash(identity + 9, slot.row + slot.sector, k ^ 0x7d)
 
       const t01 = THREE.MathUtils.clamp((k + hashLat * 0.85 + 0.08) / (n + 0.1), 0.04, 0.96)
       const x =
@@ -388,7 +392,7 @@ export class LogFieldEffect {
 
       const noise = logOrganicWorldField(x + hashOrg * 0.28, z + hashOrg * 0.24)
       const keepChance = THREE.MathUtils.lerp(0.34, 0.86, noise)
-      if (glyphHash(identity + 5, slot.row, k ^ 0x55) > keepChance) continue
+      if (glyphHash(identity + 11, slot.row, k ^ 0x55) > keepChance) continue
 
       const motionKey = `${tokenLineKey}:${k}`
       const state = this.getMotionState(motionKey)
@@ -401,22 +405,34 @@ export class LogFieldEffect {
       const movedX = x + state.offsetX
       const movedZ = z + state.offsetZ
       const groundY = getGroundHeight(movedX, movedZ)
-      const radius = Math.max(0.08, (0.16 + meta.radiusBias + noise * 0.08) * this.params.sizeScale)
+      const radiusTier = THREE.MathUtils.lerp(0.74, 1.56, hashRadius)
+      const lengthTier = THREE.MathUtils.lerp(0.72, 1.62, hashLength)
+      const heroScale = hashHero > 0.86 ? THREE.MathUtils.lerp(1.12, 1.52, hashCross) : 1
+      const radius = Math.max(
+        0.08,
+        (0.15 + meta.radiusBias + noise * 0.09) * this.params.sizeScale * radiusTier * heroScale,
+      )
       const length = Math.max(
         radius * 2.6,
-        (1.1 + meta.lengthBias + noise * 0.9) * this.params.sizeScale * this.params.lengthScale,
+        (1.02 + meta.lengthBias + noise * 1.02) *
+          this.params.sizeScale *
+          this.params.lengthScale *
+          lengthTier *
+          heroScale,
       )
       const yaw = lineSeed * Math.PI * 2 + k * 1.07 + noise * 1.2
       const planarSpeed = Math.hypot(state.velocityX, state.velocityZ)
       const axisYaw = yaw + state.yaw
       const roll = state.roll + (hashDep - 0.5) * 0.04
+      const crossRadius = radius * THREE.MathUtils.lerp(0.7, 1.18, hashCross)
+      const liftRadius = Math.max(radius, crossRadius)
 
       tmpLongAxis.set(Math.cos(axisYaw), 0, Math.sin(axisYaw)).normalize()
       tmpBaseQuat.setFromUnitVectors(worldUp, tmpLongAxis)
       tmpSpinQuat.setFromAxisAngle(tmpLongAxis, roll + planarSpeed * 0.015)
-      dummy.position.set(movedX, groundY + radius * 0.5, movedZ)
+      dummy.position.set(movedX, groundY + liftRadius * THREE.MathUtils.lerp(0.42, 0.56, hashRadius), movedZ)
       dummy.quaternion.copy(tmpBaseQuat).multiply(tmpSpinQuat)
-      dummy.scale.set(radius, length, radius * (0.82 + noise * 0.24))
+      dummy.scale.set(radius, length, crossRadius * (0.84 + noise * 0.18))
       dummy.updateMatrix()
       this.logMesh.setMatrixAt(instanceIndex, dummy.matrix)
       this.logMesh.setColorAt(instanceIndex, logColor(identity, noise, meta))
