@@ -52,6 +52,7 @@ Use this section to route common requests to the right Weft layer quickly.
 
 | If the user asks for... | Prefer... | Why |
 | --- | --- | --- |
+| a roadside strip, shoreline band, crop row, root seam, or narrow clutter corridor | `createBandFieldEffect()` | gives a reusable terrain-projected band primitive for narrow environmental surfaces |
 | a new reactive grass-like surface | `createGrassEffect()` plus `DEFAULT_GRASS_FIELD_PARAMS` | fastest path for ground-cover behavior with disturbance, recovery, density, wind, and state |
 | a woundable wall or shell surface | `createShellSurfaceEffect()` | already models wall-like deformation, wounds, subtype appearances, and thinning |
 | deterministic rock or doodad placement on terrain | `createRockFieldEffect()` | preserves the layout-driven approach without inventing scatter tooling |
@@ -68,6 +69,7 @@ Use this section to route common requests to the right Weft layer quickly.
 ## Request Routing Heuristics
 
 - If a request sounds like "make a new kind of grass/wall/fire/sky/rock effect", start from the closest shipped preset and adapt it.
+- If a request sounds like "I need a narrow strip, seam, roadside band, or row-like surface", start from `createBandFieldEffect()`.
 - If a request sounds like "I have my own glyph vocabulary or semantic palette", start from `createSurfaceSource()`.
 - If a request sounds like "I need a brand new topology or projection model", use `createSurfaceEffect()` and the layout helpers before dropping to fully bespoke code.
 - If a request sounds like "I need stable ids, metadata, or multi-state surface behavior", prefer semantic palettes and semantic state helpers.
@@ -95,6 +97,7 @@ Primary Three.js-facing entrypoint:
 Preset factories:
 
 - `createGrassEffect()`
+- `createBandFieldEffect()`
 - `createShellSurfaceEffect()`
 - `createRockFieldEffect()`
 - `createFireWallEffect()`
@@ -102,6 +105,7 @@ Preset factories:
 
 Preset defaults:
 
+- `DEFAULT_BAND_FIELD_PARAMS`
 - `DEFAULT_GRASS_FIELD_PARAMS`
 - `DEFAULT_SHELL_SURFACE_PARAMS`
 - `DEFAULT_ROCK_FIELD_PARAMS`
@@ -110,6 +114,7 @@ Preset defaults:
 
 Prepared source builders:
 
+- `getPreparedBandSurface()`
 - `buildGrassStateSurface()`
 - `getPreparedGrassSurface()`
 - `getPreparedShellSurface()`
@@ -122,6 +127,7 @@ Useful exported types:
 - `RecoverableDamageConfig`
 - `SurfaceEffectConfig`
 - `ThreeInstancedMeshRendererConfig`
+- `CreateBandFieldEffectOptions`, `BandFieldParams`
 - `CreateGrassEffectOptions`, `GrassFieldParams`, `GrassDisturbanceOptions`
 - `CreateShellSurfaceEffectOptions`, `ShellSurfaceParams`, `ShellSurfaceAppearance`
 - `CreateRockFieldEffectOptions`, `RockFieldParams`
@@ -193,6 +199,7 @@ Useful exported types:
 
 ## Preset Selection Guidance
 
+- Use `createBandFieldEffect()` for terrain-projected strips such as roadsides, root bands, shoreline foam, fungus seams, and narrow clutter corridors.
 - Use `createGrassEffect()` for reactive ground cover with disturbance, trampling, recovery, density tuning, wind, and semantic state changes.
 - Use `createShellSurfaceEffect()` for shell-like wall surfaces with wounds, deformation, retained width, and subtype variants such as `fish`, `shutter`, `ivy`, and `glass`.
 - Use `createRockFieldEffect()` for deterministic terrain-projected rock placement without a separate scatter system.
@@ -206,7 +213,7 @@ If a requested effect is close to one of these, adapt the preset before proposin
 When a shipped preset is already close to the desired result, customize the preset before dropping to `createSurfaceEffect()`.
 
 - Change the authored `surface` first when the user mainly needs a different glyph vocabulary, semantic palette, metadata, or repeated-unit stream.
-- Keep the preset topology and behavior model when the surface is still fundamentally grass-like, wall-like, rock-like, fire-like, or sky-like.
+- Keep the preset topology and behavior model when the surface is still fundamentally band-like, grass-like, wall-like, rock-like, fire-like, or sky-like.
 - Prefer spreading and overriding shipped defaults such as `DEFAULT_GRASS_FIELD_PARAMS` or `DEFAULT_SHELL_SURFACE_PARAMS` instead of rewriting large param objects from scratch.
 - Reach for placement masks, semantic palettes, and param overrides before inventing a separate runtime or projection model.
 - Only drop to `createSurfaceEffect()` when the user needs a genuinely new layout/projection/update model, not just a visual or behavioral variant of an existing preset.

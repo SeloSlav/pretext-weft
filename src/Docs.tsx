@@ -30,6 +30,7 @@ const API_GROUPS = [
     title: 'Preset factories',
     description: 'High-level effect entrypoints for the shipped presets.',
     items: [
+      'createBandFieldEffect()',
       'createGrassEffect()',
       'createShellSurfaceEffect()',
       'createRockFieldEffect()',
@@ -41,6 +42,7 @@ const API_GROUPS = [
     title: 'Default params',
     description: 'Preset parameter defaults you can spread and override.',
     items: [
+      'DEFAULT_BAND_FIELD_PARAMS',
       'DEFAULT_GRASS_FIELD_PARAMS',
       'DEFAULT_SHELL_SURFACE_PARAMS',
       'DEFAULT_ROCK_FIELD_PARAMS',
@@ -52,6 +54,7 @@ const API_GROUPS = [
     title: 'Prepared surface builders',
     description: 'Preset-owned source builders for ready-made surface vocabularies.',
     items: [
+      'getPreparedBandSurface()',
       'buildGrassStateSurface()',
       'getPreparedGrassSurface()',
       'getPreparedShellSurface()',
@@ -63,6 +66,13 @@ const API_GROUPS = [
 ] as const
 
 const PRESET_GUIDES = [
+  {
+    name: 'Band field',
+    factory: 'createBandFieldEffect()',
+    builders: ['getPreparedBandSurface()'],
+    useCase: 'A terrain-projected strip preset for roadsides, seams, rows, roots, foam bands, and other narrow environmental corridors.',
+    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness'],
+  },
   {
     name: 'Grass field',
     factory: 'createGrassEffect()',
@@ -101,6 +111,31 @@ const PRESET_GUIDES = [
 ] as const
 
 const EXAMPLES = [
+  {
+    title: 'Band field setup',
+    code: `import {
+  DEFAULT_BAND_FIELD_PARAMS,
+  createBandFieldEffect,
+  getPreparedBandSurface,
+} from 'weft-sdk/three'
+import { seedCursor } from 'weft-sdk/core'
+
+const roadsideBand = createBandFieldEffect({
+  seedCursor,
+  surface: getPreparedBandSurface(),
+  initialParams: {
+    ...DEFAULT_BAND_FIELD_PARAMS,
+    bandWidth: 3.2,
+    edgeSoftness: 1.1,
+  },
+  placementMask: {
+    bounds: { minX: -20, maxX: 20, minZ: -12, maxZ: 12 },
+    distanceToBandAtXZ: (x, z) => z - Math.sin(x * 0.18) * 1.4,
+  },
+})
+
+scene.add(roadsideBand.group)`,
+  },
   {
     title: 'Grass quick start',
     code: `import {
@@ -448,8 +483,8 @@ scene.add(grass.group)`}</pre>
               <p className="docs__card-text">
                 Keep the preset projection and behavior model, but swap in your own source, semantic palette,
                 placement mask, subtype appearance, and param overrides. This is the right path when your surface is
-                still "grass-like", "shell-like", "rock-like", or "fire-like" but needs a different authored look
-                or response.
+                still "band-like", "grass-like", "shell-like", "rock-like", or "fire-like" but needs a
+                different authored look or response.
               </p>
             </article>
             <article className="docs__concept-card">

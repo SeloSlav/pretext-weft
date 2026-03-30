@@ -44,6 +44,19 @@ export type { CreateFireWallEffectOptions, FireWallParams } from './presets/fire
 export { getPreparedFireSurface } from './presets/fireWallSource.ts'
 
 export {
+  createBandFieldEffect,
+  DEFAULT_BAND_FIELD_PARAMS,
+  BandFieldEffect,
+} from './presets/bandField.ts'
+export type {
+  BandFieldBounds,
+  BandFieldPlacementMask,
+  BandFieldParams,
+  CreateBandFieldEffectOptions,
+} from './presets/bandField.ts'
+export { getPreparedBandSurface } from './presets/bandFieldSource.ts'
+
+export {
   createGrassEffect,
   DEFAULT_GRASS_FIELD_PARAMS,
   GrassFieldEffect,

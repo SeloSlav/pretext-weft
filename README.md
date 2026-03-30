@@ -7,6 +7,8 @@ Deterministic reactive surface SDK for Three.js. Author grass, facades, debris b
 - npm package: [`weft-sdk`](https://www.npmjs.com/package/weft-sdk)
 
 > Start here for SDK integration guidance and agent-ready context: [`weft.md`](./weft.md)
+>
+> Future preset backlog: [`preset-ideas.md`](./preset-ideas.md)
 
 ![Playground screenshot](https://raw.githubusercontent.com/SeloSlav/weft/main/public/readme-playground-screenshot.png)
 
@@ -89,6 +91,7 @@ Shipped preset entrypoints:
 
 - `createGrassEffect()`
 - `createShellSurfaceEffect()`
+- `createBandFieldEffect()`
 - `createRockFieldEffect()`
 - `createFireWallEffect()`
 - `createStarSkyEffect()`
@@ -149,7 +152,7 @@ The usual paths are:
 - customize a shipped preset by changing its source, semantic palette, placement mask, and default params
 - define your own effect config with `createSurfaceEffect()` and pair it with a custom renderer or runtime wrapper
 
-Use the first path when the surface is still grass-like, wall-like, rock-like, fire-like, or sky-like and you mainly want a different authored look or behavior. Use the second path when you want a new projection model, shader system, or update flow while keeping Weft's source/layout/behavior model.
+Use the first path when the surface is still band-like, grass-like, wall-like, rock-like, fire-like, or sky-like and you mainly want a different authored look or behavior. Use the second path when you want a new projection model, shader system, or update flow while keeping Weft's source/layout/behavior model.
 
 For shell-like walls, the shared preset is `createShellSurfaceEffect()`. It supports multiple subtype appearances such as `fish`, `shutter`, `ivy`, `glass`, and `glassBulb` while keeping the same wound/recovery model.
 
