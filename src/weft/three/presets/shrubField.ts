@@ -94,17 +94,19 @@ function makeShrubCanopyGeometry(): THREE.BufferGeometry {
 
 function shrubLeafColor(identity: number, noise: number, meta: ShrubTokenMeta): THREE.Color {
   const t = uhash(identity * 2654435761)
-  const hue = 0.26 + t * 0.05 + meta.warmth
+  // Ghibli shrub foliage: bright warm greens, some variety into blue-green
+  const hue = 0.27 + t * 0.06 + meta.warmth * 0.06
   const seasonalFade = Math.max(0, -meta.warmth)
   const seasonalDryness = Math.max(0, meta.warmth)
-  const sat = 0.36 + noise * 0.18 + meta.spreadBias * 0.05 + seasonalDryness * 0.36 - seasonalFade * 0.5
-  const light = 0.18 + noise * 0.22 + t * 0.08 + seasonalDryness * 0.08 + seasonalFade * 0.2
+  const sat = 0.52 + noise * 0.2 + meta.spreadBias * 0.06 + seasonalDryness * 0.2 - seasonalFade * 0.28
+  const light = 0.38 + noise * 0.18 + t * 0.08 + seasonalDryness * 0.05 + seasonalFade * 0.16
   return tmpColor.setHSL(hue, sat, light)
 }
 
 function shrubStemColor(identity: number, noise: number): THREE.Color {
   const t = uhash(identity * 2246822519)
-  return tmpStemColor.setHSL(0.085 + t * 0.015, 0.28 + noise * 0.08, 0.12 + t * 0.08)
+  // Ghibli stems: warm olive-tan, clearly visible
+  return tmpStemColor.setHSL(0.09 + t * 0.02, 0.34 + noise * 0.1, 0.40 + t * 0.12)
 }
 
 export class ShrubFieldEffect {
@@ -112,8 +114,8 @@ export class ShrubFieldEffect {
 
   private readonly stemGeometry = makeShrubStemGeometry()
   private readonly canopyGeometry = makeShrubCanopyGeometry()
-  private readonly stemMaterial = new THREE.MeshLambertMaterial()
-  private readonly canopyMaterial = new THREE.MeshLambertMaterial()
+  private readonly stemMaterial = new THREE.MeshLambertMaterial({ emissive: '#4a2e0e', emissiveIntensity: 0.24 })
+  private readonly canopyMaterial = new THREE.MeshLambertMaterial({ emissive: '#2a5a10', emissiveIntensity: 0.34 })
   private readonly stemMesh = new THREE.InstancedMesh(this.stemGeometry, this.stemMaterial, MAX_INSTANCES)
   private readonly canopyMesh = new THREE.InstancedMesh(this.canopyGeometry, this.canopyMaterial, MAX_INSTANCES)
   private readonly placementMask: Required<ShrubFieldPlacementMask>

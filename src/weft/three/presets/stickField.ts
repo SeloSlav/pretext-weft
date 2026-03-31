@@ -12,6 +12,7 @@ import {
   type StickTokenId,
   type StickTokenMeta,
 } from './stickFieldSource'
+import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type StickFieldParams = {
   layoutDensity: number
@@ -20,6 +21,7 @@ export type StickFieldParams = {
   disturbanceRadius: number
   disturbanceStrength: number
   displacementDistance: number
+  downhillDrift: number
 }
 
 export const DEFAULT_STICK_FIELD_PARAMS: StickFieldParams = {
@@ -29,6 +31,7 @@ export const DEFAULT_STICK_FIELD_PARAMS: StickFieldParams = {
   disturbanceRadius: 1.15,
   disturbanceStrength: 1.2,
   displacementDistance: 0.62,
+  downhillDrift: 0.34,
 }
 
 export type StickFieldBounds = {
@@ -68,7 +71,24 @@ const BASE_LAYOUT_PX_PER_WORLD = 7
 const STICK_DRAG = 3.4
 const STICK_TWIST_DRAG = 4.4
 const STICK_MAX_SPEED = 5.4
+const STICK_SLOPE_SAMPLE_DISTANCE = 0.42
+const STICK_SLOPE_THRESHOLD = 0.02
+const STICK_SLOPE_RESPONSE_MAX = 0.16
+const STICK_SLOPE_ACCEL = 2.6
+/** Must match `CylinderGeometry` radial argument in `makeStickGeometry` (world semi-axis = this × mesh scale). */
+const STICK_CYLINDER_LOCAL_RADIUS = 0.5
 const tmpLocalPoint = new THREE.Vector3()
+const tmpStickAxis = new THREE.Vector3()
+const tmpStickCorner = new THREE.Vector3()
+const tmpStickNormal = new THREE.Vector3()
+const tmpStickBasisX = new THREE.Vector3()
+const tmpStickBasisY = new THREE.Vector3()
+const tmpStickBasisZ = new THREE.Vector3()
+const tmpStickRadialOffset = new THREE.Vector3()
+const tmpStickQuat = new THREE.Quaternion()
+const tmpStickSpinQuat = new THREE.Quaternion()
+const worldUp = new THREE.Vector3(0, 1, 0)
+const worldDown = new THREE.Vector3(0, -1, 0)
 
 const tmpColor = new THREE.Color()
 const dummy = new THREE.Object3D()
@@ -241,7 +261,11 @@ export class StickFieldEffect {
     this.addMotionFromWorldPoint(worldPoint, options)
   }
 
-  update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
+  update(
+    elapsedTime: number,
+    getGroundHeight: (x: number, z: number) => number,
+    viewCull?: PresetLayoutViewCull | null,
+  ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
     if (this.params.layoutDensity <= 0 || this.params.sizeScale <= 0 || this.params.lengthScale <= 0) {
@@ -260,6 +284,9 @@ export class StickFieldEffect {
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
+      shouldVisitSlot: viewCull
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
           slot,
@@ -313,21 +340,34 @@ export class StickFieldEffect {
     return state
   }
 
+  private shouldActivateMotionAt(x: number, z: number): boolean {
+    if (this.pendingImpulses.length === 0) return false
+    for (const impulse of this.pendingImpulses) {
+      const dx = x - impulse.x
+      const dz = z - impulse.z
+      if (dx * dx + dz * dz <= impulse.radius * impulse.radius) return true
+    }
+    return false
+  }
+
   private applyTwigState(
     state: StickTwigState,
     baseX: number,
     baseZ: number,
     delta: number,
     pieceBias: number,
+    getGroundHeight: (x: number, z: number) => number,
   ): void {
     const currentX = baseX + state.offsetX
     const currentZ = baseZ + state.offsetZ
     const pieceSign = pieceBias >= 0 ? 1 : -1
+    let receivedImpulse = false
     for (const impulse of this.pendingImpulses) {
       const dx = currentX - impulse.x
       const dz = currentZ - impulse.z
       const distance = Math.hypot(dx, dz)
       if (distance > impulse.radius) continue
+      receivedImpulse = true
       const falloff = 1 - THREE.MathUtils.smoothstep(distance, 0, impulse.radius)
       const push = impulse.strength * falloff * falloff
       const tangentX = -impulse.directionZ
@@ -340,6 +380,24 @@ export class StickFieldEffect {
     }
 
     if (delta <= 0) return
+    const wasActive =
+      Math.abs(state.offsetX) > 0.002 ||
+      Math.abs(state.offsetZ) > 0.002 ||
+      Math.abs(state.velocityX) > 0.002 ||
+      Math.abs(state.velocityZ) > 0.002 ||
+      Math.abs(state.twistVelocity) > 0.002
+    const downhill = this.sampleDownhillVector(currentX, currentZ, getGroundHeight)
+    if ((receivedImpulse || wasActive) && downhill.slope > STICK_SLOPE_THRESHOLD && this.params.downhillDrift > 1e-6) {
+      const slope01 = THREE.MathUtils.clamp(
+        (downhill.slope - STICK_SLOPE_THRESHOLD) / (STICK_SLOPE_RESPONSE_MAX - STICK_SLOPE_THRESHOLD),
+        0,
+        1,
+      )
+      const carry = this.params.downhillDrift * slope01 * STICK_SLOPE_ACCEL * delta
+      state.velocityX += downhill.dirX * carry
+      state.velocityZ += downhill.dirZ * carry
+      state.twistVelocity += (pieceSign * 0.04 + downhill.dirX * 0.02 - downhill.dirZ * 0.02) * slope01
+    }
     const drag = Math.exp(-STICK_DRAG * delta)
     const twistDrag = Math.exp(-STICK_TWIST_DRAG * delta)
     const speed = Math.hypot(state.velocityX, state.velocityZ)
@@ -354,6 +412,107 @@ export class StickFieldEffect {
     state.offsetZ += state.velocityZ * delta
     state.twistVelocity *= twistDrag
     state.twist += state.twistVelocity * delta
+  }
+
+  private sampleDownhillVector(
+    x: number,
+    z: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): { dirX: number; dirZ: number; slope: number } {
+    const sample = STICK_SLOPE_SAMPLE_DISTANCE
+    const gradX = (getGroundHeight(x + sample, z) - getGroundHeight(x - sample, z)) / (sample * 2)
+    const gradZ = (getGroundHeight(x, z + sample) - getGroundHeight(x, z - sample)) / (sample * 2)
+    const slope = Math.hypot(gradX, gradZ)
+    if (slope <= 1e-6) {
+      return { dirX: 0, dirZ: 0, slope: 0 }
+    }
+    return {
+      dirX: -gradX / slope,
+      dirZ: -gradZ / slope,
+      slope,
+    }
+  }
+
+  private sampleGroundNormal(
+    x: number,
+    z: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): THREE.Vector3 {
+    const sample = STICK_SLOPE_SAMPLE_DISTANCE
+    const gradX = (getGroundHeight(x + sample, z) - getGroundHeight(x - sample, z)) / (sample * 2)
+    const gradZ = (getGroundHeight(x, z + sample) - getGroundHeight(x, z - sample)) / (sample * 2)
+    return tmpStickNormal.set(-gradX, 1, -gradZ).normalize()
+  }
+
+  private computeSupportedCenterY(
+    centerX: number,
+    centerZ: number,
+    orientation: THREE.Quaternion,
+    radiusX: number,
+    halfLength: number,
+    radiusZ: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): number {
+    tmpStickBasisX.set(1, 0, 0).applyQuaternion(orientation).normalize()
+    tmpStickBasisY.set(0, 1, 0).applyQuaternion(orientation).normalize()
+    tmpStickBasisZ.set(0, 0, 1).applyQuaternion(orientation).normalize()
+
+    const downX = worldDown.dot(tmpStickBasisX)
+    const downZ = worldDown.dot(tmpStickBasisZ)
+    const radialDenom = Math.hypot(radiusX * downX, radiusZ * downZ)
+    if (radialDenom <= 1e-6) {
+      tmpStickRadialOffset.copy(tmpStickBasisZ).multiplyScalar(-radiusZ)
+    } else {
+      tmpStickRadialOffset
+        .copy(tmpStickBasisX)
+        .multiplyScalar((-radiusX * radiusX * downX) / radialDenom)
+        .addScaledVector(tmpStickBasisZ, (-radiusZ * radiusZ * downZ) / radialDenom)
+    }
+
+    let supportY =
+      getGroundHeight(centerX + tmpStickRadialOffset.x, centerZ + tmpStickRadialOffset.z) - tmpStickRadialOffset.y
+    const axisSteps = [-1, -0.66, -0.33, 0, 0.33, 0.66, 1]
+    for (const step of axisSteps) {
+      const axisOffset = halfLength * step
+      const sampleX = centerX + tmpStickRadialOffset.x + tmpStickBasisY.x * axisOffset
+      const sampleZ = centerZ + tmpStickRadialOffset.z + tmpStickBasisY.z * axisOffset
+      const sampleOffsetY = tmpStickRadialOffset.y + tmpStickBasisY.y * axisOffset
+      supportY = Math.max(supportY, getGroundHeight(sampleX, sampleZ) - sampleOffsetY)
+    }
+    return supportY + 0.01
+  }
+
+  /**
+   * Lifts mesh center Y so every sampled surface point sits on or above `getGroundHeight`.
+   * Uses the same local→world mapping as InstancedMesh (scale then quaternion; position added after).
+   */
+  private refineStickCenterYAgainstTerrain(
+    centerX: number,
+    centerZ: number,
+    centerY: number,
+    quat: THREE.Quaternion,
+    radiusScale: number,
+    lengthScale: number,
+    depthScale: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): number {
+    const lr = STICK_CYLINDER_LOCAL_RADIUS
+    let y = centerY
+    const seg = 10
+    for (const ly of [-0.5, -0.25, 0, 0.25, 0.5] as const) {
+      for (let i = 0; i < seg; i++) {
+        const ang = (i / seg) * Math.PI * 2
+        const c = Math.cos(ang)
+        const s = Math.sin(ang)
+        tmpStickCorner.set(lr * c * radiusScale, ly * lengthScale, lr * s * depthScale)
+        tmpStickCorner.applyQuaternion(quat)
+        y = Math.max(
+          y,
+          getGroundHeight(centerX + tmpStickCorner.x, centerZ + tmpStickCorner.z) - tmpStickCorner.y,
+        )
+      }
+    }
+    return y + 0.008
   }
 
   private twigInactive(state: StickTwigState): boolean {
@@ -424,18 +583,30 @@ export class StickFieldEffect {
         const basePieceX = baseX + Math.cos(pieceAngle) * pieceDistance
         const basePieceZ = baseZ + Math.sin(pieceAngle) * pieceDistance
         const twigKey = `${motionKeyPrefix}:${k}:${j}`
-        const state = this.getTwigState(twigKey)
-        this.applyTwigState(state, basePieceX, basePieceZ, delta, pieceHash - 0.5)
-        visitedKeys.add(twigKey)
-        if (this.twigInactive(state)) {
-          this.twigStates.delete(twigKey)
+        let x = basePieceX
+        let z = basePieceZ
+        let motionVelocityX = 0
+        let motionVelocityZ = 0
+        let motionTwist = 0
+        let twigMotionActive = false
+        const state = this.twigStates.get(twigKey)
+        if (state || this.shouldActivateMotionAt(basePieceX, basePieceZ)) {
+          const ensuredState = state ?? this.getTwigState(twigKey)
+          this.applyTwigState(ensuredState, basePieceX, basePieceZ, delta, pieceHash - 0.5, getGroundHeight)
+          if (this.twigInactive(ensuredState)) {
+            this.twigStates.delete(twigKey)
+          } else {
+            visitedKeys.add(twigKey)
+            twigMotionActive = true
+            x = basePieceX + ensuredState.offsetX
+            z = basePieceZ + ensuredState.offsetZ
+            motionVelocityX = ensuredState.velocityX
+            motionVelocityZ = ensuredState.velocityZ
+            motionTwist = ensuredState.twist
+          }
         }
-
-        const x = basePieceX + state.offsetX
-        const z = basePieceZ + state.offsetZ
         if (!this.placementMask.includeAtXZ(x, z)) continue
 
-        const groundY = getGroundHeight(x, z)
         const radius = Math.max(
           0.012,
           (0.024 + meta.radiusBias * 0.12 + noise * 0.014 + pieceHash * 0.008) * this.params.sizeScale,
@@ -446,14 +617,46 @@ export class StickFieldEffect {
             this.params.sizeScale *
             this.params.lengthScale,
         )
-        const speed = Math.hypot(state.velocityX, state.velocityZ)
-        const yaw = pieceAngle + state.twist * (0.18 + pieceHash * 0.36)
-        const pitch = Math.PI * 0.5 + (noise - 0.5) * 0.18 + speed * (0.04 + pieceHash * 0.06)
-        const roll = (pieceHash - 0.5) * 0.24 + state.twist * (0.08 + pieceHash * 0.16)
-
-        dummy.position.set(x, groundY + radius * 0.2, z)
-        dummy.rotation.set(pitch, yaw, roll)
-        dummy.scale.set(radius, length, radius * (0.7 + noise * 0.24 + pieceHash * 0.06))
+        const speed = Math.hypot(motionVelocityX, motionVelocityZ)
+        const yaw = pieceAngle + motionTwist * (0.18 + pieceHash * 0.36)
+        const roll = (pieceHash - 0.5) * 0.24 + motionTwist * (0.08 + pieceHash * 0.16)
+        const depthRadius = radius * (0.7 + noise * 0.24 + pieceHash * 0.06)
+        this.sampleGroundNormal(x, z, getGroundHeight)
+        tmpStickAxis.set(Math.cos(yaw), 0, Math.sin(yaw))
+        tmpStickAxis.addScaledVector(tmpStickNormal, -tmpStickAxis.dot(tmpStickNormal))
+        if (tmpStickAxis.lengthSq() <= 1e-6) {
+          tmpStickAxis.set(Math.cos(yaw), 0, Math.sin(yaw))
+        }
+        tmpStickAxis.normalize()
+        tmpStickQuat.setFromUnitVectors(worldUp, tmpStickAxis)
+        tmpStickSpinQuat.setFromAxisAngle(tmpStickAxis, roll + (noise - 0.5) * 0.16 + speed * (0.04 + pieceHash * 0.06))
+        dummy.quaternion.copy(tmpStickQuat).multiply(tmpStickSpinQuat)
+        const worldSemiX = radius * STICK_CYLINDER_LOCAL_RADIUS
+        const worldSemiZ = depthRadius * STICK_CYLINDER_LOCAL_RADIUS
+        const worldHalfLen = length * STICK_CYLINDER_LOCAL_RADIUS
+        let centerY = this.computeSupportedCenterY(
+          x,
+          z,
+          dummy.quaternion,
+          worldSemiX,
+          worldHalfLen,
+          worldSemiZ,
+          getGroundHeight,
+        )
+        if (twigMotionActive) {
+          centerY = this.refineStickCenterYAgainstTerrain(
+            x,
+            z,
+            centerY,
+            dummy.quaternion,
+            radius,
+            length,
+            depthRadius,
+            getGroundHeight,
+          )
+        }
+        dummy.position.set(x, centerY, z)
+        dummy.scale.set(radius, length, depthRadius)
         dummy.updateMatrix()
         this.stickMesh.setMatrixAt(instanceIndex, dummy.matrix)
         this.stickMesh.setColorAt(instanceIndex, stickColor(identity + j * 17, noise, meta))

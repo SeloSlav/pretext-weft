@@ -50,6 +50,8 @@ type LayoutTraversalOptions<TokenId extends string = string, Meta = unknown> = {
   lineCoordAtRow: (row: number) => number
   rowOffsetAt?: (row: number, sectorStep: number) => number
   getMaxWidth: (slot: SurfaceLayoutSlot) => number
+  /** Skip layout work for slots that fail this test (e.g. camera distance culling). */
+  shouldVisitSlot?: (slot: SurfaceLayoutSlot) => boolean
   onLine: (line: SurfaceLayoutLine<TokenId, Meta>) => void
 }
 
@@ -123,6 +125,7 @@ export class SurfaceLayoutDriver<TokenId extends string = string, Meta = unknown
     lineCoordAtRow,
     rowOffsetAt,
     getMaxWidth,
+    shouldVisitSlot,
     onLine,
   }: LayoutTraversalOptions<TokenId, Meta>): void {
     const sectorStep = (spanMax - spanMin) / this.sectors
@@ -153,6 +156,8 @@ export class SurfaceLayoutDriver<TokenId extends string = string, Meta = unknown
           sectorStep,
           rowOffset,
         }
+
+        if (shouldVisitSlot && !shouldVisitSlot(slot)) continue
 
         const requestedWidth = getMaxWidth(slot)
         if (requestedWidth <= 0) continue

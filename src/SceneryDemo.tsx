@@ -8,6 +8,7 @@ import {
   DEFAULT_LOG_FIELD_PARAMS,
   DEFAULT_NEEDLE_LITTER_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
+  DEFAULT_STICK_FIELD_PARAMS,
   LEAF_PILE_SEASONS,
 } from "./weft/three";
 import {
@@ -19,7 +20,10 @@ import {
   PLAYGROUND_QUALITY_DEFAULT,
   type PlaygroundQuality,
 } from "./playground/playgroundQuality";
-import { PERF_HUD_POLL_INTERVAL_MS } from "./playground/playgroundPerfHud";
+import {
+  formatPlaygroundPerfClipboardText,
+  PERF_HUD_POLL_INTERVAL_MS,
+} from "./playground/playgroundPerfHud";
 
 type ControlSectionProps = {
   title: string;
@@ -86,14 +90,14 @@ export function SceneryDemo() {
     DEFAULT_GRASS_FIELD_PARAMS.recoveryRate,
   );
   const [grassState, setGrassState] = useState(DEFAULT_GRASS_FIELD_PARAMS.state);
-  const [grassLayoutDensity, setGrassLayoutDensity] = useState(6);
+  const [grassLayoutDensity, setGrassLayoutDensity] = useState(4.5);
   const [grassBladeWidthScale, setGrassBladeWidthScale] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.bladeWidthScale,
   );
   const [grassBladeHeightScale, setGrassBladeHeightScale] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.bladeHeightScale,
   );
-  const [bandLayoutDensity, setBandLayoutDensity] = useState(0.82);
+  const [bandLayoutDensity, setBandLayoutDensity] = useState(0.66);
   const [understoryWidth, setUnderstoryWidth] = useState(2.6);
   const [understorySizeScale, setUnderstorySizeScale] = useState(1.08);
   const [leafPileWidth, setLeafPileWidth] = useState(1.7);
@@ -108,31 +112,37 @@ export function SceneryDemo() {
       ? foliageSeasonForWorldState(grassState)
       : foliageSeasonOverride;
 
-  const [rockLayoutDensity, setRockLayoutDensity] = useState(0.58);
+  const [rockLayoutDensity, setRockLayoutDensity] = useState(0.48);
   const [rockSizeScale, setRockSizeScale] = useState(1.28);
   const [showRocks, setShowRocks] = useState(true);
-  const [shrubLayoutDensity, setShrubLayoutDensity] = useState(1.45);
+  const [shrubLayoutDensity, setShrubLayoutDensity] = useState(1.12);
   const [shrubSizeScale, setShrubSizeScale] = useState(1.55);
   const [shrubHeightScale, setShrubHeightScale] = useState(1.35);
   const [showShrubs, setShowShrubs] = useState(true);
-  const [treeLayoutDensity, setTreeLayoutDensity] = useState(0.72);
+  const [treeLayoutDensity, setTreeLayoutDensity] = useState(0.56);
   const [treeSizeScale, setTreeSizeScale] = useState(1.7);
   const [treeHeightScale, setTreeHeightScale] = useState(1.85);
   const [treeCrownScale, setTreeCrownScale] = useState(1.45);
   const [showTrees, setShowTrees] = useState(true);
-  const [logLayoutDensity, setLogLayoutDensity] = useState(0.32);
+  const [logLayoutDensity, setLogLayoutDensity] = useState(0.26);
   const [logSizeScale, setLogSizeScale] = useState(1.08);
   const [logLengthScale, setLogLengthScale] = useState(
     DEFAULT_LOG_FIELD_PARAMS.lengthScale * 1.36,
   );
   const [logPushScale, setLogPushScale] = useState(1.55);
+  const [logDownhillDrift, setLogDownhillDrift] = useState(
+    DEFAULT_LOG_FIELD_PARAMS.downhillDrift,
+  );
   const [showLogs, setShowLogs] = useState(true);
-  const [stickLayoutDensity, setStickLayoutDensity] = useState(0.92);
-  const [stickSizeScale, setStickSizeScale] = useState(2);
-  const [stickLengthScale, setStickLengthScale] = useState(2.2);
+  const [stickLayoutDensity, setStickLayoutDensity] = useState(0.5);
+  const [stickSizeScale, setStickSizeScale] = useState(1.45);
+  const [stickLengthScale, setStickLengthScale] = useState(1.55);
   const [stickPushScale, setStickPushScale] = useState(1.4);
+  const [stickDownhillDrift, setStickDownhillDrift] = useState(
+    DEFAULT_STICK_FIELD_PARAMS.downhillDrift,
+  );
   const [showSticks, setShowSticks] = useState(true);
-  const [needleLayoutDensity, setNeedleLayoutDensity] = useState(0.84);
+  const [needleLayoutDensity, setNeedleLayoutDensity] = useState(0.5);
   const [needleSizeScale, setNeedleSizeScale] = useState(1.3);
   const [showNeedles, setShowNeedles] = useState(true);
   const [worldFieldSeed, setWorldFieldSeed] = useState(
@@ -192,15 +202,14 @@ export function SceneryDemo() {
   const [terrainReliefRidge, setTerrainReliefRidge] = useState(
     DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.ridge,
   );
+  const [showTerrainAuthoringDebug, setShowTerrainAuthoringDebug] = useState(false);
   const [starLayoutDensity, setStarLayoutDensity] = useState(
     DEFAULT_STAR_SKY_PARAMS.layoutDensity,
   );
   const [starRecoveryRate, setStarRecoveryRate] = useState(
     DEFAULT_STAR_SKY_PARAMS.recoveryRate,
   );
-  const [quality, setQuality] = useState<PlaygroundQuality>(
-    PLAYGROUND_QUALITY_DEFAULT,
-  );
+  const [quality] = useState<PlaygroundQuality>(PLAYGROUND_QUALITY_DEFAULT);
   const [perfStats, setPerfStats] = useState<PlaygroundPerfStats | null>(null);
   const [perfHudMinimized, setPerfHudMinimized] = useState(true);
 
@@ -262,12 +271,14 @@ export function SceneryDemo() {
           layoutDensity: logLayoutDensity,
           sizeScale: logSizeScale,
           lengthScale: logLengthScale,
+          downhillDrift: logDownhillDrift,
           showLogs,
         });
         runtime.setStickFieldParams({
           layoutDensity: stickLayoutDensity,
           sizeScale: stickSizeScale,
           lengthScale: stickLengthScale,
+          downhillDrift: stickDownhillDrift,
           showSticks,
         });
         runtime.setSceneryMotionResponse({
@@ -306,6 +317,7 @@ export function SceneryDemo() {
           roughness: terrainReliefRoughness,
           ridge: terrainReliefRidge,
         });
+        runtime.setTerrainAuthoringDebugVisible(showTerrainAuthoringDebug);
         runtime.setStarSkyParams({
           layoutDensity: starLayoutDensity,
           recoveryRate: starRecoveryRate,
@@ -425,18 +437,20 @@ export function SceneryDemo() {
       layoutDensity: logLayoutDensity,
       sizeScale: logSizeScale,
       lengthScale: logLengthScale,
+      downhillDrift: logDownhillDrift,
       showLogs,
     });
-  }, [logLayoutDensity, logLengthScale, logSizeScale, showLogs]);
+  }, [logDownhillDrift, logLayoutDensity, logLengthScale, logSizeScale, showLogs]);
 
   useEffect(() => {
     runtimeRef.current?.setStickFieldParams({
       layoutDensity: stickLayoutDensity,
       sizeScale: stickSizeScale,
       lengthScale: stickLengthScale,
+      downhillDrift: stickDownhillDrift,
       showSticks,
     });
-  }, [showSticks, stickLayoutDensity, stickLengthScale, stickSizeScale]);
+  }, [showSticks, stickDownhillDrift, stickLayoutDensity, stickLengthScale, stickSizeScale]);
 
   useEffect(() => {
     runtimeRef.current?.setSceneryMotionResponse({
@@ -508,6 +522,10 @@ export function SceneryDemo() {
   ]);
 
   useEffect(() => {
+    runtimeRef.current?.setTerrainAuthoringDebugVisible(showTerrainAuthoringDebug);
+  }, [showTerrainAuthoringDebug]);
+
+  useEffect(() => {
     runtimeRef.current?.setStarSkyParams({
       layoutDensity: starLayoutDensity,
       recoveryRate: starRecoveryRate,
@@ -555,28 +573,6 @@ export function SceneryDemo() {
 
             <section className="sample-detail">
               <div className="sample-controls">
-                <ControlSection
-                  title="Performance"
-                  summary="DPR cap + grass / star layout scaling"
-                >
-                  <label className="control">
-                    <span>Quality</span>
-                    <select
-                      value={quality}
-                      onChange={(e) =>
-                        setQuality(e.target.value as PlaygroundQuality)
-                      }
-                    >
-                      <option value="low">Low (game-style)</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High (showcase)</option>
-                    </select>
-                  </label>
-                  <p className="control-hint">
-                    Add <code>?perf=1</code> to the URL for effect-update logging
-                    in the console.
-                  </p>
-                </ControlSection>
 
                 <ControlSection
                   title="Grass"
@@ -877,6 +873,16 @@ export function SceneryDemo() {
                   summary="Height variation for the ground surface, player footing, and camera clearance"
                 >
                   <label className="control">
+                    <span>Show terrain debug</span>
+                    <input
+                      type="checkbox"
+                      checked={showTerrainAuthoringDebug}
+                      onChange={(e) =>
+                        setShowTerrainAuthoringDebug(e.target.checked)
+                      }
+                    />
+                  </label>
+                  <label className="control">
                     <span>Relief seed ({terrainReliefSeed})</span>
                     <input
                       type="range"
@@ -967,7 +973,8 @@ export function SceneryDemo() {
                   <p className="control-hint">
                     This stays in the Weft field model: one seeded relief read
                     drives the visible ground and the runtime&apos;s movement
-                    sampling.
+                    sampling. Debug colors: green = flat, amber = slope, pink =
+                    ridge, blue = basin.
                   </p>
                 </ControlSection>
 
@@ -1323,10 +1330,23 @@ export function SceneryDemo() {
                       onChange={(e) => setLogPushScale(Number(e.target.value))}
                     />
                   </label>
+                  <label className="control">
+                    <span>Log downhill carry ({logDownhillDrift.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2.5}
+                      step={0.05}
+                      value={logDownhillDrift}
+                      onChange={(e) =>
+                        setLogDownhillDrift(Number(e.target.value))
+                      }
+                    />
+                  </label>
                   <p className="control-hint">
                     Logs keep persistent per-log motion state, so shoves and
-                    shots move individual trunks across the ground instead of
-                    behaving like a shared wobble field.
+                    shots move individual trunks across the ground, and now
+                    terrain slope can keep them rolling downhill after impact.
                   </p>
                 </ControlSection>
 
@@ -1390,10 +1410,23 @@ export function SceneryDemo() {
                       onChange={(e) => setStickPushScale(Number(e.target.value))}
                     />
                   </label>
+                  <label className="control">
+                    <span>Stick downhill carry ({stickDownhillDrift.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1.6}
+                      step={0.05}
+                      value={stickDownhillDrift}
+                      onChange={(e) =>
+                        setStickDownhillDrift(Number(e.target.value))
+                      }
+                    />
+                  </label>
                   <p className="control-hint">
                     Sticks still spawn as clustered debris, but each twig now
-                    keeps its own persistent motion state so repeated hits break
-                    the cluster apart instead of moving one rigid bundle.
+                    keeps its own persistent motion state; slope can tease the
+                    bundle downhill too, but less aggressively than logs.
                   </p>
                 </ControlSection>
 
@@ -1534,17 +1567,31 @@ export function SceneryDemo() {
             className={`perf-hud${perfHudMinimized ? " perf-hud--minimized" : ""}`}
             aria-hidden
           >
-            <button
-              type="button"
-              className="perf-hud__toggle"
-              onClick={() => setPerfHudMinimized((value) => !value)}
-              aria-label={perfHudMinimized ? "Expand profiler" : "Minimize profiler"}
-              aria-expanded={!perfHudMinimized}
-            >
-              {perfHudMinimized
-                ? `Profiler ${perfStats.fps.toFixed(1)} FPS`
-                : "Minimize profiler"}
-            </button>
+            <div className="perf-hud__toolbar">
+              <button
+                type="button"
+                className="perf-hud__toggle"
+                onClick={() => setPerfHudMinimized((value) => !value)}
+                aria-label={perfHudMinimized ? "Expand profiler" : "Minimize profiler"}
+                aria-expanded={!perfHudMinimized}
+              >
+                {perfHudMinimized
+                  ? `Profiler ${perfStats.fps.toFixed(1)} FPS`
+                  : "Minimize profiler"}
+              </button>
+              <button
+                type="button"
+                className="perf-hud__copy"
+                aria-label={`Copy profiler averages for the last ${perfStats.longWindow.windowSec} seconds to clipboard`}
+                title={`Copy rolling averages (last ${perfStats.longWindow.windowSec}s, ${perfStats.longWindow.sampleCount} samples)`}
+                onClick={() => {
+                  const text = formatPlaygroundPerfClipboardText(perfStats);
+                  void navigator.clipboard?.writeText(text);
+                }}
+              >
+                Copy {perfStats.longWindow.windowSec}s avg
+              </button>
+            </div>
             {!perfHudMinimized && (
               <>
                 <div>

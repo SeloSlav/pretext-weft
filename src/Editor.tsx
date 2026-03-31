@@ -26,7 +26,10 @@ import {
   PLAYGROUND_QUALITY_DEFAULT,
   type PlaygroundQuality,
 } from "./playground/playgroundQuality";
-import { PERF_HUD_POLL_INTERVAL_MS } from "./playground/playgroundPerfHud";
+import {
+  formatPlaygroundPerfClipboardText,
+  PERF_HUD_POLL_INTERVAL_MS,
+} from "./playground/playgroundPerfHud";
 
 type ControlSectionProps = {
   title: string;
@@ -1047,17 +1050,31 @@ export function Editor() {
             className={`perf-hud${perfHudMinimized ? " perf-hud--minimized" : ""}`}
             aria-hidden
           >
-            <button
-              type="button"
-              className="perf-hud__toggle"
-              onClick={() => setPerfHudMinimized((value) => !value)}
-              aria-label={perfHudMinimized ? "Expand profiler" : "Minimize profiler"}
-              aria-expanded={!perfHudMinimized}
-            >
-              {perfHudMinimized
-                ? `Profiler ${perfStats.fps.toFixed(1)} FPS`
-                : "Minimize profiler"}
-            </button>
+            <div className="perf-hud__toolbar">
+              <button
+                type="button"
+                className="perf-hud__toggle"
+                onClick={() => setPerfHudMinimized((value) => !value)}
+                aria-label={perfHudMinimized ? "Expand profiler" : "Minimize profiler"}
+                aria-expanded={!perfHudMinimized}
+              >
+                {perfHudMinimized
+                  ? `Profiler ${perfStats.fps.toFixed(1)} FPS`
+                  : "Minimize profiler"}
+              </button>
+              <button
+                type="button"
+                className="perf-hud__copy"
+                aria-label={`Copy profiler averages for the last ${perfStats.longWindow.windowSec} seconds to clipboard`}
+                title={`Copy rolling averages (last ${perfStats.longWindow.windowSec}s, ${perfStats.longWindow.sampleCount} samples)`}
+                onClick={() => {
+                  const text = formatPlaygroundPerfClipboardText(perfStats);
+                  void navigator.clipboard?.writeText(text);
+                }}
+              >
+                Copy {perfStats.longWindow.windowSec}s avg
+              </button>
+            </div>
             {!perfHudMinimized && (
               <>
                 <div>

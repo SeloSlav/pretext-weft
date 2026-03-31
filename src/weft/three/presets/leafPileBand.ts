@@ -14,6 +14,7 @@ import {
   type LeafPileTokenId,
   type LeafPileTokenMeta,
 } from './leafPileBandSource'
+import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type LeafPileBandParams = {
   layoutDensity: number
@@ -67,7 +68,7 @@ const DEFAULT_BOUNDS: LeafPileBandBounds = {
 
 const ROWS = 22
 const SECTORS = 30
-const MAX_INSTANCES = 8_000
+const MAX_INSTANCES = 5_500
 const BASE_LAYOUT_PX_PER_WORLD = 9
 const MAX_ACTIVE_DISTURBANCES = 40
 const MAX_BURNS = 18
@@ -82,7 +83,7 @@ const tmpColor = new THREE.Color()
 const tmpAshColor = new THREE.Color()
 const tmpEmberColor = new THREE.Color()
 const tmpBurnFieldA = { burn: 0, front: 0 }
-const tmpBurnFieldB = { burn: 0, front: 0 }
+const ZERO_BURN_FIELD = { burn: 0, front: 0 }
 const dummy = new THREE.Object3D()
 
 const SEASON_STYLE: Record<
@@ -109,7 +110,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 8,
+    leavesPerClump: 5,
     spread: 1,
   },
   summer: {
@@ -121,7 +122,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 8,
+    leavesPerClump: 5,
     spread: 1,
   },
   autumn: {
@@ -133,7 +134,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 8,
+    leavesPerClump: 5,
     spread: 1,
   },
   winter: {
@@ -145,7 +146,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 8,
+    leavesPerClump: 5,
     spread: 1,
   },
 }
@@ -222,7 +223,7 @@ function smoothBandCoverage(distance: number, halfWidth: number, edgeSoftness: n
 
 const leafOrganicWorldField = createWorldField(823, {
   scale: 7.2,
-  octaves: 4,
+  octaves: 3,
   roughness: 0.58,
   warpAmplitude: 1.65,
   warpScale: 5.9,
@@ -236,7 +237,7 @@ function makeLeafGeometry(): THREE.BufferGeometry {
   shape.bezierCurveTo(0.22, -0.27, 0.08, -0.48, 0, -0.58)
   shape.bezierCurveTo(-0.08, -0.47, -0.24, -0.26, -0.3, -0.02)
   shape.bezierCurveTo(-0.38, 0.22, -0.18, 0.47, 0, 0.56)
-  return new THREE.ShapeGeometry(shape)
+  return new THREE.ShapeGeometry(shape, 4)
 }
 
 function leafColor(
@@ -250,8 +251,8 @@ function leafColor(
   if (burn > 0.82) {
     return tmpAshColor.setHSL(0.08 + front * 0.05, 0.06 + front * 0.14, 0.1 + front * 0.3)
   }
-  if (front > 0.04) {
-    return tmpEmberColor.setHSL(0.06 + front * 0.03, 0.8, 0.18 + front * 0.28)
+  if (front > 0.035) {
+    return tmpEmberColor.setHSL(0.052 + front * 0.022, 0.93, 0.16 + front * 0.3)
   }
   const seasonStyle = SEASON_STYLE[season]
   const t = uhash(identity * 2654435761)
@@ -411,7 +412,11 @@ export class LeafPileBandEffect {
     }
   }
 
-  update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
+  update(
+    elapsedTime: number,
+    getGroundHeight: (x: number, z: number) => number,
+    viewCull?: PresetLayoutViewCull | null,
+  ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
     if (delta > 0) {
@@ -441,6 +446,9 @@ export class LeafPileBandEffect {
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
+      shouldVisitSlot: viewCull
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
           slot,
@@ -670,7 +678,6 @@ export class LeafPileBandEffect {
     const seasonStyle = SEASON_STYLE[this.params.season]
     const hasBurns = this.burns.length > 0
     const hasDisturbances = this.disturbances.length > 0
-    const hasActiveLeafStates = this.leafStates.size > 0
 
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
@@ -705,7 +712,7 @@ export class LeafPileBandEffect {
         halfWidth,
         edgeSoftness,
       )
-      const burnField = hasBurns ? this.burnFieldAt(clumpX, clumpZ, tmpBurnFieldA) : tmpBurnFieldA
+      const burnField = hasBurns ? this.burnFieldAt(clumpX, clumpZ, tmpBurnFieldA) : ZERO_BURN_FIELD
       const coverage = THREE.MathUtils.clamp(
         baseCoverage * THREE.MathUtils.lerp(0.56, 1.22, organicNoise),
         0,
@@ -716,13 +723,14 @@ export class LeafPileBandEffect {
       if (glyphHash(identity + 5, slot.row, k ^ 0x55) > remainingCoverage * seasonStyle.presence) continue
 
       const leavesInClump = Math.min(
-        14,
+        8,
         Math.max(
-          5,
+          3,
           seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 4 + hashYaw * 3 + organicNoise * 3),
         ),
       )
       const spreadScale = seasonStyle.spread * (1.02 + organicNoise * 0.36)
+      const clumpGroundY = getGroundHeight(clumpX, clumpZ)
 
       for (let leafIndex = 0; leafIndex < leavesInClump; leafIndex++) {
         if (instanceIndex >= MAX_INSTANCES) break
@@ -741,23 +749,18 @@ export class LeafPileBandEffect {
         const baseLeafX = clumpX + Math.cos(angle) * radius
         const baseLeafZ = clumpZ + Math.sin(angle) * radius
         let state: LeafState | undefined
-        if (hasDisturbances || hasActiveLeafStates) {
-          const shouldCheckMotion =
-            hasActiveLeafStates || (hasDisturbances && this.isInsideAnyDisturbance(baseLeafX, baseLeafZ))
-          if (shouldCheckMotion) {
-            const leafKey = this.makeLeafStateKey(slot.row, slot.sector, k, leafIndex)
-            state = this.leafStates.get(leafKey)
-            if (state || hasDisturbances) {
-              state = state ?? this.getLeafState(leafKey)
-              state.generation = generation
-              this.applyLeafState(state, baseLeafX, baseLeafZ, delta, angle, leafHashC, leafHashD)
-            }
-          }
+        const leafKey = this.makeLeafStateKey(slot.row, slot.sector, k, leafIndex)
+        state = this.leafStates.get(leafKey)
+        const nearDisturbance =
+          hasDisturbances && this.isInsideAnyDisturbance(baseLeafX, baseLeafZ)
+        if (state || nearDisturbance) {
+          state = state ?? this.getLeafState(leafKey)
+          state.generation = generation
+          this.applyLeafState(state, baseLeafX, baseLeafZ, delta, angle, leafHashC, leafHashD)
         }
         const leafX = baseLeafX + (state?.offsetX ?? 0)
         const leafZ = baseLeafZ + (state?.offsetZ ?? 0)
-        const groundY = getGroundHeight(leafX, leafZ)
-        const leafBurnField = hasBurns ? this.burnFieldAt(leafX, leafZ, tmpBurnFieldB) : tmpBurnFieldB
+        const leafBurnField = burnField
         const velocityX = state?.velocityX ?? 0
         const velocityZ = state?.velocityZ ?? 0
         const stretch = state?.stretch ?? 0
@@ -802,7 +805,7 @@ export class LeafPileBandEffect {
           meta.curlBias * 0.4 +
           leafSpeed * 0.14 +
           twist * 0.48
-        dummy.position.set(leafX, groundY + stackLift, leafZ)
+        dummy.position.set(leafX, clumpGroundY + stackLift, leafZ)
         dummy.rotation.set(pitch, yaw, roll)
         dummy.scale.set(width, length, 1)
         dummy.updateMatrix()

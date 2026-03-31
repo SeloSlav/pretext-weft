@@ -13,6 +13,7 @@ import {
   type NeedleLitterTokenId,
   type NeedleLitterTokenMeta,
 } from './needleLitterFieldSource'
+import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type NeedleLitterFieldParams = {
   layoutDensity: number
@@ -76,6 +77,7 @@ const tmpLocalPoint = new THREE.Vector3()
 const tmpColor = new THREE.Color()
 const tmpAshColor = new THREE.Color()
 const tmpEmberColor = new THREE.Color()
+const tmpNeedleBurnField = { burn: 0, ember: 0 }
 const dummy = new THREE.Object3D()
 
 function uhash(n: number): number {
@@ -102,7 +104,7 @@ function lineSignature(text: string): number {
 
 const needleOrganicWorldField = createWorldField(1703, {
   scale: 5.8,
-  octaves: 4,
+  octaves: 3,
   roughness: 0.6,
   warpAmplitude: 1.3,
   warpScale: 5.1,
@@ -231,7 +233,11 @@ export class NeedleLitterFieldEffect {
     return this.burns.length > 0
   }
 
-  update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
+  update(
+    elapsedTime: number,
+    getGroundHeight: (x: number, z: number) => number,
+    viewCull?: PresetLayoutViewCull | null,
+  ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
     if (delta > 0) {
@@ -241,7 +247,7 @@ export class NeedleLitterFieldEffect {
       }
       updateRecoveringImpacts(this.burns, this.params.recoveryRate, delta, 0.02)
     }
-    this.updateNeedles(getGroundHeight)
+    this.updateNeedles(getGroundHeight, viewCull)
   }
 
   dispose(): void {
@@ -253,8 +259,12 @@ export class NeedleLitterFieldEffect {
     return slot.spanSize * BASE_LAYOUT_PX_PER_WORLD * this.params.layoutDensity
   }
 
-  private burnFieldAt(x: number, z: number): { burn: number; ember: number } {
-    if (this.burns.length === 0) return { burn: 0, ember: 0 }
+  private burnFieldAt(x: number, z: number, target: { burn: number; ember: number }): void {
+    if (this.burns.length === 0) {
+      target.burn = 0
+      target.ember = 0
+      return
+    }
 
     let burn = 0
     let ember = 0
@@ -274,13 +284,14 @@ export class NeedleLitterFieldEffect {
       ember = Math.max(ember, localEmber)
     }
 
-    return {
-      burn: THREE.MathUtils.clamp(burn, 0, 1),
-      ember: THREE.MathUtils.clamp(ember, 0, 1),
-    }
+    target.burn = THREE.MathUtils.clamp(burn, 0, 1)
+    target.ember = THREE.MathUtils.clamp(ember, 0, 1)
   }
 
-  private updateNeedles(getGroundHeight: (x: number, z: number) => number): void {
+  private updateNeedles(
+    getGroundHeight: (x: number, z: number) => number,
+    viewCull?: PresetLayoutViewCull | null,
+  ): void {
     if (this.params.layoutDensity <= 0 || this.params.sizeScale <= 0) {
       this.needleMesh.count = 0
       this.needleMesh.instanceMatrix.needsUpdate = true
@@ -296,6 +307,9 @@ export class NeedleLitterFieldEffect {
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
+      shouldVisitSlot: viewCull
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(slot, resolvedGlyphs, tokenLineKey, rowStep, getGroundHeight, instanceIndex)
       },
@@ -348,11 +362,12 @@ export class NeedleLitterFieldEffect {
       if (!this.placementMask.includeAtXZ(centerX, centerZ)) continue
 
       const noise = needleOrganicWorldField(centerX + hashOrg * 0.3, centerZ + hashOrg * 0.22)
-      const burnField = this.burnFieldAt(centerX, centerZ)
-      const remainingCoverage = Math.max(0, (0.32 + noise * 0.86) * (1 - burnField.burn * 0.985))
+      this.burnFieldAt(centerX, centerZ, tmpNeedleBurnField)
+      const remainingCoverage = Math.max(0, (0.32 + noise * 0.86) * (1 - tmpNeedleBurnField.burn * 0.985))
       if (remainingCoverage <= 0.04 || hashKeep > remainingCoverage) continue
 
       const clumpCount = THREE.MathUtils.clamp(1 + Math.round(noise * 2 + meta.coneBias * 2), 1, 4)
+      const clumpGroundY = getGroundHeight(centerX, centerZ)
       for (let j = 0; j < clumpCount; j++) {
         if (instanceIndex >= MAX_INSTANCES) break
         const pieceHash = glyphHash(identity + j * 17, slot.row ^ j, slot.sector, k)
@@ -360,35 +375,32 @@ export class NeedleLitterFieldEffect {
         const pieceDistance = (0.03 + pieceHash * 0.22 + Math.max(0, meta.coneBias) * 0.08) * this.params.sizeScale
         const x = centerX + Math.cos(pieceAngle) * pieceDistance
         const z = centerZ + Math.sin(pieceAngle) * pieceDistance
-        if (!this.placementMask.includeAtXZ(x, z)) continue
 
-        const pieceBurn = this.burnFieldAt(x, z)
-        const pieceCoverage = Math.max(0, remainingCoverage * (1 - pieceBurn.burn * 0.92 + pieceBurn.ember * 0.08))
+        const pieceCoverage = Math.max(0, remainingCoverage * (1 - tmpNeedleBurnField.burn * 0.92 + tmpNeedleBurnField.ember * 0.08))
         if (pieceCoverage <= 0.05) continue
 
-        const groundY = getGroundHeight(x, z)
         const baseRadius =
           (0.035 + meta.sizeBias * 0.18 + Math.max(0, meta.coneBias) * 0.05 + noise * 0.018) *
           this.params.sizeScale
-        const radius = Math.max(0.014, baseRadius * (1 - pieceBurn.burn * 0.58))
+        const radius = Math.max(0.014, baseRadius * (1 - tmpNeedleBurnField.burn * 0.58))
         const length = Math.max(
           radius * 2.8,
           (0.12 + Math.max(0, meta.coneBias) * 0.18 + noise * 0.08 + pieceHash * 0.06) *
             this.params.sizeScale *
-            (1 - pieceBurn.burn * 0.72 + pieceBurn.ember * 0.08),
+            (1 - tmpNeedleBurnField.burn * 0.72 + tmpNeedleBurnField.ember * 0.08),
         )
         const yaw = pieceAngle + (pieceHash - 0.5) * 0.5
         const pitch = Math.PI * 0.5 + (meta.coneBias - 0.5) * 0.12 + (noise - 0.5) * 0.24
         const roll = (pieceHash - 0.5) * 0.3
 
-        dummy.position.set(x, groundY + radius * 0.18, z)
+        dummy.position.set(x, clumpGroundY + radius * 0.18, z)
         dummy.rotation.set(pitch, yaw, roll)
         dummy.scale.set(radius * (0.9 + pieceHash * 0.18), length, radius * (0.8 + pieceHash * 0.24))
         dummy.updateMatrix()
         this.needleMesh.setMatrixAt(instanceIndex, dummy.matrix)
         this.needleMesh.setColorAt(
           instanceIndex,
-          needleColor(identity + j * 19, noise, meta, pieceBurn.burn, pieceBurn.ember),
+          needleColor(identity + j * 19, noise, meta, tmpNeedleBurnField.burn, tmpNeedleBurnField.ember),
         )
         instanceIndex++
       }

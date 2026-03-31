@@ -1,3 +1,5 @@
+export type { PresetLayoutViewCull } from './presets/presetLayoutCull.ts'
+
 export {
   createSurfaceEffect,
   createSurfaceSource,
@@ -106,6 +108,7 @@ export type {
   GrassFieldBounds,
   GrassFieldPlacementMask,
   GrassDisturbanceOptions,
+  GrassBurnOptions,
   GrassFieldParams,
 } from './presets/grassField.ts'
 export {
@@ -121,6 +124,7 @@ export {
 export type {
   CreateRockFieldEffectOptions,
   RockFieldBounds,
+  RockFieldDestructOptions,
   RockFieldPlacementMask,
   RockFieldParams,
 } from './presets/rockField.ts'
@@ -149,7 +153,21 @@ export type {
   TreeFieldBounds,
   TreeFieldPlacementMask,
   TreeFieldParams,
+  TreeTrunkBurnOptions,
 } from './presets/treeField.ts'
+export {
+  createTreeBarkSurfaceEffect,
+  DEFAULT_TREE_BARK_SURFACE_PARAMS,
+  TreeBarkSurfaceEffect,
+} from './presets/treeBarkSurface.ts'
+export type {
+  CreateTreeBarkSurfaceEffectOptions,
+  TreeBarkPlacement,
+  TreeBarkSurfaceParams,
+  TreeBarkWoundOptions,
+} from './presets/treeBarkSurface.ts'
+export { getPreparedTreeBarkSurface } from './presets/treeBarkSurfaceSource.ts'
+export { warmBarkColor } from './presets/barkShared.ts'
 export { buildTreeSeasonSurface, getPreparedTreeSurface, TREE_FOLIAGE_SEASONS } from './presets/treeFieldSource.ts'
 
 export {
@@ -163,7 +181,7 @@ export type {
   LogFieldPlacementMask,
   LogFieldParams,
 } from './presets/logField.ts'
-export { getPreparedLogSurface } from './presets/logFieldSource.ts'
+export { buildLogSeasonSurface, getPreparedLogSurface } from './presets/logFieldSource.ts'
 
 export {
   createStickFieldEffect,

@@ -12,17 +12,21 @@ import {
   type LogTokenId,
   type LogTokenMeta,
 } from './logFieldSource'
+import { createBarkGrainTexture, warmBarkColor } from './barkShared'
+import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type LogFieldParams = {
   layoutDensity: number
   sizeScale: number
   lengthScale: number
+  downhillDrift: number
 }
 
 export const DEFAULT_LOG_FIELD_PARAMS: LogFieldParams = {
   layoutDensity: 0.42,
   sizeScale: 1,
   lengthScale: 1,
+  downhillDrift: 0.9,
 }
 
 export type LogFieldBounds = {
@@ -62,7 +66,17 @@ const LOG_DRAG = 2.2
 const LOG_SPIN_DRAG = 2.8
 const LOG_MAX_SPEED = 6.2
 const LOG_MAX_ANGULAR_SPEED = 4.6
+const LOG_SLOPE_SAMPLE_DISTANCE = 0.72
+const LOG_SLOPE_THRESHOLD = 0.018
+const LOG_SLOPE_RESPONSE_MAX = 0.14
+const LOG_SLOPE_ACCEL = 5.4
 const tmpLongAxis = new THREE.Vector3()
+const tmpGroundNormal = new THREE.Vector3()
+const tmpBasisX = new THREE.Vector3()
+const tmpBasisY = new THREE.Vector3()
+const tmpBasisZ = new THREE.Vector3()
+const tmpRadialOffset = new THREE.Vector3()
+const worldDown = new THREE.Vector3(0, -1, 0)
 const tmpBaseQuat = new THREE.Quaternion()
 const tmpSpinQuat = new THREE.Quaternion()
 const worldUp = new THREE.Vector3(0, 1, 0)
@@ -130,24 +144,33 @@ const logOrganicWorldField = createWorldField(977, {
 })
 
 function logColor(identity: number, noise: number, meta: LogTokenMeta): THREE.Color {
-  const t = uhash(identity * 2654435761)
-  const hue = 0.068 + t * 0.038 + meta.warmth
-  const sat = 0.34 + noise * 0.12 + t * 0.08
-  const light = 0.2 + noise * 0.18 + t * 0.05
-  return tmpColor.setHSL(hue, sat, light)
+  return warmBarkColor(identity, noise, meta.warmth, tmpColor)
 }
 
+/** Keep in sync with `makeLogGeometry` radial args; hull refinement and support use this. */
+const LOG_CYLINDER_LOCAL_RADIUS_MAX = 0.58
+const LOG_CYLINDER_HALF_HEIGHT = 0.5
+
 function makeLogGeometry(): THREE.BufferGeometry {
-  return new THREE.CylinderGeometry(0.5, 0.58, 1, 10, 1, false)
+  return new THREE.CylinderGeometry(0.5, LOG_CYLINDER_LOCAL_RADIUS_MAX, 1, 10, 1, false)
+}
+
+/**
+ * Grayscale grain only — hue/sat come from `warmBarkColor` × trunk-matching Lambert, same as tree trunks.
+ */
+function createLogBarkTexture(): THREE.CanvasTexture {
+  return createBarkGrainTexture()
 }
 
 export class LogFieldEffect {
   readonly group = new THREE.Group()
 
+  private readonly logBarkTexture = createLogBarkTexture()
   private readonly logGeometry = makeLogGeometry()
-  private readonly logMaterial = new THREE.MeshStandardMaterial({
-    roughness: 0.97,
-    metalness: 0.02,
+  private readonly logMaterial = new THREE.MeshLambertMaterial({
+    map: this.logBarkTexture,
+    emissive: '#5c3a18',
+    emissiveIntensity: 0.28,
   })
   private readonly logMesh = new THREE.InstancedMesh(this.logGeometry, this.logMaterial, MAX_INSTANCES)
   private readonly placementMask: Required<LogFieldPlacementMask>
@@ -155,7 +178,7 @@ export class LogFieldEffect {
   private readonly fieldDepth: number
   private readonly fieldCenterX: number
   private readonly fieldCenterZ: number
-  private readonly layoutDriver: SurfaceLayoutDriver<LogTokenId, LogTokenMeta>
+  private layoutDriver: SurfaceLayoutDriver<LogTokenId, LogTokenMeta>
   private readonly motionStates = new Map<string, LogMotionState>()
   private readonly pendingImpulses: PendingLogImpulse[] = []
   private params: LogFieldParams
@@ -177,15 +200,7 @@ export class LogFieldEffect {
       bounds,
       includeAtXZ: placementMask.includeAtXZ ?? (() => true),
     }
-    this.layoutDriver = new SurfaceLayoutDriver({
-      surface,
-      rows: ROWS,
-      sectors: SECTORS,
-      advanceForRow: (row) => row * 6 + 2,
-      seedCursor,
-      staggerFactor: 0.62,
-      minSpanFactor: 0.42,
-    })
+    this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
 
     this.logMesh.frustumCulled = false
     this.logMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
@@ -194,6 +209,10 @@ export class LogFieldEffect {
 
   setParams(params: Partial<LogFieldParams>): void {
     this.params = { ...this.params, ...params }
+  }
+
+  setSurface(surface: PreparedSurfaceSource<LogTokenId, LogTokenMeta>, seedCursor: SeedCursorFactory): void {
+    this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
   }
 
   clearMotion(): void {
@@ -235,7 +254,11 @@ export class LogFieldEffect {
     this.addMotionFromWorldPoint(worldPoint, options)
   }
 
-  update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
+  update(
+    elapsedTime: number,
+    getGroundHeight: (x: number, z: number) => number,
+    viewCull?: PresetLayoutViewCull | null,
+  ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
     const rowStep = this.fieldDepth / (ROWS + 1)
@@ -248,6 +271,9 @@ export class LogFieldEffect {
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
+      shouldVisitSlot: viewCull
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
           slot,
@@ -277,12 +303,28 @@ export class LogFieldEffect {
   }
 
   dispose(): void {
+    this.logBarkTexture.dispose()
     this.logGeometry.dispose()
     this.logMaterial.dispose()
   }
 
   private getSlotMaxWidth(slot: SurfaceLayoutSlot): number {
     return slot.spanSize * BASE_LAYOUT_PX_PER_WORLD * this.params.layoutDensity
+  }
+
+  private createLayoutDriver(
+    surface: PreparedSurfaceSource<LogTokenId, LogTokenMeta>,
+    seedCursor: SeedCursorFactory,
+  ): SurfaceLayoutDriver<LogTokenId, LogTokenMeta> {
+    return new SurfaceLayoutDriver({
+      surface,
+      rows: ROWS,
+      sectors: SECTORS,
+      advanceForRow: (row) => row * 6 + 2,
+      seedCursor,
+      staggerFactor: 0.62,
+      minSpanFactor: 0.42,
+    })
   }
 
   private getMotionState(key: string): LogMotionState {
@@ -303,14 +345,31 @@ export class LogFieldEffect {
     return state
   }
 
-  private applyMotionState(state: LogMotionState, baseX: number, baseZ: number, delta: number): void {
+  private shouldActivateMotionAt(x: number, z: number): boolean {
+    for (const impulse of this.pendingImpulses) {
+      const dx = x - impulse.x
+      const dz = z - impulse.z
+      if (dx * dx + dz * dz <= impulse.radius * impulse.radius) return true
+    }
+    return false
+  }
+
+  private applyMotionState(
+    state: LogMotionState,
+    baseX: number,
+    baseZ: number,
+    delta: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): void {
     const currentX = baseX + state.offsetX
     const currentZ = baseZ + state.offsetZ
+    let receivedImpulse = false
     for (const impulse of this.pendingImpulses) {
       const dx = currentX - impulse.x
       const dz = currentZ - impulse.z
       const distance = Math.hypot(dx, dz)
       if (distance > impulse.radius) continue
+      receivedImpulse = true
       const falloff = 1 - THREE.MathUtils.smoothstep(distance, 0, impulse.radius)
       const push = impulse.strength * falloff * falloff
       const tangentX = -impulse.directionZ
@@ -323,6 +382,25 @@ export class LogFieldEffect {
     }
 
     if (delta <= 0) return
+    const wasActive =
+      Math.abs(state.offsetX) > 0.002 ||
+      Math.abs(state.offsetZ) > 0.002 ||
+      Math.abs(state.velocityX) > 0.002 ||
+      Math.abs(state.velocityZ) > 0.002 ||
+      Math.abs(state.rollVelocity) > 0.002 ||
+      Math.abs(state.yawVelocity) > 0.002
+    const downhill = this.sampleDownhillVector(currentX, currentZ, getGroundHeight)
+    if ((receivedImpulse || wasActive) && downhill.slope > LOG_SLOPE_THRESHOLD && this.params.downhillDrift > 1e-6) {
+      const slope01 = THREE.MathUtils.clamp(
+        (downhill.slope - LOG_SLOPE_THRESHOLD) / (LOG_SLOPE_RESPONSE_MAX - LOG_SLOPE_THRESHOLD),
+        0,
+        1,
+      )
+      const carry = this.params.downhillDrift * slope01 * LOG_SLOPE_ACCEL * delta
+      state.velocityX += downhill.dirX * carry
+      state.velocityZ += downhill.dirZ * carry
+      state.rollVelocity += downhill.dirX * 0.08 * slope01 + downhill.dirZ * 0.06 * slope01
+    }
     const drag = Math.exp(-LOG_DRAG * delta)
     const spinDrag = Math.exp(-LOG_SPIN_DRAG * delta)
     const speed = Math.hypot(state.velocityX, state.velocityZ)
@@ -339,6 +417,103 @@ export class LogFieldEffect {
     state.yawVelocity = THREE.MathUtils.clamp(state.yawVelocity * spinDrag, -LOG_MAX_ANGULAR_SPEED * 0.55, LOG_MAX_ANGULAR_SPEED * 0.55)
     state.roll += state.rollVelocity * delta
     state.yaw += state.yawVelocity * delta
+  }
+
+  private sampleDownhillVector(
+    x: number,
+    z: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): { dirX: number; dirZ: number; slope: number } {
+    const sample = LOG_SLOPE_SAMPLE_DISTANCE
+    const gradX = (getGroundHeight(x + sample, z) - getGroundHeight(x - sample, z)) / (sample * 2)
+    const gradZ = (getGroundHeight(x, z + sample) - getGroundHeight(x, z - sample)) / (sample * 2)
+    const slope = Math.hypot(gradX, gradZ)
+    if (slope <= 1e-6) {
+      return { dirX: 0, dirZ: 0, slope: 0 }
+    }
+    return {
+      dirX: -gradX / slope,
+      dirZ: -gradZ / slope,
+      slope,
+    }
+  }
+
+  private sampleGroundNormal(
+    x: number,
+    z: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): THREE.Vector3 {
+    const sample = LOG_SLOPE_SAMPLE_DISTANCE
+    const gradX = (getGroundHeight(x + sample, z) - getGroundHeight(x - sample, z)) / (sample * 2)
+    const gradZ = (getGroundHeight(x, z + sample) - getGroundHeight(x, z - sample)) / (sample * 2)
+    return tmpGroundNormal.set(-gradX, 1, -gradZ).normalize()
+  }
+
+  private computeSupportedCenterY(
+    centerX: number,
+    centerZ: number,
+    orientation: THREE.Quaternion,
+    radiusX: number,
+    halfLength: number,
+    radiusZ: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): number {
+    tmpBasisX.set(1, 0, 0).applyQuaternion(orientation).normalize()
+    tmpBasisY.set(0, 1, 0).applyQuaternion(orientation).normalize()
+    tmpBasisZ.set(0, 0, 1).applyQuaternion(orientation).normalize()
+
+    const downX = worldDown.dot(tmpBasisX)
+    const downZ = worldDown.dot(tmpBasisZ)
+    const radialDenom = Math.hypot(radiusX * downX, radiusZ * downZ)
+    if (radialDenom <= 1e-6) {
+      tmpRadialOffset.copy(tmpBasisZ).multiplyScalar(-radiusZ)
+    } else {
+      tmpRadialOffset
+        .copy(tmpBasisX)
+        .multiplyScalar((-radiusX * radiusX * downX) / radialDenom)
+        .addScaledVector(tmpBasisZ, (-radiusZ * radiusZ * downZ) / radialDenom)
+    }
+
+    let supportY = getGroundHeight(centerX + tmpRadialOffset.x, centerZ + tmpRadialOffset.z) - tmpRadialOffset.y
+    const axisSteps = [-1, -0.66, -0.33, 0, 0.33, 0.66, 1]
+    for (const step of axisSteps) {
+      const axisOffset = halfLength * step
+      const sampleX = centerX + tmpRadialOffset.x + tmpBasisY.x * axisOffset
+      const sampleZ = centerZ + tmpRadialOffset.z + tmpBasisY.z * axisOffset
+      const sampleOffsetY = tmpRadialOffset.y + tmpBasisY.y * axisOffset
+      supportY = Math.max(supportY, getGroundHeight(sampleX, sampleZ) - sampleOffsetY)
+    }
+    return supportY + 0.01
+  }
+
+  /**
+   * Lifts center Y so rim samples of the scaled cylinder (same mapping as InstancedMesh: scale then quaternion)
+   * sit on or above terrain. Analytical `computeSupportedCenterY` misses rolled/tapered contact on ridges.
+   */
+  private refineLogCenterYAgainstTerrain(
+    centerX: number,
+    centerZ: number,
+    centerY: number,
+    quat: THREE.Quaternion,
+    radiusScale: number,
+    lengthScale: number,
+    depthScale: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): number {
+    const lr = LOG_CYLINDER_LOCAL_RADIUS_MAX
+    let y = centerY
+    const seg = 10
+    for (const ly of [-0.5, -0.25, 0, 0.25, 0.5] as const) {
+      for (let i = 0; i < seg; i++) {
+        const ang = (i / seg) * Math.PI * 2
+        const c = Math.cos(ang)
+        const s = Math.sin(ang)
+        tmpLocalPoint.set(lr * c * radiusScale, ly * lengthScale, lr * s * depthScale)
+        tmpLocalPoint.applyQuaternion(quat)
+        y = Math.max(y, getGroundHeight(centerX + tmpLocalPoint.x, centerZ + tmpLocalPoint.z) - tmpLocalPoint.y)
+      }
+    }
+    return y + 0.008
   }
 
   private motionInactive(state: LogMotionState): boolean {
@@ -400,16 +575,28 @@ export class LogFieldEffect {
       if (glyphHash(identity + 11, slot.row, k ^ 0x55) > keepChance) continue
 
       const motionKey = `${motionKeyPrefix}:${k}`
-      const state = this.getMotionState(motionKey)
-      this.applyMotionState(state, x, z, delta)
-      visitedKeys.add(motionKey)
-      if (this.motionInactive(state)) {
-        this.motionStates.delete(motionKey)
+      let movedX = x
+      let movedZ = z
+      let motionVelocityX = 0
+      let motionVelocityZ = 0
+      let motionYaw = 0
+      let motionRoll = 0
+      const state = this.motionStates.get(motionKey)
+      if (state || this.shouldActivateMotionAt(x, z)) {
+        const ensuredState = state ?? this.getMotionState(motionKey)
+        this.applyMotionState(ensuredState, x, z, delta, getGroundHeight)
+        if (this.motionInactive(ensuredState)) {
+          this.motionStates.delete(motionKey)
+        } else {
+          visitedKeys.add(motionKey)
+          movedX = x + ensuredState.offsetX
+          movedZ = z + ensuredState.offsetZ
+          motionVelocityX = ensuredState.velocityX
+          motionVelocityZ = ensuredState.velocityZ
+          motionYaw = ensuredState.yaw
+          motionRoll = ensuredState.roll
+        }
       }
-
-      const movedX = x + state.offsetX
-      const movedZ = z + state.offsetZ
-      const groundY = getGroundHeight(movedX, movedZ)
       const radiusTier = THREE.MathUtils.lerp(0.74, 1.56, hashRadius)
       const lengthTier = THREE.MathUtils.lerp(0.72, 1.62, hashLength)
       const heroScale = hashHero > 0.86 ? THREE.MathUtils.lerp(1.12, 1.52, hashCross) : 1
@@ -426,18 +613,44 @@ export class LogFieldEffect {
           heroScale,
       )
       const yaw = lineSeed * Math.PI * 2 + k * 1.07 + noise * 1.2
-      const planarSpeed = Math.hypot(state.velocityX, state.velocityZ)
-      const axisYaw = yaw + state.yaw
-      const roll = state.roll + (hashDep - 0.5) * 0.04
+      const planarSpeed = Math.hypot(motionVelocityX, motionVelocityZ)
+      const roll = motionRoll + (hashDep - 0.5) * 0.04
       const crossRadius = radius * THREE.MathUtils.lerp(0.7, 1.18, hashCross)
-      const liftRadius = Math.max(radius, crossRadius)
-
-      tmpLongAxis.set(Math.cos(axisYaw), 0, Math.sin(axisYaw)).normalize()
+      const depthScale = crossRadius * (0.84 + noise * 0.18)
+      const supportNormal = this.sampleGroundNormal(movedX, movedZ, getGroundHeight)
+      tmpLongAxis.set(Math.cos(yaw + motionYaw), 0, Math.sin(yaw + motionYaw))
+      tmpLongAxis.addScaledVector(supportNormal, -tmpLongAxis.dot(supportNormal))
+      if (tmpLongAxis.lengthSq() <= 1e-6) {
+        tmpLongAxis.set(Math.cos(yaw + motionYaw), 0, Math.sin(yaw + motionYaw))
+      }
+      tmpLongAxis.normalize()
       tmpBaseQuat.setFromUnitVectors(worldUp, tmpLongAxis)
       tmpSpinQuat.setFromAxisAngle(tmpLongAxis, roll + planarSpeed * 0.015)
-      dummy.position.set(movedX, groundY + liftRadius * THREE.MathUtils.lerp(0.42, 0.56, hashRadius), movedZ)
       dummy.quaternion.copy(tmpBaseQuat).multiply(tmpSpinQuat)
-      dummy.scale.set(radius, length, crossRadius * (0.84 + noise * 0.18))
+      const worldSemiX = radius * LOG_CYLINDER_LOCAL_RADIUS_MAX
+      const worldSemiZ = depthScale * LOG_CYLINDER_LOCAL_RADIUS_MAX
+      const worldHalfLen = length * LOG_CYLINDER_HALF_HEIGHT
+      let centerY = this.computeSupportedCenterY(
+        movedX,
+        movedZ,
+        dummy.quaternion,
+        worldSemiX,
+        worldHalfLen,
+        worldSemiZ,
+        getGroundHeight,
+      )
+      centerY = this.refineLogCenterYAgainstTerrain(
+        movedX,
+        movedZ,
+        centerY,
+        dummy.quaternion,
+        radius,
+        length,
+        depthScale,
+        getGroundHeight,
+      )
+      dummy.position.set(movedX, centerY, movedZ)
+      dummy.scale.set(radius, length, depthScale)
       dummy.updateMatrix()
       this.logMesh.setMatrixAt(instanceIndex, dummy.matrix)
       this.logMesh.setColorAt(instanceIndex, logColor(identity, noise, meta))

@@ -4,6 +4,7 @@ import {
   type SurfacePaletteEntry,
   WEFT_TEXT_FONT,
 } from '../../core'
+import type { TreeFoliageSeason } from './treeFieldSource'
 
 export type LogTokenId =
   | 'trunk-heavy'
@@ -34,10 +35,39 @@ const LOG_FIELD_PALETTE: readonly SurfacePaletteEntry<LogTokenId, LogTokenMeta>[
   { id: 'bark-light', glyph: '▤', meta: { lengthBias: 0.02, radiusBias: -0.02, warmth: 0.04 } },
 ] as const
 
+function seasonalMeta(meta: LogTokenMeta, season: TreeFoliageSeason): LogTokenMeta {
+  switch (season) {
+    case 'spring':
+      return { ...meta, warmth: meta.warmth - 0.04 }
+    case 'summer':
+      return { ...meta, warmth: meta.warmth - 0.01 }
+    case 'autumn':
+      return { ...meta, warmth: meta.warmth + 0.1 }
+    case 'winter':
+    default:
+      return { ...meta, warmth: meta.warmth - 0.18 }
+  }
+}
+
 export function getPreparedLogSurface(): PreparedSurfaceSource<LogTokenId, LogTokenMeta> {
   return prepareSemanticSurfaceText(
     'log-surface',
     LOG_FIELD_PALETTE,
+    14,
+    WEFT_TEXT_FONT,
+  )
+}
+
+export function buildLogSeasonSurface(season: TreeFoliageSeason): PreparedSurfaceSource<LogTokenId, LogTokenMeta> {
+  const palette = LOG_FIELD_PALETTE.map((entry) => ({
+    ...entry,
+    weight: entry.weight ?? 1,
+    meta: seasonalMeta(entry.meta, season),
+  }))
+
+  return prepareSemanticSurfaceText(
+    `log-surface-${season}`,
+    palette,
     14,
     WEFT_TEXT_FONT,
   )

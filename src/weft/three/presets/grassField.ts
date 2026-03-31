@@ -18,6 +18,7 @@ import {
   type GrassTokenId,
   type GrassTokenMeta,
 } from './grassFieldSource'
+import type { PresetLayoutViewCull } from './presetLayoutCull'
 
 export type GrassFieldParams = {
   disturbanceRadius: number
@@ -25,6 +26,12 @@ export type GrassFieldParams = {
   trampleDepth: number
   wind: number
   recoveryRate: number
+  /** Expanding ring burns (local XZ), same model as leaf litter. */
+  burnRadius: number
+  burnSpreadSpeed: number
+  burnMaxRadius: number
+  /** How fast burn intensity fades when a burn has no per-shot `recoveryRate`. Lower = slower dissolve / later regrowth. */
+  burnRecoveryRate: number
   state: number
   colorSeason?: 'spring' | 'summer' | 'autumn' | 'winter' | null
   layoutDensity: number
@@ -36,13 +43,17 @@ export const DEFAULT_GRASS_FIELD_PARAMS: GrassFieldParams = {
   disturbanceRadius: 1.15,
   disturbanceStrength: 0.78,
   trampleDepth: 0.68,
-  wind: 0.62,
+  wind: 0.58,
   recoveryRate: 0.8,
+  burnRadius: 0.62,
+  burnSpreadSpeed: 0.24,
+  burnMaxRadius: 5.2,
+  burnRecoveryRate: 0.0042,
   state: 0,
   colorSeason: null,
-  layoutDensity: 8,
-  bladeWidthScale: 1,
-  bladeHeightScale: 1,
+  layoutDensity: 13.5,
+  bladeWidthScale: 1.08,
+  bladeHeightScale: 2.9,
 }
 
 export type GrassFieldBounds = {
@@ -69,56 +80,63 @@ const ROWS = 52
 const SECTORS = 68
 const BLADES_PER_SLOT = 2
 const MAX_INSTANCES = 72_000
+/** World units; buckets blades for camera / effect–zone iteration when view culling is on. */
+const BLADE_CELL_SIZE = 5.75
 const LAYOUT_PX_PER_WORLD = 16
 const DISTURBANCE_RADIUS_MULTIPLIER = 2.35
 const MAX_ACTIVE_DISTURBANCES = 72
+const MAX_GRASS_BURNS = 22
 
 const tmpPos = new THREE.Vector3()
 const tmpColor = new THREE.Color()
 const tmpSeasonColorA = new THREE.Color()
 const tmpSeasonColorB = new THREE.Color()
 const tmpLocalPoint = new THREE.Vector3()
+const tmpGrassBurnField = { burn: 0, front: 0 }
+const tmpCrispOrange = new THREE.Color()
+const tmpCharcoal = new THREE.Color()
+const ZERO_GRASS_BURN_FIELD = { burn: 0, front: 0 }
 const dummy = new THREE.Object3D()
 
 const STATE_BLADE_BASE = [
-  new THREE.Color('#4d9e36'),
-  new THREE.Color('#c7a43a'),
-  new THREE.Color('#5c2a77'),
-  new THREE.Color('#756f63'),
+  new THREE.Color('#2d7a1a'),
+  new THREE.Color('#a07a18'),
+  new THREE.Color('#3d1660'),
+  new THREE.Color('#4e4840'),
 ] as const
 const STATE_BLADE_TIP = [
-  new THREE.Color('#b9f27f'),
-  new THREE.Color('#efd277'),
-  new THREE.Color('#b374ff'),
-  new THREE.Color('#aca59a'),
+  new THREE.Color('#d4ff82'),
+  new THREE.Color('#ffe080'),
+  new THREE.Color('#d080ff'),
+  new THREE.Color('#ccc5b8'),
 ] as const
 const STATE_GROUND_TINT = [
-  new THREE.Color('#7ca655'),
+  new THREE.Color('#7cb85e'),
   new THREE.Color('#9a7d44'),
   new THREE.Color('#55316d'),
   new THREE.Color('#8a8175'),
 ] as const
 const STATE_GROUND_BASE = [
-  new THREE.Color('#7fa154'),
+  new THREE.Color('#6fa854'),
   new THREE.Color('#8b6f31'),
   new THREE.Color('#6b3f84'),
   new THREE.Color('#93897b'),
 ] as const
 const STATE_GROUND_DARK = [
-  new THREE.Color('#566d3d'),
+  new THREE.Color('#4a6a38'),
   new THREE.Color('#5f4623'),
   new THREE.Color('#412154'),
   new THREE.Color('#645d54'),
 ] as const
 const SEASON_BLADE_TINT = {
-  spring: new THREE.Color('#8fc96b'),
-  summer: new THREE.Color('#5f8f3d'),
-  autumn: new THREE.Color('#c08a46'),
-  winter: new THREE.Color('#d9dedf'),
+  spring: new THREE.Color('#a0e060'),
+  summer: new THREE.Color('#4a7a28'),
+  autumn: new THREE.Color('#d09030'),
+  winter: new THREE.Color('#e8eef0'),
 } as const
 const SEASON_GROUND_TINT = {
-  spring: new THREE.Color('#7ea35f'),
-  summer: new THREE.Color('#5f7444'),
+  spring: new THREE.Color('#8ec470'),
+  summer: new THREE.Color('#5f8048'),
   autumn: new THREE.Color('#9b7046'),
   winter: new THREE.Color('#bdc5c9'),
 } as const
@@ -176,30 +194,106 @@ export type GrassDisturbanceOptions = {
   mergeRadius?: number
 }
 
-/** Chunky stem, soft mid, long tapered tip — reads closer to hand-painted / Ghibli grass cards. */
+export type GrassBurnOptions = {
+  radiusScale?: number
+  maxRadiusScale?: number
+  strength?: number
+  mergeRadius?: number
+  /**
+   * Strength decay rate for this scorch (same units as `burnRecoveryRate`). Lower = longer linger.
+   * Laser shots should pass a small value; omit to use `GrassFieldParams.burnRecoveryRate`.
+   */
+  recoveryRate?: number
+}
+
+type GrassBurn = {
+  x: number
+  z: number
+  radius: number
+  maxRadius: number
+  strength: number
+  /** When set, overrides `params.burnRecoveryRate` for this scorch only. */
+  recoveryRate?: number
+}
+
+/** Curved ribbon blade: still cheap enough for instancing, but reads much closer to dense natural grass. */
 function makeBladeGeometry(): THREE.BufferGeometry {
-  const bladeHeight = 0.79
-  const baseHalfWidth = 0.19
-  const geometry = new THREE.PlaneGeometry(baseHalfWidth * 2, bladeHeight, 4, 18)
+  const bladeHeight = 1.08
+  const bladeWidth = 0.26
+  const baseY = -0.055
+  const geometry = new THREE.PlaneGeometry(bladeWidth, bladeHeight, 1, 6)
   const position = geometry.attributes.position
   const halfH = bladeHeight * 0.5
+
   for (let i = 0; i < position.count; i++) {
     const x = position.getX(i)
     const y = position.getY(i)
     const y01 = THREE.MathUtils.clamp((y + halfH) / bladeHeight, 0, 1)
-    let widthScale: number
-    if (y01 < 0.24) {
-      widthScale = 1
-    } else {
-      const u = (y01 - 0.24) / 0.76
-      widthScale = 0.045 + 0.955 * Math.pow(1 - u, 1.92)
-    }
-    const ribbon = Math.sin(y01 * Math.PI * 1.05) * 0.022 * (1 - y01 * 0.85)
-    position.setXYZ(i, x * widthScale + ribbon, y, 0)
+    const edge = x / (bladeWidth * 0.5)
+    const taper = THREE.MathUtils.lerp(1, 0.04, Math.pow(y01, 1.28))
+    const ribbon = Math.sin(y01 * Math.PI * 1.08) * 0.024 * (1 - y01 * 0.7)
+    const curl = Math.pow(y01, 1.5) * 0.065
+    const lean = Math.pow(y01, 1.85) * 0.055
+    position.setXYZ(
+      i,
+      x * taper + ribbon,
+      y + baseY,
+      curl + edge * edge * lean,
+    )
   }
+
   position.needsUpdate = true
-  geometry.translate(0, halfH - 0.065, 0)
+  geometry.computeVertexNormals()
   return geometry
+}
+
+function bladeCellKey(x: number, z: number): number {
+  const ix = Math.floor(x / BLADE_CELL_SIZE)
+  const iz = Math.floor(z / BLADE_CELL_SIZE)
+  return ix * 100_042_069 + iz
+}
+
+function addGrassCellKeysInDisc(cx: number, cz: number, radius: number, out: Set<number>): void {
+  const r = Math.max(0.001, radius)
+  const minIx = Math.floor((cx - r) / BLADE_CELL_SIZE)
+  const maxIx = Math.floor((cx + r) / BLADE_CELL_SIZE)
+  const minIz = Math.floor((cz - r) / BLADE_CELL_SIZE)
+  const maxIz = Math.floor((cz + r) / BLADE_CELL_SIZE)
+  const rSq = r * r
+  for (let ix = minIx; ix <= maxIx; ix++) {
+    const x0 = ix * BLADE_CELL_SIZE
+    const x1 = x0 + BLADE_CELL_SIZE
+    for (let iz = minIz; iz <= maxIz; iz++) {
+      const z0 = iz * BLADE_CELL_SIZE
+      const z1 = z0 + BLADE_CELL_SIZE
+      const px = THREE.MathUtils.clamp(cx, x0, x1)
+      const pz = THREE.MathUtils.clamp(cz, z0, z1)
+      const dx = cx - px
+      const dz = cz - pz
+      if (dx * dx + dz * dz <= rSq) {
+        out.add(ix * 100_042_069 + iz)
+      }
+    }
+  }
+}
+
+function addGrassCellKeysInAabb(
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  pad: number,
+  out: Set<number>,
+): void {
+  const minIx = Math.floor((minX - pad) / BLADE_CELL_SIZE)
+  const maxIx = Math.floor((maxX + pad) / BLADE_CELL_SIZE)
+  const minIz = Math.floor((minZ - pad) / BLADE_CELL_SIZE)
+  const maxIz = Math.floor((maxZ + pad) / BLADE_CELL_SIZE)
+  for (let ix = minIx; ix <= maxIx; ix++) {
+    for (let iz = minIz; iz <= maxIz; iz++) {
+      out.add(ix * 100_042_069 + iz)
+    }
+  }
 }
 
 function createGroundTexture(): THREE.CanvasTexture {
@@ -213,7 +307,7 @@ function createGroundTexture(): THREE.CanvasTexture {
     return fallback
   }
 
-  ctx.fillStyle = '#5f8744'
+  ctx.fillStyle = '#5c9444'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
   for (let i = 0; i < 16000; i++) {
@@ -223,7 +317,7 @@ function createGroundTexture(): THREE.CanvasTexture {
     const alpha = 0.05 + Math.random() * 0.12
     const hue = 78 + Math.random() * 16
     const sat = 28 + Math.random() * 28
-    const light = 22 + Math.random() * 10
+    const light = 24 + Math.random() * 12
     ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
@@ -231,7 +325,7 @@ function createGroundTexture(): THREE.CanvasTexture {
   }
 
   for (let i = 0; i < 5200; i++) {
-    ctx.strokeStyle = `hsla(${86 + Math.random() * 14}, ${24 + Math.random() * 18}%, ${18 + Math.random() * 9}%, ${0.06 + Math.random() * 0.1})`
+    ctx.strokeStyle = `hsla(${86 + Math.random() * 14}, ${24 + Math.random() * 18}%, ${20 + Math.random() * 10}%, ${0.06 + Math.random() * 0.1})`
     ctx.lineWidth = 0.7 + Math.random() * 2.1
     ctx.beginPath()
     const x = Math.random() * canvas.width
@@ -246,7 +340,7 @@ function createGroundTexture(): THREE.CanvasTexture {
     const y = Math.random() * canvas.height
     const radius = 18 + Math.random() * 60
     const alpha = 0.04 + Math.random() * 0.08
-    ctx.fillStyle = `hsla(${88 + Math.random() * 18}, ${16 + Math.random() * 14}%, ${30 + Math.random() * 10}%, ${alpha})`
+    ctx.fillStyle = `hsla(${88 + Math.random() * 18}, ${18 + Math.random() * 16}%, ${32 + Math.random() * 10}%, ${alpha})`
     ctx.beginPath()
     ctx.ellipse(x, y, radius, radius * (0.45 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2)
     ctx.fill()
@@ -258,9 +352,9 @@ function createGroundTexture(): THREE.CanvasTexture {
     const radius = 46 + Math.random() * 120
     const alpha = 0.08 + Math.random() * 0.1
     const broadPatch = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius)
-    broadPatch.addColorStop(0, `rgba(124, 164, 74, ${alpha})`)
-    broadPatch.addColorStop(0.55, `rgba(90, 125, 54, ${alpha * 0.82})`)
-    broadPatch.addColorStop(1, 'rgba(90, 125, 54, 0)')
+    broadPatch.addColorStop(0, `rgba(130, 175, 78, ${alpha})`)
+    broadPatch.addColorStop(0.55, `rgba(95, 135, 58, ${alpha * 0.82})`)
+    broadPatch.addColorStop(1, 'rgba(95, 135, 58, 0)')
     ctx.fillStyle = broadPatch
     ctx.beginPath()
     ctx.ellipse(x, y, radius, radius * (0.5 + Math.random() * 0.28), Math.random() * Math.PI, 0, Math.PI * 2)
@@ -272,7 +366,7 @@ function createGroundTexture(): THREE.CanvasTexture {
     const y = Math.random() * canvas.height
     const radius = 3 + Math.random() * 10
     const alpha = 0.03 + Math.random() * 0.06
-    ctx.fillStyle = `hsla(${102 + Math.random() * 14}, 20%, ${58 + Math.random() * 8}%, ${alpha})`
+    ctx.fillStyle = `hsla(${102 + Math.random() * 14}, 22%, ${58 + Math.random() * 8}%, ${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
@@ -284,9 +378,9 @@ function createGroundTexture(): THREE.CanvasTexture {
     const radius = 56 + Math.random() * 90
     const alpha = 0.05 + Math.random() * 0.08
     const grassPatch = ctx.createRadialGradient(x, y, radius * 0.16, x, y, radius)
-    grassPatch.addColorStop(0, `rgba(92, 128, 58, ${alpha})`)
-    grassPatch.addColorStop(0.55, `rgba(124, 162, 78, ${alpha * 0.82})`)
-    grassPatch.addColorStop(1, 'rgba(124, 162, 78, 0)')
+    grassPatch.addColorStop(0, `rgba(98, 138, 58, ${alpha})`)
+    grassPatch.addColorStop(0.55, `rgba(128, 168, 82, ${alpha * 0.82})`)
+    grassPatch.addColorStop(1, 'rgba(128, 168, 82, 0)')
     ctx.fillStyle = grassPatch
     ctx.beginPath()
     ctx.ellipse(x, y, radius, radius * (0.55 + Math.random() * 0.3), Math.random() * Math.PI, 0, Math.PI * 2)
@@ -299,7 +393,7 @@ function createGroundTexture(): THREE.CanvasTexture {
     const alpha = 0.03 + Math.random() * 0.05
     const band = ctx.createLinearGradient(0, y - thickness, 0, y + thickness)
     band.addColorStop(0, 'rgba(0,0,0,0)')
-    band.addColorStop(0.5, `rgba(68, 97, 43, ${alpha})`)
+    band.addColorStop(0.5, `rgba(72, 105, 48, ${alpha})`)
     band.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.fillStyle = band
     ctx.fillRect(0, y - thickness, canvas.width, thickness * 2)
@@ -357,11 +451,11 @@ export class GrassFieldEffect {
 
   private readonly bladeGeometry = makeBladeGeometry()
   private readonly bladeMaterial = new THREE.MeshStandardMaterial({
-    color: '#c9f288',
-    emissive: '#3d5a28',
-    emissiveIntensity: 0.09,
+    color: '#d3f48d',
+    emissive: '#35580f',
+    emissiveIntensity: 0.22,
     side: THREE.DoubleSide,
-    roughness: 0.52,
+    roughness: 0.82,
     metalness: 0,
   })
   private readonly bladeMesh = new THREE.InstancedMesh(this.bladeGeometry, this.bladeMaterial, MAX_INSTANCES)
@@ -386,11 +480,22 @@ export class GrassFieldEffect {
   private readonly seedCursor: SeedCursorFactory
   private layoutDriver: SurfaceLayoutDriver<GrassTokenId, GrassTokenMeta>
   private readonly disturbances: Disturbance[] = []
+  private readonly burns: GrassBurn[] = []
   private readonly cachedBlades: CachedBladeInstance[] = []
+  /** Blade indices per spatial cell (`bladeCellKey`); rebuilt with the blade cache. */
+  private readonly bladeCellBuckets = new Map<number, number[]>()
+  private bladeWindPhaseAttr!: THREE.InstancedBufferAttribute
+  private readonly bladeShaderUniforms: Record<string, THREE.IUniform<number>> = {
+    uGrassWindTime: { value: 0 },
+    uGrassWindStrength: { value: 0 },
+    uGrassGpuWind: { value: 1 },
+  }
   private terrainRelief: TerrainHeightSampler | null
   private lastElapsedTime = 0
   private bladeCacheDirty = true
   private baseBladeColorsDirty = true
+  private frameLayoutViewCull: PresetLayoutViewCull | null = null
+  private prevHadLayoutViewCull: boolean | null = null
   private params: GrassFieldParams
 
   constructor(
@@ -430,6 +535,77 @@ export class GrassFieldEffect {
     this.group.add(this.groundSurfaceMesh)
     this.group.add(this.interactionMesh)
     this.group.add(this.bladeMesh)
+
+    const windPhaseData = new Float32Array(MAX_INSTANCES * 2)
+    this.bladeWindPhaseAttr = new THREE.InstancedBufferAttribute(windPhaseData, 2)
+    this.bladeGeometry.setAttribute('windPhase', this.bladeWindPhaseAttr)
+    this.patchGrassBladeMaterial()
+  }
+
+  private patchGrassBladeMaterial(): void {
+    this.bladeMaterial.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, this.bladeShaderUniforms)
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `#include <common>
+attribute vec2 windPhase;
+varying float vGrassHeight;
+varying float vGrassEdge;
+`,
+      )
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+vGrassHeight = uv.y;
+vGrassEdge = abs( uv.x - 0.5 ) * 2.0;
+{
+  float gGpu = uGrassGpuWind;
+  vec2 wp = windPhase;
+  float gust = sin( uGrassWindTime * 1.55 + wp.x ) + 0.55 * sin( uGrassWindTime * 2.8 + wp.y );
+  float hh = uv.y * uv.y;
+  float tip = smoothstep( 0.14, 1.0, uv.y );
+  float edgeSigned = uv.x - 0.5;
+  float sway = gust * uGrassWindStrength * 0.14 * hh * gGpu;
+  float bendAmt = ( 0.24 + abs( gust ) * 0.18 ) * uGrassWindStrength * hh * gGpu;
+  transformed.x += edgeSigned * tip * 0.035;
+  transformed.z += tip * 0.04 + edgeSigned * edgeSigned * tip * 0.05;
+  transformed.x += sway;
+  transformed.z += bendAmt * 0.62;
+}
+`,
+      )
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `#include <common>
+varying float vGrassHeight;
+varying float vGrassEdge;
+`,
+      )
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+{
+  float bladeAo = mix( 0.4, 1.0, smoothstep( 0.0, 0.52, vGrassHeight ) );
+  float edgeShade = mix( 0.9, 1.0, 1.0 - smoothstep( 0.3, 1.0, vGrassEdge ) );
+  float tipLift = mix( 0.94, 1.06, smoothstep( 0.42, 1.0, vGrassHeight ) );
+  diffuseColor.rgb *= bladeAo * edgeShade * tipLift;
+}
+`,
+      )
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <emissivemap_fragment>',
+        `#include <emissivemap_fragment>
+totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) );
+`,
+      )
+    }
+    this.bladeMaterial.customProgramCacheKey = () => 'grass-blade-wind-ao-v4'
+    this.bladeMaterial.needsUpdate = true
   }
 
   setParams(params: Partial<GrassFieldParams>): void {
@@ -465,8 +641,17 @@ export class GrassFieldEffect {
     this.baseBladeColorsDirty = true
   }
 
+  clearBurns(): void {
+    this.burns.length = 0
+    this.baseBladeColorsDirty = true
+  }
+
   hasDisturbances(): boolean {
     return this.disturbances.length > 0
+  }
+
+  hasBurns(): boolean {
+    return this.burns.length > 0
   }
 
   addDisturbanceFromWorldPoint(worldPoint: THREE.Vector3, options: GrassDisturbanceOptions = {}): void {
@@ -509,6 +694,51 @@ export class GrassFieldEffect {
     }
   }
 
+  addBurnFromWorldPoint(worldPoint: THREE.Vector3, options: GrassBurnOptions = {}): void {
+    tmpLocalPoint.copy(worldPoint)
+    this.group.worldToLocal(tmpLocalPoint)
+    const x = THREE.MathUtils.clamp(tmpLocalPoint.x, -this.fieldWidth * 0.46, this.fieldWidth * 0.46)
+    const z = THREE.MathUtils.clamp(tmpLocalPoint.z, -this.fieldDepth * 0.46, this.fieldDepth * 0.46)
+    const radius = this.params.burnRadius * (options.radiusScale ?? 1)
+    const maxRadius = this.params.burnMaxRadius * (options.maxRadiusScale ?? 1)
+    const strength = THREE.MathUtils.clamp(options.strength ?? 1, 0.05, 1.4)
+    const mergeRadius = options.mergeRadius ?? 0
+    const defaultBurnRecovery = this.params.burnRecoveryRate
+    const incomingRecovery =
+      options.recoveryRate !== undefined ? options.recoveryRate : defaultBurnRecovery
+
+    if (mergeRadius > 0) {
+      const mergeRadiusSq = mergeRadius * mergeRadius
+      for (const burn of this.burns) {
+        const dx = burn.x - x
+        const dz = burn.z - z
+        if (dx * dx + dz * dz > mergeRadiusSq) continue
+        burn.x = THREE.MathUtils.lerp(burn.x, x, 0.35)
+        burn.z = THREE.MathUtils.lerp(burn.z, z, 0.35)
+        burn.radius = Math.max(burn.radius, radius)
+        burn.maxRadius = Math.max(burn.maxRadius, maxRadius)
+        burn.strength = Math.min(1.35, Math.max(burn.strength, strength))
+        const rOld = burn.recoveryRate ?? defaultBurnRecovery
+        burn.recoveryRate = Math.min(rOld, incomingRecovery)
+        this.baseBladeColorsDirty = true
+        return
+      }
+    }
+
+    this.burns.unshift({
+      x,
+      z,
+      radius,
+      maxRadius,
+      strength,
+      recoveryRate: options.recoveryRate !== undefined ? options.recoveryRate : undefined,
+    })
+    if (this.burns.length > MAX_GRASS_BURNS) {
+      this.burns.length = MAX_GRASS_BURNS
+    }
+    this.baseBladeColorsDirty = true
+  }
+
   getDisturbanceAtWorld(x: number, z: number): number {
     tmpLocalPoint.set(x, 0, z)
     this.group.worldToLocal(tmpLocalPoint)
@@ -531,9 +761,16 @@ export class GrassFieldEffect {
     return tmpLocalPoint.y
   }
 
-  update(elapsedTime: number): void {
+  update(elapsedTime: number, layoutViewCull?: PresetLayoutViewCull | null): void {
+    const hasCull = layoutViewCull != null
+    if (this.prevHadLayoutViewCull !== hasCull) {
+      this.bladeCacheDirty = true
+      this.prevHadLayoutViewCull = hasCull
+    }
+    this.frameLayoutViewCull = layoutViewCull ?? null
     const delta = this.lastElapsedTime === 0 ? 0 : Math.max(0, elapsedTime - this.lastElapsedTime)
     this.lastElapsedTime = elapsedTime
+    this.updateBurns(delta)
     this.updateDisturbances(delta)
     this.updateBlades(elapsedTime)
   }
@@ -581,6 +818,74 @@ export class GrassFieldEffect {
       disturbance: THREE.MathUtils.clamp(disturbance, 0, 1),
       awayX,
       awayZ,
+    }
+  }
+
+  /** Scorched body + narrow crisp orange ring at the expanding radius. */
+  private burnFieldAt(x: number, z: number, target: { burn: number; front: number }): { burn: number; front: number } {
+    if (this.burns.length === 0) {
+      target.burn = 0
+      target.front = 0
+      return target
+    }
+
+    let burn = 0
+    let front = 0
+    for (const impact of this.burns) {
+      const physicalR = Math.max(0.001, impact.radius)
+      const s = THREE.MathUtils.clamp(impact.strength, 0, 1)
+      /** Contracting disk while strength fades — reads as slow dissolve, not a pop. */
+      const displayRadius = physicalR * THREE.MathUtils.lerp(0.34, 1, Math.pow(s, 0.5))
+      const distance = Math.hypot(x - impact.x, z - impact.z)
+      if (distance > displayRadius + 0.55) continue
+
+      const localBurn =
+        impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(distance, 0, displayRadius), 0.58)
+      burn = Math.max(burn, localBurn)
+
+      const frontWidth = Math.max(0.065, displayRadius * 0.095)
+      const frontDistance = Math.abs(distance - displayRadius)
+      const localFront =
+        impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(frontDistance, 0, frontWidth), 2.75)
+      front = Math.max(front, localFront)
+    }
+
+    target.burn = THREE.MathUtils.clamp(burn, 0, 1)
+    target.front = THREE.MathUtils.clamp(front, 0, 1)
+    return target
+  }
+
+  private applyGrassBurnToBladeColor(color: THREE.Color, burn: number, front: number): void {
+    const edge = Math.pow(front, 0.34)
+    tmpCrispOrange.setHSL(0.052, 0.97, 0.52)
+    tmpCharcoal.setHSL(0.07, 0.12, 0.1 + burn * 0.09)
+    const charMix = THREE.MathUtils.smoothstep(burn, 0.1, 0.94) * 0.9
+    color.lerp(tmpCharcoal, charMix)
+    const ringBoost = edge * (0.88 + 0.12 * (1 - burn))
+    color.lerp(tmpCrispOrange, ringBoost)
+  }
+
+  private updateBurns(delta: number): void {
+    if (delta <= 0 || this.burns.length === 0) return
+    const removeThreshold = 0.018
+    for (const burn of this.burns) {
+      const spreadMul = THREE.MathUtils.lerp(0.12, 1, Math.pow(burn.strength, 0.82))
+      const growth =
+        this.params.burnSpreadSpeed * delta * (0.45 + burn.strength * 0.55) * spreadMul
+      burn.radius = Math.min(burn.maxRadius, burn.radius + growth)
+    }
+    for (let i = this.burns.length - 1; i >= 0; i--) {
+      const burn = this.burns[i]!
+      const rate = burn.recoveryRate ?? this.params.burnRecoveryRate
+      if (rate > 0) {
+        burn.strength = decayRecoveringStrength(burn.strength, Math.max(1e-7, rate), delta)
+      }
+      if (burn.strength <= removeThreshold) {
+        this.burns.splice(i, 1)
+      }
+    }
+    if (this.burns.length === 0) {
+      this.baseBladeColorsDirty = true
     }
   }
 
@@ -656,6 +961,13 @@ export class GrassFieldEffect {
     }
 
     const hasDisturbances = this.disturbances.length > 0
+    const hasBurns = this.burns.length > 0
+    const needsDynamicBladeColor = hasDisturbances || hasBurns
+    const useGpuWind = !hasDisturbances && !hasBurns
+    this.bladeShaderUniforms.uGrassWindTime.value = elapsedTime
+    this.bladeShaderUniforms.uGrassWindStrength.value = this.params.wind
+    this.bladeShaderUniforms.uGrassGpuWind.value = useGpuWind ? 1 : 0
+
     const stateIndex = this.stateIndex()
     const statePresence = STATE_PRESENCE[stateIndex]!
     const disturbedPresence = Math.max(0.02, statePresence * (1 - this.params.disturbanceStrength * 0.98))
@@ -665,15 +977,59 @@ export class GrassFieldEffect {
     const bladeWidthScale = Math.max(0.01, this.params.bladeWidthScale)
     const bladeHeightScale = Math.max(0.01, this.params.bladeHeightScale)
     const disturbanceBounds = hasDisturbances ? this.activeDisturbanceBounds() : null
+    const burnBounds = hasBurns ? this.activeBurnBounds() : null
+    const effectBounds = GrassFieldEffect.mergeXZBounds(disturbanceBounds, burnBounds)
     const gustTimeA = elapsedTime * 1.55
     const gustTimeB = elapsedTime * 2.8
-    if (!hasDisturbances && this.baseBladeColorsDirty) {
-      this.applyBaseBladeColors()
+
+    const cull = this.frameLayoutViewCull
+    const cullRsq = cull ? cull.radius * cull.radius : 0
+    let camLX = 0
+    let camLZ = 0
+    if (cull) {
+      tmpLocalPoint.copy(cull.cameraWorld)
+      this.group.worldToLocal(tmpLocalPoint)
+      camLX = tmpLocalPoint.x
+      camLZ = tmpLocalPoint.z
     }
 
+    let activeCellKeys: Set<number> | null = null
+    if (cull && this.bladeCellBuckets.size > 0) {
+      activeCellKeys = new Set<number>()
+      addGrassCellKeysInDisc(camLX, camLZ, cull.radius, activeCellKeys)
+      if (effectBounds) {
+        addGrassCellKeysInAabb(
+          effectBounds.minX,
+          effectBounds.maxX,
+          effectBounds.minZ,
+          effectBounds.maxZ,
+          2.5,
+          activeCellKeys,
+        )
+      }
+    }
+
+    const windArr = this.bladeWindPhaseAttr.array as Float32Array
     let instanceIndex = 0
-    for (let i = 0; i < this.cachedBlades.length; i++) {
+
+    const processBlade = (i: number): void => {
       const blade = this.cachedBlades[i]!
+      if (cull) {
+        const dx = blade.x - camLX
+        const dz = blade.z - camLZ
+        if (dx * dx + dz * dz > cullRsq) {
+          if (!effectBounds) return
+          const pad = 2.5
+          if (
+            blade.x < effectBounds.minX - pad ||
+            blade.x > effectBounds.maxX + pad ||
+            blade.z < effectBounds.minZ - pad ||
+            blade.z > effectBounds.maxZ + pad
+          ) {
+            return
+          }
+        }
+      }
       let localDisturbance = 0
       let awayX = 0
       let awayZ = 1
@@ -689,49 +1045,134 @@ export class GrassFieldEffect {
         awayX = disturbance.awayX
         awayZ = disturbance.awayZ
         const localCoverage = THREE.MathUtils.lerp(statePresence, disturbedPresence, localDisturbance) * blade.coverageMultiplier
-        if (blade.hashPresence > localCoverage) continue
+        if (blade.hashPresence > localCoverage) return
       }
+
+      const burnField = hasBurns ? this.burnFieldAt(blade.x, blade.z, tmpGrassBurnField) : ZERO_GRASS_BURN_FIELD
+
+      /** Scorched blades keep most of their height: laser trample + burn shrink stacked invisibly. */
+      const burnTrampleShield = THREE.MathUtils.clamp(
+        burnField.burn * 0.62 + burnField.front * 1.4,
+        0,
+        1,
+      )
+      const visDisturbance =
+        localDisturbance * THREE.MathUtils.lerp(1, 0.14, burnTrampleShield)
 
       const gust =
         Math.sin(gustTimeA + blade.windPhaseA) +
         0.55 * Math.sin(gustTimeB + blade.windPhaseB)
-      const windYaw = gust * this.params.wind * 0.14
-      const windBend = (0.24 + Math.abs(gust) * 0.18) * this.params.wind
-      const trampleBend = localDisturbance * 1.15 * disturbanceLift
+      const windYaw = useGpuWind ? 0 : gust * this.params.wind * 0.14
+      const windBend = useGpuWind ? 0 : (0.24 + Math.abs(gust) * 0.18) * this.params.wind
+      const trampleBend = visDisturbance * 1.15 * disturbanceLift
+
+      const burnWidthMul = 1 - burnField.burn * 0.38 + burnField.front * 0.1
+      const burnHeightMul = Math.max(0.36, 1 - burnField.burn * 0.5 + burnField.front * 0.34)
 
       tmpPos.set(
-        blade.x + awayX * localDisturbance * 0.22,
-        blade.baseY + 0.16 + localDisturbance * 0.05,
-        blade.z + awayZ * localDisturbance * 0.22,
+        blade.x + awayX * visDisturbance * 0.22,
+        blade.baseY + 0.16 + visDisturbance * 0.05,
+        blade.z + awayZ * visDisturbance * 0.22,
       )
       dummy.position.copy(tmpPos)
       dummy.rotation.set(0, Math.atan2(awayX, awayZ) + blade.baseBendDirection + windYaw, 0)
       dummy.rotateX(blade.baseRotateX)
       dummy.rotateZ(((windBend + trampleBend) * Math.sign(awayX || 1) + stateLean) * stateBend)
       dummy.scale.set(
-        blade.baseWidth * bladeWidthScale * (1 - localDisturbance * 0.42),
-        Math.max(blade.baseHeight * bladeHeightScale * (1 - localDisturbance * 0.88), 0.18 * bladeHeightScale),
+        blade.baseWidth * bladeWidthScale * (1 - visDisturbance * 0.42) * burnWidthMul,
+        Math.max(blade.baseHeight * bladeHeightScale * (1 - visDisturbance * 0.88), 0.18 * bladeHeightScale) *
+          burnHeightMul,
         1,
       )
       dummy.updateMatrix()
       this.bladeMesh.setMatrixAt(instanceIndex, dummy.matrix)
 
-      if (hasDisturbances) {
+      windArr[instanceIndex * 2] = blade.windPhaseA
+      windArr[instanceIndex * 2 + 1] = blade.windPhaseB
+
+      if (needsDynamicBladeColor) {
         tmpColor.setRGB(blade.baseColorR, blade.baseColorG, blade.baseColorB)
-        tmpColor.lerp(this.tintColor(STATE_GROUND_BASE[stateIndex]!, SEASON_GROUND_BASE, 0.52), localDisturbance * 0.06)
-        tmpColor.lerp(this.tintColor(STATE_GROUND_DARK[stateIndex]!, SEASON_GROUND_DARK, 0.58), localDisturbance * 0.28)
+        if (localDisturbance > 0) {
+          tmpColor.lerp(this.tintColor(STATE_GROUND_BASE[stateIndex]!, SEASON_GROUND_BASE, 0.52), localDisturbance * 0.06)
+          tmpColor.lerp(this.tintColor(STATE_GROUND_DARK[stateIndex]!, SEASON_GROUND_DARK, 0.58), localDisturbance * 0.28)
+        }
+        if (burnField.burn > 0.002 || burnField.front > 0.002) {
+          this.applyGrassBurnToBladeColor(tmpColor, burnField.burn, burnField.front)
+        }
+        this.bladeMesh.setColorAt(instanceIndex, tmpColor)
+      } else if (this.baseBladeColorsDirty || cull) {
+        /** `cull` remaps instance indices every frame; refresh static colors whenever the visible set is camera-relative. */
+        tmpColor.setRGB(blade.baseColorR, blade.baseColorG, blade.baseColorB)
         this.bladeMesh.setColorAt(instanceIndex, tmpColor)
       }
 
       instanceIndex++
     }
 
+    if (activeCellKeys) {
+      for (const key of activeCellKeys) {
+        const bucket = this.bladeCellBuckets.get(key)
+        if (!bucket) continue
+        for (let b = 0; b < bucket.length; b++) {
+          processBlade(bucket[b]!)
+        }
+      }
+    } else {
+      for (let i = 0; i < this.cachedBlades.length; i++) {
+        processBlade(i)
+      }
+    }
+
     this.bladeMesh.count = instanceIndex
     this.bladeMesh.instanceMatrix.needsUpdate = true
-    if (hasDisturbances && this.bladeMesh.instanceColor) {
+    this.bladeWindPhaseAttr.needsUpdate = true
+    if (needsDynamicBladeColor && this.bladeMesh.instanceColor) {
       this.bladeMesh.instanceColor.needsUpdate = true
       this.baseBladeColorsDirty = true
     }
+    if (!needsDynamicBladeColor && this.bladeMesh.instanceColor && (this.baseBladeColorsDirty || cull)) {
+      this.bladeMesh.instanceColor.needsUpdate = true
+      if (!cull) this.baseBladeColorsDirty = false
+    }
+  }
+
+  private static mergeXZBounds(
+    a: { minX: number; maxX: number; minZ: number; maxZ: number } | null,
+    b: { minX: number; maxX: number; minZ: number; maxZ: number } | null,
+  ): { minX: number; maxX: number; minZ: number; maxZ: number } | null {
+    if (!a && !b) return null
+    if (!a) return b
+    if (!b) return a
+    return {
+      minX: Math.min(a.minX, b.minX),
+      maxX: Math.max(a.maxX, b.maxX),
+      minZ: Math.min(a.minZ, b.minZ),
+      maxZ: Math.max(a.maxZ, b.maxZ),
+    }
+  }
+
+  private activeBurnBounds():
+    | {
+        minX: number
+        maxX: number
+        minZ: number
+        maxZ: number
+      }
+    | null {
+    if (this.burns.length === 0) return null
+
+    let minX = Infinity
+    let maxX = -Infinity
+    let minZ = Infinity
+    let maxZ = -Infinity
+    for (const burn of this.burns) {
+      const radius = Math.max(0.001, burn.radius)
+      minX = Math.min(minX, burn.x - radius)
+      maxX = Math.max(maxX, burn.x + radius)
+      minZ = Math.min(minZ, burn.z - radius)
+      maxZ = Math.max(maxZ, burn.z + radius)
+    }
+    return { minX, maxX, minZ, maxZ }
   }
 
   private activeDisturbanceBounds():
@@ -760,6 +1201,7 @@ export class GrassFieldEffect {
 
   private rebuildBladeCache(): void {
     this.cachedBlades.length = 0
+    this.bladeCellBuckets.clear()
     const rowStep = this.fieldDepth / (ROWS + 1.1)
     const backZ = this.fieldDepth * 0.48
     const stateIndex = this.stateIndex()
@@ -775,6 +1217,16 @@ export class GrassFieldEffect {
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
+      shouldVisitSlot: this.frameLayoutViewCull
+        ? (slot) => {
+            tmpLocalPoint.copy(this.frameLayoutViewCull!.cameraWorld)
+            this.group.worldToLocal(tmpLocalPoint)
+            const r = this.frameLayoutViewCull!.radius
+            const dx = slot.spanCenter - tmpLocalPoint.x
+            const dz = slot.lineCoord - tmpLocalPoint.z
+            return dx * dx + dz * dz <= r * r
+          }
+        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         const n = resolvedGlyphs.length
         const lineSeed = lineSignature(tokenLineKey)
@@ -818,23 +1270,23 @@ export class GrassFieldEffect {
             if (hashPresence > statePresence * coverageMultiplier) continue
 
             const organicNoise = grassOrganicWorldField(x + hashOrganic * 0.4, localZ + hashOrganic * 0.3)
-            const tipFade = blade * 0.055
+            const tipFade = blade * 0.12
             const stateBrightness = THREE.MathUtils.clamp(
-              0.18 + organicNoise * 0.64 + meta.lightShift + tipFade,
+              0.06 + organicNoise * 0.78 + meta.lightShift + tipFade,
               0,
               1,
             )
             tmpColor.copy(bladeBaseColor)
-            tmpColor.lerp(bladeTipColor, stateBrightness)
+            tmpColor.lerp(bladeTipColor, Math.pow(stateBrightness, 0.82))
 
             this.cachedBlades.push({
               x,
               z: localZ,
               baseY: this.baseGroundY(x, localZ),
-              baseWidth: (0.072 + meta.widthBias + (identity % 5) * 0.008 + organicNoise * 0.015 + blade * 0.006) * stateWidth,
+              baseWidth: (0.056 + meta.widthBias + (identity % 5) * 0.006 + organicNoise * 0.012 + blade * 0.004) * stateWidth,
               baseHeight:
                 (0.88 + meta.heightBias + (identity % 7) * 0.08 + organicNoise * 0.14 + blade * 0.07) *
-                0.5 *
+                0.62 *
                 stateHeight,
               baseRotateX: (organicNoise - 0.5) * 0.12 * stateBend,
               baseBendDirection: (organicNoise - 0.5) * 0.35,
@@ -846,6 +1298,14 @@ export class GrassFieldEffect {
               baseColorG: tmpColor.g,
               baseColorB: tmpColor.b,
             })
+            const bladeIndex = this.cachedBlades.length - 1
+            const ck = bladeCellKey(x, localZ)
+            let bucket = this.bladeCellBuckets.get(ck)
+            if (!bucket) {
+              bucket = []
+              this.bladeCellBuckets.set(ck, bucket)
+            }
+            bucket.push(bladeIndex)
           }
         }
       },
@@ -853,18 +1313,6 @@ export class GrassFieldEffect {
 
     this.bladeCacheDirty = false
     this.baseBladeColorsDirty = true
-  }
-
-  private applyBaseBladeColors(): void {
-    for (let i = 0; i < this.cachedBlades.length; i++) {
-      const blade = this.cachedBlades[i]!
-      tmpColor.setRGB(blade.baseColorR, blade.baseColorG, blade.baseColorB)
-      this.bladeMesh.setColorAt(i, tmpColor)
-    }
-    if (this.bladeMesh.instanceColor) {
-      this.bladeMesh.instanceColor.needsUpdate = true
-    }
-    this.baseBladeColorsDirty = false
   }
 
   private getSlotMaxWidth(slot: SurfaceLayoutSlot): number {
