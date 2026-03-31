@@ -335,18 +335,17 @@ export class ShrubFieldEffect {
     let front = 0
     for (const impact of this.burns) {
       if (impact.instanceId !== instanceId) continue
-      const radius = Math.max(0.001, impact.radius)
-      const distance = 0
-      if (distance > radius + 0.85) continue
-
-      const localBurn =
-        impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(distance, 0, radius), 0.55)
+      const progress = THREE.MathUtils.clamp(
+        impact.radius / Math.max(impact.maxRadius, 0.001),
+        0,
+        1,
+      )
+      const localBurn = impact.strength * Math.pow(progress, 0.78)
       burn = Math.max(burn, localBurn)
 
-      const frontWidth = Math.max(0.22, radius * 0.32)
-      const frontDistance = Math.abs(distance - radius)
+      const frontPulse = THREE.MathUtils.clamp(1 - Math.abs(progress - 0.38) / 0.3, 0, 1)
       const localFront =
-        impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(frontDistance, 0, frontWidth), 0.72)
+        impact.strength * Math.pow(frontPulse, 0.85) * (1 - Math.min(1, localBurn * 0.42))
       front = Math.max(front, localFront)
     }
 
