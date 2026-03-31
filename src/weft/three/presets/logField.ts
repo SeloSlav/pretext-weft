@@ -13,11 +13,7 @@ import {
   type LogTokenMeta,
 } from './logFieldSource'
 import { createBarkGrainTexture, warmBarkColor } from './barkShared'
-import {
-  shouldVisitSlotForViewCull,
-  type PresetLayoutViewCull,
-  type PresetLayoutViewCullFrustumContext,
-} from './presetLayoutCull'
+import { type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type LogFieldParams = {
   layoutDensity: number
@@ -180,7 +176,6 @@ export class LogFieldEffect {
   private readonly fieldCenterZ: number
   private layoutDriver: SurfaceLayoutDriver<LogTokenId, LogTokenMeta>
   private readonly motionStates = new Map<string, LogMotionState>()
-  private readonly tmpViewCullBox = new THREE.Box3()
   private readonly pendingImpulses: PendingLogImpulse[] = []
   private params: LogFieldParams
   private lastElapsed = 0
@@ -267,22 +262,11 @@ export class LogFieldEffect {
     let instanceIndex = 0
     const visitedKeys = new Set<string>()
 
-    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
-      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
-      : undefined
-
-    if (viewCull?.frustum) {
-      this.group.updateMatrixWorld(true)
-    }
-
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
-      shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
-        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
           slot,
@@ -293,6 +277,7 @@ export class LogFieldEffect {
           instanceIndex,
           delta,
           visitedKeys,
+          viewCull,
         )
       },
     })
@@ -549,6 +534,7 @@ export class LogFieldEffect {
     instanceIndex: number,
     delta: number,
     visitedKeys: Set<string>,
+    viewCull?: PresetLayoutViewCull | null,
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
@@ -611,6 +597,20 @@ export class LogFieldEffect {
           motionVelocityZ = ensuredState.velocityZ
           motionYaw = ensuredState.yaw
           motionRoll = ensuredState.roll
+        }
+      }
+      // Per-instance disc cull: skip expensive ground-fitting for off-screen logs.
+      // Always increment instanceIndex so InstancedMesh.count stays stable (no pop).
+      if (viewCull) {
+        const cx = movedX - viewCull.cameraWorld.x
+        const cz = movedZ - viewCull.cameraWorld.z
+        const cullR = viewCull.radius + (viewCull.padding ?? 0)
+        if (cx * cx + cz * cz > cullR * cullR) {
+          dummy.scale.set(0, 0, 0)
+          dummy.updateMatrix()
+          this.logMesh.setMatrixAt(instanceIndex, dummy.matrix)
+          instanceIndex++
+          continue
         }
       }
       const radiusTier = THREE.MathUtils.lerp(0.74, 1.56, hashRadius)

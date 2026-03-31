@@ -12,11 +12,7 @@ import {
   type StickTokenId,
   type StickTokenMeta,
 } from './stickFieldSource'
-import {
-  shouldVisitSlotForViewCull,
-  type PresetLayoutViewCull,
-  type PresetLayoutViewCullFrustumContext,
-} from './presetLayoutCull'
+import { type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type StickFieldParams = {
   layoutDensity: number
@@ -181,7 +177,6 @@ export class StickFieldEffect {
   private readonly fieldCenterZ: number
   private readonly layoutDriver: SurfaceLayoutDriver<StickTokenId, StickTokenMeta>
   private readonly twigStates = new Map<string, StickTwigState>()
-  private readonly tmpViewCullBox = new THREE.Box3()
   private readonly pendingImpulses: PendingStickImpulse[] = []
   private params: StickFieldParams
   private lastElapsed = 0
@@ -284,22 +279,11 @@ export class StickFieldEffect {
     let instanceIndex = 0
     const visitedKeys = new Set<string>()
 
-    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
-      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
-      : undefined
-
-    if (viewCull?.frustum) {
-      this.group.updateMatrixWorld(true)
-    }
-
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
-      shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
-        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
           slot,
@@ -310,6 +294,7 @@ export class StickFieldEffect {
           instanceIndex,
           delta,
           visitedKeys,
+          viewCull,
         )
       },
     })
@@ -551,6 +536,7 @@ export class StickFieldEffect {
     instanceIndex: number,
     delta: number,
     visitedKeys: Set<string>,
+    viewCull?: PresetLayoutViewCull | null,
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
@@ -627,6 +613,21 @@ export class StickFieldEffect {
           }
         }
         if (!this.placementMask.includeAtXZ(x, z)) continue
+
+        // Per-instance disc cull: skip expensive ground-fitting for off-screen sticks.
+        // Always increment instanceIndex so InstancedMesh.count stays stable (no pop).
+        if (viewCull) {
+          const cx = x - viewCull.cameraWorld.x
+          const cz = z - viewCull.cameraWorld.z
+          const cullR = viewCull.radius + (viewCull.padding ?? 0)
+          if (cx * cx + cz * cz > cullR * cullR) {
+            dummy.scale.set(0, 0, 0)
+            dummy.updateMatrix()
+            this.stickMesh.setMatrixAt(instanceIndex, dummy.matrix)
+            instanceIndex++
+            continue
+          }
+        }
 
         const radius = Math.max(
           0.012,

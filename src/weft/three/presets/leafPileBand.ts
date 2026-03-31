@@ -38,7 +38,7 @@ export type LeafPileBandParams = {
 }
 
 export const DEFAULT_LEAF_PILE_BAND_PARAMS: LeafPileBandParams = {
-  layoutDensity: 1.55,
+  layoutDensity: 0.45,
   sizeScale: 1.95,
   bandWidth: 4.75,
   edgeSoftness: 1.35,
@@ -113,11 +113,11 @@ const SEASON_STYLE: Record<
     saturation: 0.44,
     lightness: 0.34,
     densityScale: 1,
-    presence: 1,
+    presence: 0.62,
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 12,
+    leavesPerClump: 7,
     spread: 1.12,
   },
   summer: {
@@ -125,11 +125,11 @@ const SEASON_STYLE: Record<
     saturation: 0.42,
     lightness: 0.26,
     densityScale: 1,
-    presence: 1,
+    presence: 0.62,
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 12,
+    leavesPerClump: 7,
     spread: 1.12,
   },
   autumn: {
@@ -137,11 +137,11 @@ const SEASON_STYLE: Record<
     saturation: 0.58,
     lightness: 0.37,
     densityScale: 1,
-    presence: 1,
+    presence: 0.62,
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 13,
+    leavesPerClump: 8,
     spread: 1.16,
   },
   winter: {
@@ -149,11 +149,11 @@ const SEASON_STYLE: Record<
     saturation: 0.08,
     lightness: 0.7,
     densityScale: 1,
-    presence: 1,
+    presence: 0.62,
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 12,
+    leavesPerClump: 7,
     spread: 1.12,
   },
 }
@@ -763,7 +763,7 @@ export class LeafPileBandEffect {
         const leafHashD = glyphHash(identity + 13, leafIndex, slot.sector + 3, k ^ 0x73)
 
         const radius =
-          (0.04 + coverage * 0.1 + Math.max(-0.02, meta.widthBias) * 0.3) *
+          (0.18 + coverage * 0.32 + Math.max(-0.02, meta.widthBias) * 0.3) *
           this.params.sizeScale *
           spreadScale *
           (0.45 + leafHashB * 0.95 + organicNoise * 0.14)

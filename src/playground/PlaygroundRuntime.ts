@@ -3203,18 +3203,18 @@ export class PlaygroundRuntime {
     }
     const tLog0 = now()
     const logHasMotion = this.logFieldEffect.hasMotion()
-    const logCadence = logHasMotion || this.logFieldDirty ? 2 : this.cadenceFor('log')
+    const logCadence = logHasMotion || this.logFieldDirty ? 1 : this.cadenceFor('log')
     if ((logHasMotion || this.logFieldDirty) && this.shouldRunCadencedUpdate(logCadence, 3)) {
-      this.logFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
+      this.logFieldEffect.update(elapsed, this.getGroundHeightAtWorld, this.clutterViewCullBundle)
       this.logFieldDirty = this.logFieldEffect.hasMotion()
       ranLog = true
     }
     logCpuMs = now() - tLog0
     const tStick0 = now()
     const stickHasMotion = this.stickFieldEffect.hasMotion()
-    const stickCadence = stickHasMotion || this.stickFieldDirty ? 2 : this.cadenceFor('stick')
+    const stickCadence = stickHasMotion || this.stickFieldDirty ? 1 : this.cadenceFor('stick')
     if ((stickHasMotion || this.stickFieldDirty) && this.shouldRunCadencedUpdate(stickCadence, 1)) {
-      this.stickFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
+      this.stickFieldEffect.update(elapsed, this.getGroundHeightAtWorld, this.clutterViewCullBundle)
       this.stickFieldDirty = this.stickFieldEffect.hasMotion()
       ranStick = true
     }
