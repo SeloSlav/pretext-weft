@@ -5,7 +5,6 @@ import {
 } from "./playground/PlaygroundRuntime";
 import {
   DEFAULT_GRASS_FIELD_PARAMS,
-  DEFAULT_LEAF_PILE_BAND_PARAMS,
   DEFAULT_LOG_FIELD_PARAMS,
   DEFAULT_NEEDLE_LITTER_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
@@ -34,6 +33,21 @@ const LEAF_PILE_SEASON_LABELS = {
   autumn: "Autumn",
   winter: "Winter",
 } as const;
+
+function foliageSeasonForWorldState(state: number): keyof typeof LEAF_PILE_SEASON_LABELS {
+  const step = Math.max(0, Math.min(3, Math.round(state)));
+  switch (step) {
+    case 0:
+      return "spring";
+    case 1:
+      return "summer";
+    case 2:
+      return "autumn";
+    case 3:
+    default:
+      return "winter";
+  }
+}
 
 function ControlSection({ title, summary, children }: ControlSectionProps) {
   return (
@@ -81,16 +95,30 @@ export function SceneryDemo() {
   const [bandLayoutDensity, setBandLayoutDensity] = useState(0.82);
   const [understoryWidth, setUnderstoryWidth] = useState(2.6);
   const [understorySizeScale, setUnderstorySizeScale] = useState(1.08);
-  const [leafPileWidth, setLeafPileWidth] = useState(2.45);
-  const [leafPileSizeScale, setLeafPileSizeScale] = useState(1.12);
-  const [leafPileSeason, setLeafPileSeason] = useState(
-    DEFAULT_LEAF_PILE_BAND_PARAMS.season,
-  );
+  const [leafPileWidth, setLeafPileWidth] = useState(1.7);
+  const [leafPileSizeScale, setLeafPileSizeScale] = useState(0.82);
   const [showUnderstory, setShowUnderstory] = useState(false);
   const [showLeafPiles, setShowLeafPiles] = useState(true);
+  const [foliageSeasonOverride, setFoliageSeasonOverride] = useState<
+    keyof typeof LEAF_PILE_SEASON_LABELS | "auto"
+  >("auto");
+  const foliageSeason =
+    foliageSeasonOverride === "auto"
+      ? foliageSeasonForWorldState(grassState)
+      : foliageSeasonOverride;
+
   const [rockLayoutDensity, setRockLayoutDensity] = useState(0.58);
   const [rockSizeScale, setRockSizeScale] = useState(1.28);
   const [showRocks, setShowRocks] = useState(true);
+  const [shrubLayoutDensity, setShrubLayoutDensity] = useState(1.45);
+  const [shrubSizeScale, setShrubSizeScale] = useState(1.55);
+  const [shrubHeightScale, setShrubHeightScale] = useState(1.35);
+  const [showShrubs, setShowShrubs] = useState(true);
+  const [treeLayoutDensity, setTreeLayoutDensity] = useState(0.72);
+  const [treeSizeScale, setTreeSizeScale] = useState(1.7);
+  const [treeHeightScale, setTreeHeightScale] = useState(1.85);
+  const [treeCrownScale, setTreeCrownScale] = useState(1.45);
+  const [showTrees, setShowTrees] = useState(true);
   const [logLayoutDensity, setLogLayoutDensity] = useState(0.32);
   const [logSizeScale, setLogSizeScale] = useState(1.08);
   const [logLengthScale, setLogLengthScale] = useState(
@@ -139,6 +167,12 @@ export function SceneryDemo() {
   const [worldFieldAffectsNeedles, setWorldFieldAffectsNeedles] = useState(
     DEFAULT_SCENERY_WORLD_FIELD_PARAMS.affectNeedles,
   );
+  const [worldFieldAffectsTrees, setWorldFieldAffectsTrees] = useState(
+    DEFAULT_SCENERY_WORLD_FIELD_PARAMS.affectTrees,
+  );
+  const [worldFieldAffectsShrubs, setWorldFieldAffectsShrubs] = useState(
+    DEFAULT_SCENERY_WORLD_FIELD_PARAMS.affectShrubs,
+  );
   const [starLayoutDensity, setStarLayoutDensity] = useState(
     DEFAULT_STAR_SKY_PARAMS.layoutDensity,
   );
@@ -181,14 +215,29 @@ export function SceneryDemo() {
           leafPileSizeScale: leafPileSizeScale,
           vergeBandWidth: understoryWidth,
           leafPileBandWidth: leafPileWidth,
-          leafPileSeason,
           showVergeBand: showUnderstory,
           showLeafPiles,
         });
+        runtime.setSceneryFoliageSeasonOverride(
+          foliageSeasonOverride === "auto" ? null : foliageSeasonOverride,
+        );
         runtime.setRockFieldParams({
           layoutDensity: rockLayoutDensity,
           sizeScale: rockSizeScale,
           showRocks,
+        });
+        runtime.setShrubFieldParams({
+          layoutDensity: shrubLayoutDensity,
+          sizeScale: shrubSizeScale,
+          heightScale: shrubHeightScale,
+          showShrubs,
+        });
+        runtime.setTreeFieldParams({
+          layoutDensity: treeLayoutDensity,
+          sizeScale: treeSizeScale,
+          heightScale: treeHeightScale,
+          crownScale: treeCrownScale,
+          showTrees,
         });
         runtime.setLogFieldParams({
           layoutDensity: logLayoutDensity,
@@ -227,6 +276,8 @@ export function SceneryDemo() {
           affectLogs: worldFieldAffectsLogs,
           affectSticks: worldFieldAffectsSticks,
           affectNeedles: worldFieldAffectsNeedles,
+          affectTrees: worldFieldAffectsTrees,
+          affectShrubs: worldFieldAffectsShrubs,
         });
         runtime.setStarSkyParams({
           layoutDensity: starLayoutDensity,
@@ -296,13 +347,11 @@ export function SceneryDemo() {
       leafPileSizeScale: leafPileSizeScale,
       vergeBandWidth: understoryWidth,
       leafPileBandWidth: leafPileWidth,
-      leafPileSeason,
       showVergeBand: showUnderstory,
       showLeafPiles,
     });
   }, [
     bandLayoutDensity,
-    leafPileSeason,
     leafPileSizeScale,
     leafPileWidth,
     showLeafPiles,
@@ -312,12 +361,37 @@ export function SceneryDemo() {
   ]);
 
   useEffect(() => {
+    runtimeRef.current?.setSceneryFoliageSeasonOverride(
+      foliageSeasonOverride === "auto" ? null : foliageSeasonOverride,
+    );
+  }, [foliageSeasonOverride]);
+
+  useEffect(() => {
     runtimeRef.current?.setRockFieldParams({
       layoutDensity: rockLayoutDensity,
       sizeScale: rockSizeScale,
       showRocks,
     });
   }, [rockLayoutDensity, rockSizeScale, showRocks]);
+
+  useEffect(() => {
+    runtimeRef.current?.setShrubFieldParams({
+      layoutDensity: shrubLayoutDensity,
+      sizeScale: shrubSizeScale,
+      heightScale: shrubHeightScale,
+      showShrubs,
+    });
+  }, [showShrubs, shrubHeightScale, shrubLayoutDensity, shrubSizeScale]);
+
+  useEffect(() => {
+    runtimeRef.current?.setTreeFieldParams({
+      layoutDensity: treeLayoutDensity,
+      sizeScale: treeSizeScale,
+      heightScale: treeHeightScale,
+      crownScale: treeCrownScale,
+      showTrees,
+    });
+  }, [showTrees, treeCrownScale, treeHeightScale, treeLayoutDensity, treeSizeScale]);
 
   useEffect(() => {
     runtimeRef.current?.setLogFieldParams({
@@ -369,14 +443,18 @@ export function SceneryDemo() {
       affectLogs: worldFieldAffectsLogs,
       affectSticks: worldFieldAffectsSticks,
       affectNeedles: worldFieldAffectsNeedles,
+      affectTrees: worldFieldAffectsTrees,
+      affectShrubs: worldFieldAffectsShrubs,
     });
   }, [
     worldFieldAffectsFloor,
     worldFieldAffectsGrass,
     worldFieldAffectsLogs,
     worldFieldAffectsRocks,
+    worldFieldAffectsShrubs,
     worldFieldAffectsSticks,
     worldFieldAffectsNeedles,
+    worldFieldAffectsTrees,
     worldFieldRoughness,
     worldFieldScale,
     worldFieldSeed,
@@ -723,6 +801,26 @@ export function SceneryDemo() {
                       }
                     />
                   </label>
+                  <label className="control">
+                    <span>Affect shrubs</span>
+                    <input
+                      type="checkbox"
+                      checked={worldFieldAffectsShrubs}
+                      onChange={(e) =>
+                        setWorldFieldAffectsShrubs(e.target.checked)
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Affect trees</span>
+                    <input
+                      type="checkbox"
+                      checked={worldFieldAffectsTrees}
+                      onChange={(e) =>
+                        setWorldFieldAffectsTrees(e.target.checked)
+                      }
+                    />
+                  </label>
                   <p className="control-hint">
                     This is not scatter noise. The field shapes placement masks
                     that the existing Weft surfaces already consume.
@@ -823,17 +921,20 @@ export function SceneryDemo() {
                   </label>
                   <label className="control">
                     <span>
-                      Leaf season (
-                      {LEAF_PILE_SEASON_LABELS[leafPileSeason] ?? "Autumn"})
+                      Foliage season (
+                      {LEAF_PILE_SEASON_LABELS[foliageSeason] ?? "Autumn"})
                     </span>
                     <select
-                      value={leafPileSeason}
+                      value={foliageSeasonOverride}
                       onChange={(e) =>
-                        setLeafPileSeason(
-                          e.target.value as (typeof LEAF_PILE_SEASONS)[number],
+                        setFoliageSeasonOverride(
+                          e.target.value as keyof typeof LEAF_PILE_SEASON_LABELS | "auto",
                         )
                       }
                     >
+                      <option value="auto">
+                        Auto ({LEAF_PILE_SEASON_LABELS[foliageSeason] ?? "Autumn"})
+                      </option>
                       {LEAF_PILE_SEASONS.map((season) => (
                         <option key={season} value={season}>
                           {LEAF_PILE_SEASON_LABELS[season]}
@@ -888,6 +989,133 @@ export function SceneryDemo() {
                   <p className="control-hint">
                     Rocks are intentionally sparse and stable so the reactive
                     floor layers have something solid to play against.
+                  </p>
+                </ControlSection>
+
+                <ControlSection
+                  title="Shrubs"
+                  summary="Low clustered vegetation that thickens the forest floor"
+                >
+                  <label className="control">
+                    <span>Show shrubs</span>
+                    <input
+                      type="checkbox"
+                      checked={showShrubs}
+                      onChange={(e) => setShowShrubs(e.target.checked)}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Shrub layout density ({shrubLayoutDensity.toFixed(2)}x)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={4}
+                      step={0.02}
+                      value={shrubLayoutDensity}
+                      onChange={(e) =>
+                        setShrubLayoutDensity(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Shrub size ({shrubSizeScale.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0.4}
+                      max={3.4}
+                      step={0.05}
+                      value={shrubSizeScale}
+                      onChange={(e) => setShrubSizeScale(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Shrub height ({shrubHeightScale.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0.4}
+                      max={3}
+                      step={0.05}
+                      value={shrubHeightScale}
+                      onChange={(e) =>
+                        setShrubHeightScale(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <p className="control-hint">
+                    Shrubs are intentionally dense forest fillers, so you can
+                    push the floor from sparse clutter into thick undergrowth
+                    before the tree canopy even comes into view.
+                  </p>
+                </ControlSection>
+
+                <ControlSection
+                  title="Trees"
+                  summary="Sparse trunks and canopies that turn the field into a forest"
+                >
+                  <label className="control">
+                    <span>Show trees</span>
+                    <input
+                      type="checkbox"
+                      checked={showTrees}
+                      onChange={(e) => setShowTrees(e.target.checked)}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Tree layout density ({treeLayoutDensity.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2}
+                      step={0.02}
+                      value={treeLayoutDensity}
+                      onChange={(e) =>
+                        setTreeLayoutDensity(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Tree size ({treeSizeScale.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={3}
+                      step={0.05}
+                      value={treeSizeScale}
+                      onChange={(e) => setTreeSizeScale(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Tree height ({treeHeightScale.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0.5}
+                      max={3.4}
+                      step={0.05}
+                      value={treeHeightScale}
+                      onChange={(e) =>
+                        setTreeHeightScale(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Tree crown ({treeCrownScale.toFixed(2)}x)</span>
+                    <input
+                      type="range"
+                      min={0.4}
+                      max={3}
+                      step={0.05}
+                      value={treeCrownScale}
+                      onChange={(e) =>
+                        setTreeCrownScale(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <p className="control-hint">
+                    Trees stay deterministic, but the default tuning now aims
+                    for heavier trunks and fuller canopies so the scenery reads
+                    like an actual forest instead of a lightly dressed field.
                   </p>
                 </ControlSection>
 

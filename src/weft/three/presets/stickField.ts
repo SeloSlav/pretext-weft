@@ -115,6 +115,10 @@ function lineSignature(text: string): number {
   return (hash >>> 0) / 4294967296
 }
 
+function stickMotionKeyPrefix(slot: SurfaceLayoutSlot, tokenLineKey: string): string {
+  return `${slot.row}:${slot.sector}:${tokenLineKey}`
+}
+
 const stickOrganicWorldField = createWorldField(1289, {
   scale: 6.8,
   octaves: 4,
@@ -375,6 +379,7 @@ export class StickFieldEffect {
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
+    const motionKeyPrefix = stickMotionKeyPrefix(slot, tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.26
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.18
 
@@ -418,7 +423,7 @@ export class StickFieldEffect {
         const pieceDistance = bundleRadius * (0.15 + pieceHash * 0.95)
         const basePieceX = baseX + Math.cos(pieceAngle) * pieceDistance
         const basePieceZ = baseZ + Math.sin(pieceAngle) * pieceDistance
-        const twigKey = `${tokenLineKey}:${k}:${j}`
+        const twigKey = `${motionKeyPrefix}:${k}:${j}`
         const state = this.getTwigState(twigKey)
         this.applyTwigState(state, basePieceX, basePieceZ, delta, pieceHash - 0.5)
         visitedKeys.add(twigKey)

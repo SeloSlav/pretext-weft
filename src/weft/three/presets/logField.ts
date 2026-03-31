@@ -115,6 +115,10 @@ function lineSignature(text: string): number {
   return (hash >>> 0) / 4294967296
 }
 
+function logMotionKeyPrefix(slot: SurfaceLayoutSlot, tokenLineKey: string): string {
+  return `${slot.row}:${slot.sector}:${tokenLineKey}`
+}
+
 const logOrganicWorldField = createWorldField(977, {
   scale: 9.4,
   octaves: 4,
@@ -362,6 +366,7 @@ export class LogFieldEffect {
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
+    const motionKeyPrefix = logMotionKeyPrefix(slot, tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.22
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.16
 
@@ -394,7 +399,7 @@ export class LogFieldEffect {
       const keepChance = THREE.MathUtils.lerp(0.34, 0.86, noise)
       if (glyphHash(identity + 11, slot.row, k ^ 0x55) > keepChance) continue
 
-      const motionKey = `${tokenLineKey}:${k}`
+      const motionKey = `${motionKeyPrefix}:${k}`
       const state = this.getMotionState(motionKey)
       this.applyMotionState(state, x, z, delta)
       visitedKeys.add(motionKey)

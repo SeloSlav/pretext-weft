@@ -120,6 +120,32 @@ export type {
 export { getPreparedRockSurface } from './presets/rockFieldSource.ts'
 
 export {
+  createShrubFieldEffect,
+  DEFAULT_SHRUB_FIELD_PARAMS,
+  ShrubFieldEffect,
+} from './presets/shrubField.ts'
+export type {
+  CreateShrubFieldEffectOptions,
+  ShrubFieldBounds,
+  ShrubFieldPlacementMask,
+  ShrubFieldParams,
+} from './presets/shrubField.ts'
+export { buildShrubSeasonSurface, getPreparedShrubSurface, SHRUB_FOLIAGE_SEASONS } from './presets/shrubFieldSource.ts'
+
+export {
+  createTreeFieldEffect,
+  DEFAULT_TREE_FIELD_PARAMS,
+  TreeFieldEffect,
+} from './presets/treeField.ts'
+export type {
+  CreateTreeFieldEffectOptions,
+  TreeFieldBounds,
+  TreeFieldPlacementMask,
+  TreeFieldParams,
+} from './presets/treeField.ts'
+export { buildTreeSeasonSurface, getPreparedTreeSurface, TREE_FOLIAGE_SEASONS } from './presets/treeFieldSource.ts'
+
+export {
   createLogFieldEffect,
   DEFAULT_LOG_FIELD_PARAMS,
   LogFieldEffect,

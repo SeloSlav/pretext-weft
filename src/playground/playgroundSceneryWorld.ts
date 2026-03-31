@@ -31,6 +31,8 @@ export type SceneryWorldFieldParams = {
   affectLogs: boolean
   affectSticks: boolean
   affectNeedles: boolean
+  affectTrees: boolean
+  affectShrubs: boolean
 }
 
 export const DEFAULT_SCENERY_WORLD_FIELD_PARAMS: SceneryWorldFieldParams = {
@@ -45,6 +47,8 @@ export const DEFAULT_SCENERY_WORLD_FIELD_PARAMS: SceneryWorldFieldParams = {
   affectLogs: true,
   affectSticks: true,
   affectNeedles: true,
+  affectTrees: true,
+  affectShrubs: true,
 }
 
 /** Slower smoldering burn for leaf litter and needle field in the scenery demo. */
@@ -68,6 +72,8 @@ export type SceneryWorldAuthoring = {
   isInsideLogZone: (x: number, z: number) => boolean
   isInsideStickZone: (x: number, z: number) => boolean
   isInsideNeedleZone: (x: number, z: number) => boolean
+  isInsideTreeZone: (x: number, z: number) => boolean
+  isInsideShrubZone: (x: number, z: number) => boolean
 }
 
 function clamp01(value: number): number {
@@ -107,6 +113,8 @@ export function createSceneryWorldAuthoring(
   const logField = createLayerField(params.seed, params, 521, 0.94)
   const stickField = createLayerField(params.seed, params, 613, 0.74)
   const needleField = createLayerField(params.seed, params, 727, 0.68)
+  const treeField = createLayerField(params.seed, params, 811, 1.18)
+  const shrubField = createLayerField(params.seed, params, 907, 0.9)
   const strength = clamp01(params.strength)
   const grassStrength = params.affectGrass ? strength : 0
   const floorStrength = params.affectFloor ? strength : 0
@@ -114,6 +122,8 @@ export function createSceneryWorldAuthoring(
   const logStrength = params.affectLogs ? strength : 0
   const stickStrength = params.affectSticks ? strength : 0
   const needleStrength = params.affectNeedles ? strength : 0
+  const treeStrength = params.affectTrees ? strength : 0
+  const shrubStrength = params.affectShrubs ? strength : 0
 
   return {
     getGrassCoverageMultiplierAtXZ(x, z) {
@@ -140,14 +150,18 @@ export function createSceneryWorldAuthoring(
     isInsideLeafLitterZone(x, z) {
       if (floorStrength <= 1e-6) return true
       const signal = litterField(x, z)
-      return signal > 0.32 || understoryField(x * 0.85, z * 0.85) > 0.58
+      const understorySupport = understoryField(x * 0.85, z * 0.85)
+      const treeSupport = treeField(x * 0.88, z * 0.88)
+      const threshold = lerp(0.58, 0.44, floorStrength)
+      return signal + treeSupport * 0.34 + understorySupport * 0.08 >= threshold
     },
 
     getLeafLitterDistanceAtXZ(x, z) {
       if (floorStrength <= 1e-6) return 0
       const signal = litterField(x, z)
-      const wobble = remapSigned01(understoryField(x * 0.95, z * 0.95)) * (0.5 + floorStrength * 1.2)
-      return Math.abs(fieldDistance(signal, 3.1 + floorStrength * 2.2) + wobble)
+      const wobble = remapSigned01(understoryField(x * 0.95, z * 0.95)) * (0.25 + floorStrength * 0.8)
+      const treeBias = remapSigned01(treeField(x * 0.92, z * 0.92)) * (0.9 + floorStrength * 1.5)
+      return Math.abs(fieldDistance(signal, 2.1 + floorStrength * 1.4) + wobble - treeBias)
     },
 
     isInsideRockZone(x, z) {
@@ -181,8 +195,38 @@ export function createSceneryWorldAuthoring(
       const signal = needleField(x, z)
       const floorSupport = understoryField(x * 0.82, z * 0.82)
       const litterSupport = litterField(x * 0.74, z * 0.74)
-      const threshold = lerp(0.76, 0.56, needleStrength)
-      return signal + floorSupport * 0.22 + litterSupport * 0.1 >= threshold
+      const treeSupport = treeField(x * 0.86, z * 0.86)
+      const threshold = lerp(0.8, 0.58, needleStrength)
+      return signal + floorSupport * 0.16 + litterSupport * 0.08 + treeSupport * 0.32 >= threshold
+    },
+
+    isInsideTreeZone(x, z) {
+      if (treeStrength <= 1e-6) return true
+      const signal = treeField(x, z)
+      const needleSupport = needleField(x * 0.72, z * 0.72)
+      const logSupport = logField(x * 0.82, z * 0.82)
+      const litterSupport = litterField(x * 0.78, z * 0.78)
+      const rockResistance = rockField(x * 0.94, z * 0.94)
+      const threshold = lerp(0.76, 0.5, treeStrength)
+      return signal + needleSupport * 0.24 + logSupport * 0.12 + litterSupport * 0.08 - rockResistance * 0.06 >= threshold
+    },
+
+    isInsideShrubZone(x, z) {
+      if (shrubStrength <= 1e-6) return true
+      const signal = shrubField(x, z)
+      const floorSupport = understoryField(x * 0.84, z * 0.84)
+      const litterSupport = litterField(x * 0.78, z * 0.78)
+      const treeSupport = treeField(x * 0.9, z * 0.9)
+      const needleSupport = needleField(x * 0.76, z * 0.76)
+      const threshold = lerp(0.6, 0.34, shrubStrength)
+      return (
+        signal +
+        floorSupport * 0.28 +
+        litterSupport * 0.22 +
+        treeSupport * 0.12 +
+        needleSupport * 0.12 >=
+        threshold
+      )
     },
   }
 }

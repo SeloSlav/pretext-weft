@@ -135,51 +135,6 @@ const LEAF_PILE_BASE_PALETTE: readonly SurfacePaletteEntry<LeafPileTokenId, Leaf
   },
 ] as const
 
-const LEAF_PILE_SEASON_WEIGHTS: Readonly<
-  Record<LeafPileSeason, Readonly<Record<LeafPileTokenId, number>>>
-> = {
-  spring: {
-    'fresh-frond': 4,
-    'broad-leaf': 3,
-    'maple-leaf': 1,
-    'small-cluster': 2,
-    'curled-leaf': 1,
-    'dry-shard': 1,
-    twig: 1,
-    seed: 3,
-  },
-  summer: {
-    'fresh-frond': 2,
-    'broad-leaf': 4,
-    'maple-leaf': 2,
-    'small-cluster': 2,
-    'curled-leaf': 1,
-    'dry-shard': 1,
-    twig: 1,
-    seed: 2,
-  },
-  autumn: {
-    'fresh-frond': 1,
-    'broad-leaf': 3,
-    'maple-leaf': 4,
-    'small-cluster': 3,
-    'curled-leaf': 4,
-    'dry-shard': 3,
-    twig: 2,
-    seed: 2,
-  },
-  winter: {
-    'fresh-frond': 1,
-    'broad-leaf': 1,
-    'maple-leaf': 1,
-    'small-cluster': 2,
-    'curled-leaf': 2,
-    'dry-shard': 4,
-    twig: 4,
-    seed: 2,
-  },
-}
-
 export function getPreparedLeafPileSurface(): PreparedSurfaceSource<LeafPileTokenId, LeafPileTokenMeta> {
   return prepareSemanticSurfaceText(
     'leaf-pile-surface',
@@ -192,10 +147,9 @@ export function getPreparedLeafPileSurface(): PreparedSurfaceSource<LeafPileToke
 export function buildLeafPileSeasonSurface(
   season: LeafPileSeason,
 ): PreparedSurfaceSource<LeafPileTokenId, LeafPileTokenMeta> {
-  const weights = LEAF_PILE_SEASON_WEIGHTS[season]
   const palette = LEAF_PILE_BASE_PALETTE.map((entry) => ({
     ...entry,
-    weight: Math.max(1, weights[entry.id] ?? entry.weight ?? 1),
+    weight: entry.weight ?? 1,
   }))
 
   return prepareSemanticSurfaceText(

@@ -4,14 +4,19 @@ import {
   createFungusSeamEffect,
   createLeafPileBandEffect,
   buildGrassStateSurface,
+  buildLeafPileSeasonSurface,
+  buildShrubSeasonSurface,
+  buildTreeSeasonSurface,
   createFireWallEffect,
   createShellSurfaceEffect,
   createGrassEffect,
   createLogFieldEffect,
   createNeedleLitterFieldEffect,
   createRockFieldEffect,
+  createShrubFieldEffect,
   createStarSkyEffect,
   createStickFieldEffect,
+  createTreeFieldEffect,
   DEFAULT_BAND_FIELD_PARAMS,
   DEFAULT_FIRE_WALL_PARAMS,
   DEFAULT_FUNGUS_SEAM_PARAMS,
@@ -21,8 +26,10 @@ import {
   DEFAULT_LOG_FIELD_PARAMS,
   DEFAULT_NEEDLE_LITTER_FIELD_PARAMS,
   DEFAULT_ROCK_FIELD_PARAMS,
+  DEFAULT_SHRUB_FIELD_PARAMS,
   DEFAULT_STAR_SKY_PARAMS,
   DEFAULT_STICK_FIELD_PARAMS,
+  DEFAULT_TREE_FIELD_PARAMS,
   getPreparedBandSurface,
   getPreparedFireSurface,
   getPreparedFungusBandSurface,
@@ -32,8 +39,10 @@ import {
   getPreparedLogSurface,
   getPreparedNeedleLitterSurface,
   getPreparedRockSurface,
+  getPreparedShrubSurface,
   getPreparedStarSurface,
   getPreparedStickSurface,
+  getPreparedTreeSurface,
   type BandFieldParams,
   type FireWallEffect,
   type FireWallParams,
@@ -46,8 +55,10 @@ import {
   type LogFieldParams,
   type NeedleLitterFieldParams,
   type RockFieldParams,
+  type ShrubFieldParams,
   type StarSkyParams,
   type StickFieldParams,
+  type TreeFieldParams,
 } from '../weft/three'
 import { createWebGPURenderer } from '../createWebGPURenderer'
 import { Timer } from 'three'
@@ -324,6 +335,8 @@ export class PlaygroundRuntime {
     },
   })
   private readonly rockFieldEffect: ReturnType<typeof createRockFieldEffect>
+  private readonly shrubFieldEffect: ReturnType<typeof createShrubFieldEffect>
+  private readonly treeFieldEffect: ReturnType<typeof createTreeFieldEffect>
   private readonly logFieldEffect: ReturnType<typeof createLogFieldEffect>
   private readonly stickFieldEffect: ReturnType<typeof createStickFieldEffect>
   private readonly needleLitterEffect: ReturnType<typeof createNeedleLitterFieldEffect>
@@ -414,6 +427,8 @@ export class PlaygroundRuntime {
     edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 1.25,
   }
   private rockFieldParams: RockFieldParams = { ...DEFAULT_ROCK_FIELD_PARAMS }
+  private shrubFieldParams: ShrubFieldParams = { ...DEFAULT_SHRUB_FIELD_PARAMS }
+  private treeFieldParams: TreeFieldParams = { ...DEFAULT_TREE_FIELD_PARAMS }
   private logFieldParams: LogFieldParams = { ...DEFAULT_LOG_FIELD_PARAMS }
   private stickFieldParams: StickFieldParams = { ...DEFAULT_STICK_FIELD_PARAMS }
   private needleLitterParams: NeedleLitterFieldParams = { ...DEFAULT_NEEDLE_LITTER_FIELD_PARAMS }
@@ -422,6 +437,7 @@ export class PlaygroundRuntime {
     logPushScale: 1.55,
     stickPushScale: 1,
   }
+  private sceneryFoliageSeasonOverride: LeafPileSeason | null = null
   private zoomDistance = PLAYGROUND_ZOOM.current
   private readonly townGroup: THREE.Group
   private readonly cameraObstacles: THREE.Object3D[]
@@ -450,6 +466,8 @@ export class PlaygroundRuntime {
   private userBandLayoutDensity = PLAYGROUND_BAND_LAYOUT_DENSITY
   private userStarLayoutDensity = DEFAULT_STAR_SKY_PARAMS.layoutDensity
   private userRockLayoutDensity = DEFAULT_ROCK_FIELD_PARAMS.layoutDensity
+  private userShrubLayoutDensity = DEFAULT_SHRUB_FIELD_PARAMS.layoutDensity
+  private userTreeLayoutDensity = DEFAULT_TREE_FIELD_PARAMS.layoutDensity
   private userLogLayoutDensity = DEFAULT_LOG_FIELD_PARAMS.layoutDensity
   private userStickLayoutDensity = DEFAULT_STICK_FIELD_PARAMS.layoutDensity
   private userNeedleLayoutDensity = DEFAULT_NEEDLE_LITTER_FIELD_PARAMS.layoutDensity
@@ -459,6 +477,8 @@ export class PlaygroundRuntime {
   private leafPileDirty = true
   private fungusBandDirty = true
   private rockFieldDirty = true
+  private shrubFieldDirty = true
+  private treeFieldDirty = true
   private logFieldDirty = true
   private stickFieldDirty = true
   private needleLitterDirty = true
@@ -536,6 +556,39 @@ export class PlaygroundRuntime {
     skyCpuMs: 0,
     fishCpuMs: 0,
   }
+
+  private sceneryFoliageSeasonForState(state: number): LeafPileSeason {
+    const step = THREE.MathUtils.clamp(Math.round(state), 0, 3)
+    switch (step) {
+      case 0:
+        return 'spring'
+      case 1:
+        return 'summer'
+      case 2:
+        return 'autumn'
+      case 3:
+      default:
+        return 'winter'
+    }
+  }
+
+  private resolvedSceneryFoliageSeason(): LeafPileSeason {
+    return this.sceneryFoliageSeasonOverride ?? this.sceneryFoliageSeasonForState(this.grassFieldParams.state)
+  }
+
+  private syncSceneryFoliageStateFromGrass(): void {
+    if (!this.sceneryMode) return
+    const season = this.resolvedSceneryFoliageSeason()
+    this.grassFieldParams.colorSeason = season
+    this.grassEffect.setParams({ colorSeason: season })
+    this.leafPileParams.season = season
+    this.leafPileEffect.setSurface(buildLeafPileSeasonSurface(season))
+    this.shrubFieldEffect.setSurface(buildShrubSeasonSurface(season), seedCursor)
+    this.treeFieldEffect.setSurface(buildTreeSeasonSurface(season), seedCursor)
+    this.leafPileDirty = true
+    this.shrubFieldDirty = true
+    this.treeFieldDirty = true
+  }
   private static readonly PERF_WINDOW_FRAMES = 45
 
   constructor(host: HTMLElement, options?: PlaygroundRuntimeOptions) {
@@ -560,6 +613,8 @@ export class PlaygroundRuntime {
           },
     })
     if (this.sceneryMode) {
+      this.grassFieldParams.colorSeason = this.resolvedSceneryFoliageSeason()
+      this.grassEffect.setParams({ colorSeason: this.grassFieldParams.colorSeason })
       this.userBandLayoutDensity = 0.82
       this.vergeBandParams = {
         ...DEFAULT_BAND_FIELD_PARAMS,
@@ -571,17 +626,32 @@ export class PlaygroundRuntime {
       this.leafPileParams = {
         ...DEFAULT_LEAF_PILE_BAND_PARAMS,
         ...SCENERY_LEAF_PILE_BURN_PARAMS,
-        layoutDensity: this.userBandLayoutDensity * 1.08,
-        sizeScale: 1.12,
-        bandWidth: 2.45,
+        layoutDensity: this.userBandLayoutDensity * 0.52,
+        sizeScale: 0.82,
+        bandWidth: 1.7,
         edgeSoftness: 1.8,
-        season: 'autumn',
+        season: this.resolvedSceneryFoliageSeason(),
       }
       this.userRockLayoutDensity = 0.58
       this.rockFieldParams = {
         ...DEFAULT_ROCK_FIELD_PARAMS,
         layoutDensity: this.userRockLayoutDensity,
         sizeScale: 1.28,
+      }
+      this.userShrubLayoutDensity = 1.45
+      this.shrubFieldParams = {
+        ...DEFAULT_SHRUB_FIELD_PARAMS,
+        layoutDensity: this.userShrubLayoutDensity,
+        sizeScale: 1.55,
+        heightScale: 1.35,
+      }
+      this.userTreeLayoutDensity = 0.72
+      this.treeFieldParams = {
+        ...DEFAULT_TREE_FIELD_PARAMS,
+        layoutDensity: this.userTreeLayoutDensity,
+        sizeScale: 1.7,
+        heightScale: 1.85,
+        crownScale: 1.45,
       }
       this.userLogLayoutDensity = 0.32
       this.logFieldParams = {
@@ -624,6 +694,7 @@ export class PlaygroundRuntime {
     })
     this.leafPileEffect = createLeafPileBandEffect({
       seedCursor,
+      surface: this.sceneryMode ? buildLeafPileSeasonSurface(this.resolvedSceneryFoliageSeason()) : undefined,
       initialParams: this.leafPileParams,
       placementMask: this.sceneryMode
         ? {
@@ -651,6 +722,38 @@ export class PlaygroundRuntime {
         : {
             bounds: PLAYGROUND_BOUNDS,
             includeAtXZ: isInsideRubbleZone,
+          },
+    })
+    this.shrubFieldEffect = createShrubFieldEffect({
+      surface: this.sceneryMode
+        ? buildShrubSeasonSurface(this.resolvedSceneryFoliageSeason())
+        : getPreparedShrubSurface(),
+      seedCursor,
+      initialParams: this.shrubFieldParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideShrubZone(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: () => false,
+          },
+    })
+    this.treeFieldEffect = createTreeFieldEffect({
+      surface: this.sceneryMode
+        ? buildTreeSeasonSurface(this.resolvedSceneryFoliageSeason())
+        : getPreparedTreeSurface(),
+      seedCursor,
+      initialParams: this.treeFieldParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: (x, z) => this.sceneryWorldAuthoring.isInsideTreeZone(x, z),
+          }
+        : {
+            bounds: PLAYGROUND_BOUNDS,
+            includeAtXZ: () => false,
           },
     })
     this.logFieldEffect = createLogFieldEffect({
@@ -815,6 +918,8 @@ export class PlaygroundRuntime {
     this.scene.add(this.vergeBandEffect.group)
     this.scene.add(this.leafPileEffect.group)
     this.scene.add(this.rockFieldEffect.group)
+    this.scene.add(this.shrubFieldEffect.group)
+    this.scene.add(this.treeFieldEffect.group)
     this.scene.add(this.logFieldEffect.group)
     this.scene.add(this.stickFieldEffect.group)
     this.scene.add(this.needleLitterEffect.group)
@@ -914,8 +1019,14 @@ export class PlaygroundRuntime {
       this.userGrassLayoutDensity * getQualityGrassLayoutScale(this.quality)
     if (params.state !== undefined) {
       this.grassEffect.setSurface(buildGrassStateSurface(this.grassFieldParams.state))
+      this.syncSceneryFoliageStateFromGrass()
     }
     this.grassEffect.setParams(this.grassFieldParams)
+  }
+
+  setSceneryFoliageSeasonOverride(season: LeafPileSeason | null): void {
+    this.sceneryFoliageSeasonOverride = season
+    this.syncSceneryFoliageStateFromGrass()
   }
 
   setBandFieldParams(params: {
@@ -969,7 +1080,7 @@ export class PlaygroundRuntime {
     if (params.leafPileBandWidth !== undefined) {
       this.leafPileParams.bandWidth = params.leafPileBandWidth
     }
-    if (params.leafPileSeason !== undefined) {
+    if (params.leafPileSeason !== undefined && !this.sceneryMode) {
       this.leafPileParams.season = params.leafPileSeason
     }
     if (params.fungusBandWidth !== undefined) {
@@ -977,7 +1088,7 @@ export class PlaygroundRuntime {
     }
     const scaledDensity = this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
     this.vergeBandParams.layoutDensity = scaledDensity
-    this.leafPileParams.layoutDensity = scaledDensity * 1.02
+    this.leafPileParams.layoutDensity = scaledDensity * 0.52
     this.fungusBandParams.layoutDensity = scaledDensity
     this.vergeBandEffect.setParams(this.vergeBandParams)
     this.leafPileEffect.setParams(this.leafPileParams)
@@ -1008,6 +1119,34 @@ export class PlaygroundRuntime {
       this.rockFieldEffect.group.visible = params.showRocks
     }
     this.rockFieldDirty = true
+  }
+
+  setShrubFieldParams(params: Partial<ShrubFieldParams> & { showShrubs?: boolean }): void {
+    this.shrubFieldParams = { ...this.shrubFieldParams, ...params }
+    if (params.layoutDensity !== undefined) {
+      this.userShrubLayoutDensity = params.layoutDensity
+    }
+    this.shrubFieldParams.layoutDensity =
+      this.userShrubLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.shrubFieldEffect.setParams(this.shrubFieldParams)
+    if (params.showShrubs !== undefined) {
+      this.shrubFieldEffect.group.visible = params.showShrubs
+    }
+    this.shrubFieldDirty = true
+  }
+
+  setTreeFieldParams(params: Partial<TreeFieldParams> & { showTrees?: boolean }): void {
+    this.treeFieldParams = { ...this.treeFieldParams, ...params }
+    if (params.layoutDensity !== undefined) {
+      this.userTreeLayoutDensity = params.layoutDensity
+    }
+    this.treeFieldParams.layoutDensity =
+      this.userTreeLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.treeFieldEffect.setParams(this.treeFieldParams)
+    if (params.showTrees !== undefined) {
+      this.treeFieldEffect.group.visible = params.showTrees
+    }
+    this.treeFieldDirty = true
   }
 
   setLogFieldParams(params: Partial<LogFieldParams> & { showLogs?: boolean }): void {
@@ -1064,6 +1203,8 @@ export class PlaygroundRuntime {
     this.vergeBandDirty = true
     this.leafPileDirty = true
     this.rockFieldDirty = true
+    this.shrubFieldDirty = true
+    this.treeFieldDirty = true
     this.logFieldDirty = true
     this.stickFieldDirty = true
     this.needleLitterDirty = true
@@ -1105,7 +1246,7 @@ export class PlaygroundRuntime {
     this.grassEffect.setParams(this.grassFieldParams)
     this.vergeBandParams.layoutDensity =
       this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
-    this.leafPileParams.layoutDensity = this.vergeBandParams.layoutDensity * 1.02
+    this.leafPileParams.layoutDensity = this.vergeBandParams.layoutDensity * 0.52
     this.vergeBandEffect.setParams(this.vergeBandParams)
     this.leafPileEffect.setParams(this.leafPileParams)
     if (!this.sceneryMode) {
@@ -1121,6 +1262,14 @@ export class PlaygroundRuntime {
       this.userRockLayoutDensity * getQualityRockLayoutScale(this.quality)
     this.rockFieldEffect.setParams(this.rockFieldParams)
     this.rockFieldDirty = true
+    this.shrubFieldParams.layoutDensity =
+      this.userShrubLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.shrubFieldEffect.setParams(this.shrubFieldParams)
+    this.shrubFieldDirty = true
+    this.treeFieldParams.layoutDensity =
+      this.userTreeLayoutDensity * getQualityRockLayoutScale(this.quality)
+    this.treeFieldEffect.setParams(this.treeFieldParams)
+    this.treeFieldDirty = true
     this.logFieldParams.layoutDensity =
       this.userLogLayoutDensity * getQualityRockLayoutScale(this.quality)
     this.logFieldEffect.setParams(this.logFieldParams)
@@ -1232,6 +1381,8 @@ export class PlaygroundRuntime {
     this.scene.remove(this.shutterEffect.group)
     this.scene.remove(this.ivyEffect.group)
     this.scene.remove(this.rockFieldEffect.group)
+    this.scene.remove(this.shrubFieldEffect.group)
+    this.scene.remove(this.treeFieldEffect.group)
     this.scene.remove(this.logFieldEffect.group)
     this.scene.remove(this.stickFieldEffect.group)
     this.scene.remove(this.needleLitterEffect.group)
@@ -1266,6 +1417,8 @@ export class PlaygroundRuntime {
     this.leafPileEffect.dispose()
     this.fungusBandEffect.dispose()
     this.rockFieldEffect.dispose()
+    this.shrubFieldEffect.dispose()
+    this.treeFieldEffect.dispose()
     this.logFieldEffect.dispose()
     this.stickFieldEffect.dispose()
     this.needleLitterEffect.dispose()
@@ -2409,6 +2562,14 @@ export class PlaygroundRuntime {
       ranRock = true
     }
     rockCpuMs = now() - tRock0
+    if (this.shrubFieldDirty) {
+      this.shrubFieldEffect.update(this.getGroundHeightAtWorld)
+      this.shrubFieldDirty = false
+    }
+    if (this.treeFieldDirty) {
+      this.treeFieldEffect.update(this.getGroundHeightAtWorld)
+      this.treeFieldDirty = false
+    }
     const tLog0 = now()
     if (this.logFieldDirty || this.logFieldEffect.hasMotion()) {
       this.logFieldEffect.update(elapsed, this.getGroundHeightAtWorld)

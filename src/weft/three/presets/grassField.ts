@@ -25,6 +25,7 @@ export type GrassFieldParams = {
   wind: number
   recoveryRate: number
   state: number
+  colorSeason?: 'spring' | 'summer' | 'autumn' | 'winter' | null
   layoutDensity: number
   bladeWidthScale: number
   bladeHeightScale: number
@@ -37,6 +38,7 @@ export const DEFAULT_GRASS_FIELD_PARAMS: GrassFieldParams = {
   wind: 0.62,
   recoveryRate: 0.8,
   state: 0,
+  colorSeason: null,
   layoutDensity: 8,
   bladeWidthScale: 1,
   bladeHeightScale: 1,
@@ -72,6 +74,8 @@ const MAX_ACTIVE_DISTURBANCES = 72
 
 const tmpPos = new THREE.Vector3()
 const tmpColor = new THREE.Color()
+const tmpSeasonColorA = new THREE.Color()
+const tmpSeasonColorB = new THREE.Color()
 const tmpLocalPoint = new THREE.Vector3()
 const dummy = new THREE.Object3D()
 
@@ -105,6 +109,30 @@ const STATE_GROUND_DARK = [
   new THREE.Color('#412154'),
   new THREE.Color('#645d54'),
 ] as const
+const SEASON_BLADE_TINT = {
+  spring: new THREE.Color('#8fc96b'),
+  summer: new THREE.Color('#5f8f3d'),
+  autumn: new THREE.Color('#c08a46'),
+  winter: new THREE.Color('#d9dedf'),
+} as const
+const SEASON_GROUND_TINT = {
+  spring: new THREE.Color('#7ea35f'),
+  summer: new THREE.Color('#5f7444'),
+  autumn: new THREE.Color('#9b7046'),
+  winter: new THREE.Color('#bdc5c9'),
+} as const
+const SEASON_GROUND_BASE = {
+  spring: new THREE.Color('#90ad73'),
+  summer: new THREE.Color('#67794e'),
+  autumn: new THREE.Color('#a57b55'),
+  winter: new THREE.Color('#d5dadc'),
+} as const
+const SEASON_GROUND_DARK = {
+  spring: new THREE.Color('#62744e'),
+  summer: new THREE.Color('#48553a'),
+  autumn: new THREE.Color('#74563e'),
+  winter: new THREE.Color('#99a1a5'),
+} as const
 const STATE_LAYOUT_DENSITY = [1.2, 0.88, 0.95, 0.58] as const
 const STATE_PRESENCE = [1, 0.92, 0.82, 0.62] as const
 const STATE_HEIGHT = [1.18, 0.92, 1.02, 0.62] as const
@@ -392,7 +420,7 @@ export class GrassFieldEffect {
     /** Below road quads so asphalt fully occludes the green ground texture on the cross. */
     this.groundSurfaceMesh.position.y = -0.055
     this.groundSurfaceMesh.renderOrder = -1
-    this.groundMaterial.color.copy(STATE_GROUND_TINT[this.stateIndex()])
+    this.groundMaterial.color.copy(this.groundTintColor())
 
     this.updateGround()
     this.group.add(this.groundSurfaceMesh)
@@ -403,11 +431,16 @@ export class GrassFieldEffect {
   setParams(params: Partial<GrassFieldParams>): void {
     const prevStateIndex = this.stateIndex()
     const prevLayoutDensity = this.params.layoutDensity
+    const prevColorSeason = this.params.colorSeason ?? null
     this.params = { ...this.params, ...params }
-    if (this.stateIndex() !== prevStateIndex || this.params.layoutDensity !== prevLayoutDensity) {
+    if (
+      this.stateIndex() !== prevStateIndex ||
+      this.params.layoutDensity !== prevLayoutDensity ||
+      (this.params.colorSeason ?? null) !== prevColorSeason
+    ) {
       this.bladeCacheDirty = true
     }
-    this.groundMaterial.color.copy(STATE_GROUND_TINT[this.stateIndex()])
+    this.groundMaterial.color.copy(this.groundTintColor())
     for (const disturbance of this.disturbances) {
       disturbance.radius = this.params.disturbanceRadius * DISTURBANCE_RADIUS_MULTIPLIER
     }
@@ -560,6 +593,22 @@ export class GrassFieldEffect {
     return THREE.MathUtils.clamp(Math.round(this.params.state), 0, STATE_BLADE_BASE.length - 1)
   }
 
+  private tintColor(
+    base: THREE.Color,
+    seasonPalette: Record<'spring' | 'summer' | 'autumn' | 'winter', THREE.Color>,
+    amount: number,
+    target: THREE.Color = tmpSeasonColorA,
+  ): THREE.Color {
+    target.copy(base)
+    const season = this.params.colorSeason
+    if (!season) return target
+    return target.lerp(seasonPalette[season], amount)
+  }
+
+  private groundTintColor(): THREE.Color {
+    return this.tintColor(STATE_GROUND_TINT[this.stateIndex()]!, SEASON_GROUND_TINT, 0.72)
+  }
+
   private createLayoutDriver(surface: PreparedSurfaceSource<GrassTokenId, GrassTokenMeta>) {
     return new SurfaceLayoutDriver({
       surface,
@@ -651,8 +700,8 @@ export class GrassFieldEffect {
 
       if (hasDisturbances) {
         tmpColor.setRGB(blade.baseColorR, blade.baseColorG, blade.baseColorB)
-        tmpColor.lerp(STATE_GROUND_BASE[stateIndex]!, localDisturbance * 0.06)
-        tmpColor.lerp(STATE_GROUND_DARK[stateIndex]!, localDisturbance * 0.28)
+        tmpColor.lerp(this.tintColor(STATE_GROUND_BASE[stateIndex]!, SEASON_GROUND_BASE, 0.52), localDisturbance * 0.06)
+        tmpColor.lerp(this.tintColor(STATE_GROUND_DARK[stateIndex]!, SEASON_GROUND_DARK, 0.58), localDisturbance * 0.28)
         this.bladeMesh.setColorAt(instanceIndex, tmpColor)
       }
 
@@ -700,8 +749,8 @@ export class GrassFieldEffect {
     const stateHeight = STATE_HEIGHT[stateIndex]!
     const stateWidth = STATE_WIDTH[stateIndex]!
     const stateBend = STATE_BEND[stateIndex]!
-    const bladeBaseColor = STATE_BLADE_BASE[stateIndex]!
-    const bladeTipColor = STATE_BLADE_TIP[stateIndex]!
+    const bladeBaseColor = this.tintColor(STATE_BLADE_BASE[stateIndex]!, SEASON_BLADE_TINT, 0.22, tmpSeasonColorA)
+    const bladeTipColor = this.tintColor(STATE_BLADE_TIP[stateIndex]!, SEASON_BLADE_TINT, 0.44, tmpSeasonColorB)
 
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
