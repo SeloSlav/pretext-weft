@@ -18,7 +18,7 @@ export const PLAYGROUND_CONTROLLER: ThirdPersonControllerConfig = {
   lookYawSpeed: 0.008,
   lookPitchSpeed: 0.006,
   minPitch: -0.82,
-  maxPitch: 0.34,
+  maxPitch: 0.72,
   cameraDistance: 6.7,
   cameraHeight: 2.45,
   shoulderOffset: 0.7,

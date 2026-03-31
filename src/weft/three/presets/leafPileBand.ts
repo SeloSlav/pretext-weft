@@ -104,21 +104,21 @@ const SEASON_STYLE: Record<
   }
 > = {
   spring: {
-    baseHue: 0.27,
-    saturation: 0.44,
-    lightness: 0.34,
+    baseHue: 0.30,      // yellow-green new growth
+    saturation: 0.72,   // vivid
+    lightness: 0.44,    // bright
     densityScale: 1,
-    presence: 0.62,
-    widthScale: 1,
-    lengthScale: 1,
-    lift: 1,
-    leavesPerClump: 7,
-    spread: 1.12,
+    presence: 0.55,     // sparse — leaves just budding
+    widthScale: 0.9,
+    lengthScale: 0.9,
+    lift: 1.1,
+    leavesPerClump: 6,
+    spread: 1.08,
   },
   summer: {
-    baseHue: 0.23,
-    saturation: 0.42,
-    lightness: 0.26,
+    baseHue: 0.25,      // deep green
+    saturation: 0.68,   // rich saturated
+    lightness: 0.38,    // medium — not too dark
     densityScale: 1,
     presence: 0.62,
     widthScale: 1,
@@ -128,28 +128,28 @@ const SEASON_STYLE: Record<
     spread: 1.12,
   },
   autumn: {
-    baseHue: 0.09,
-    saturation: 0.58,
-    lightness: 0.37,
-    densityScale: 1,
-    presence: 0.62,
-    widthScale: 1,
-    lengthScale: 1,
-    lift: 1,
-    leavesPerClump: 8,
-    spread: 1.16,
+    baseHue: 0.07,      // vivid orange (not red)
+    saturation: 0.90,   // very vivid
+    lightness: 0.50,    // bright warm
+    densityScale: 1.2,  // more leaves on the ground
+    presence: 0.82,     // lots of fallen leaves
+    widthScale: 1.1,
+    lengthScale: 1.1,
+    lift: 0.9,          // flatter on the ground
+    leavesPerClump: 10,
+    spread: 1.28,
   },
   winter: {
-    baseHue: 0.1,
-    saturation: 0.08,
-    lightness: 0.7,
-    densityScale: 1,
-    presence: 0.62,
-    widthScale: 1,
-    lengthScale: 1,
-    lift: 1,
-    leavesPerClump: 7,
-    spread: 1.12,
+    baseHue: 0.58,      // cold blue-grey
+    saturation: 0.06,   // almost desaturated
+    lightness: 0.82,    // near-white
+    densityScale: 0.7,  // sparse — most blown away
+    presence: 0.38,
+    widthScale: 0.85,
+    lengthScale: 0.85,
+    lift: 0.8,
+    leavesPerClump: 5,
+    spread: 1.0,
   },
 }
 

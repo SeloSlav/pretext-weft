@@ -141,28 +141,28 @@ const STATE_GROUND_DARK = [
   new THREE.Color('#645d54'),
 ] as const
 const SEASON_BLADE_TINT = {
-  spring: new THREE.Color('#a8e858'),
-  summer: new THREE.Color('#4e8228'),
-  autumn: new THREE.Color('#d09030'),
-  winter: new THREE.Color('#e8eef0'),
+  spring: new THREE.Color('#b8ff60'),   // vivid lime-green new growth
+  summer: new THREE.Color('#4aaa22'),   // bright rich green
+  autumn: new THREE.Color('#d4a020'),   // natural golden-yellow
+  winter: new THREE.Color('#eef6ff'),   // near-white with blue tint
 } as const
 const SEASON_GROUND_TINT = {
-  spring: new THREE.Color('#88c860'),
-  summer: new THREE.Color('#578845'),
-  autumn: new THREE.Color('#9b7046'),
-  winter: new THREE.Color('#bdc5c9'),
+  spring: new THREE.Color('#b8f068'),   // vivid bright spring green
+  summer: new THREE.Color('#b0e860'),   // same brightness as spring, slightly warmer
+  autumn: new THREE.Color('#e8c040'),   // warm golden-yellow
+  winter: new THREE.Color('#ffffff'),   // pure white snow
 } as const
 const SEASON_GROUND_BASE = {
-  spring: new THREE.Color('#8ab868'),
-  summer: new THREE.Color('#5e7a44'),
-  autumn: new THREE.Color('#a57b55'),
-  winter: new THREE.Color('#d5dadc'),
+  spring: new THREE.Color('#a8e058'),   // fresh spring green
+  summer: new THREE.Color('#a0d850'),   // matching summer brightness
+  autumn: new THREE.Color('#d4a830'),   // warm golden earth
+  winter: new THREE.Color('#f4f8ff'),   // bright snow with cool tint
 } as const
 const SEASON_GROUND_DARK = {
-  spring: new THREE.Color('#5a7040'),
-  summer: new THREE.Color('#425c32'),
-  autumn: new THREE.Color('#74563e'),
-  winter: new THREE.Color('#99a1a5'),
+  spring: new THREE.Color('#6aaa30'),   // mid green shadow
+  summer: new THREE.Color('#62a028'),   // medium green shadow
+  autumn: new THREE.Color('#a88820'),   // deep golden-brown shadow
+  winter: new THREE.Color('#c8d4e0'),   // cool blue-grey shadow on snow
 } as const
 const STATE_LAYOUT_DENSITY = [1.2, 0.88, 0.95, 0.58] as const
 const STATE_PRESENCE = [1, 0.92, 0.82, 0.62] as const
@@ -348,7 +348,7 @@ function createGroundTexture(): THREE.CanvasTexture {
   const randRange = (min: number, max: number) => min + rand() * (max - min)
 
   // Forest floor base — warm mid-tone soil, brown-green
-  ctx.fillStyle = '#4a3f28'
+  ctx.fillStyle = '#7a6e50'
   ctx.fillRect(0, 0, width, height)
 
   // Large soil-tone variation blobs — earthy browns and olive
@@ -1041,7 +1041,7 @@ ${BURN_NEON_RIM_COLOR_FRAGMENT}`,
   }
 
   private groundTintColor(): THREE.Color {
-    return this.tintColor(STATE_GROUND_TINT[this.stateIndex()]!, SEASON_GROUND_TINT, 0.72)
+    return this.tintColor(STATE_GROUND_TINT[this.stateIndex()]!, SEASON_GROUND_TINT, 0.97)
   }
 
   private createLayoutDriver(surface: PreparedSurfaceSource<GrassTokenId, GrassTokenMeta>) {
@@ -1239,8 +1239,8 @@ ${BURN_NEON_RIM_COLOR_FRAGMENT}`,
       if (needsDynamicBladeColor) {
         tmpColor.setRGB(blade.baseColorR, blade.baseColorG, blade.baseColorB)
         if (localDisturbance > 0) {
-          tmpColor.lerp(this.tintColor(STATE_GROUND_BASE[stateIndex]!, SEASON_GROUND_BASE, 0.52), localDisturbance * 0.06)
-          tmpColor.lerp(this.tintColor(STATE_GROUND_DARK[stateIndex]!, SEASON_GROUND_DARK, 0.58), localDisturbance * 0.28)
+          tmpColor.lerp(this.tintColor(STATE_GROUND_BASE[stateIndex]!, SEASON_GROUND_BASE, 0.94), localDisturbance * 0.06)
+          tmpColor.lerp(this.tintColor(STATE_GROUND_DARK[stateIndex]!, SEASON_GROUND_DARK, 0.94), localDisturbance * 0.28)
         }
         if (burnField.burn > 0.002 || burnField.front > 0.002) {
           this.applyGrassBurnToBladeColor(tmpColor, burnField.burn, burnField.front)
@@ -1356,8 +1356,8 @@ ${BURN_NEON_RIM_COLOR_FRAGMENT}`,
     const stateHeight = STATE_HEIGHT[stateIndex]!
     const stateWidth = STATE_WIDTH[stateIndex]!
     const stateBend = STATE_BEND[stateIndex]!
-    const bladeBaseColor = this.tintColor(STATE_BLADE_BASE[stateIndex]!, SEASON_BLADE_TINT, 0.22, tmpSeasonColorA)
-    const bladeTipColor = this.tintColor(STATE_BLADE_TIP[stateIndex]!, SEASON_BLADE_TINT, 0.44, tmpSeasonColorB)
+    const bladeBaseColor = this.tintColor(STATE_BLADE_BASE[stateIndex]!, SEASON_BLADE_TINT, 0.72, tmpSeasonColorA)
+    const bladeTipColor = this.tintColor(STATE_BLADE_TIP[stateIndex]!, SEASON_BLADE_TINT, 0.88, tmpSeasonColorB)
 
     const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = this.frameLayoutViewCull
       ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }

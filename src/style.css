@@ -798,6 +798,25 @@ body,
   flex: 1;
   overflow-y: auto;
   padding: 16px 18px 24px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(126, 184, 255, 0.22) transparent;
+}
+
+.sample-detail::-webkit-scrollbar {
+  width: 5px;
+}
+
+.sample-detail::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sample-detail::-webkit-scrollbar-thumb {
+  background: rgba(126, 184, 255, 0.22);
+  border-radius: 999px;
+}
+
+.sample-detail::-webkit-scrollbar-thumb:hover {
+  background: rgba(126, 184, 255, 0.4);
 }
 
 .sample-detail__title {
@@ -885,6 +904,103 @@ body,
 .control input[type='range'] {
   width: 100%;
   accent-color: #7eb8ff;
+}
+
+.control select {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 7px 30px 7px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background-color: rgba(255, 255, 255, 0.06);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(180,200,230,0.6)'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: #e8edf4;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.control select:hover {
+  border-color: rgba(126, 184, 255, 0.38);
+  background-color: rgba(126, 184, 255, 0.08);
+}
+
+.control select:focus {
+  outline: none;
+  border-color: rgba(126, 184, 255, 0.6);
+  background-color: rgba(126, 184, 255, 0.1);
+  box-shadow: 0 0 0 2px rgba(126, 184, 255, 0.15);
+}
+
+.control select option {
+  background: #0e1420;
+  color: #e8edf4;
+}
+
+.control-cycle {
+  display: flex;
+  align-items: stretch;
+  min-height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.control-cycle__btn {
+  flex: 0 0 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(232, 237, 244, 0.72);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.control-cycle__btn:first-child {
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.control-cycle__btn:last-child {
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.control-cycle__btn:hover {
+  background: rgba(126, 184, 255, 0.12);
+  color: #e8edf4;
+}
+
+.control-cycle__btn:focus-visible {
+  outline: none;
+  background: rgba(126, 184, 255, 0.08);
+  box-shadow: inset 0 0 0 2px rgba(126, 184, 255, 0.45);
+  z-index: 1;
+}
+
+.control-cycle__value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #e8edf4; 
+  text-align: center;
+  line-height: 1.25;
 }
 
 .control-actions {

@@ -86,14 +86,35 @@ const shrubOrganicWorldField = createWorldField(1099, {
   contrast: 1.1,
 })
 
+// warmth encodes season: spring ~ -0.18, summer ~ -0.06, autumn ~ +0.55, winter ~ -0.72
 function shrubLeafColor(identity: number, noise: number, meta: ShrubTokenMeta): THREE.Color {
   const t = uhash(identity * 2654435761)
-  // Ghibli shrub foliage: bright warm greens, some variety into blue-green
-  const hue = 0.27 + t * 0.06 + meta.warmth * 0.06
-  const seasonalFade = Math.max(0, -meta.warmth)
-  const seasonalDryness = Math.max(0, meta.warmth)
-  const sat = 0.52 + noise * 0.2 + meta.spreadBias * 0.06 + seasonalDryness * 0.2 - seasonalFade * 0.28
-  const light = 0.38 + noise * 0.18 + t * 0.08 + seasonalDryness * 0.05 + seasonalFade * 0.16
+  const w = meta.warmth
+
+  let hue: number, sat: number, light: number
+
+  if (w >= 0.3) {
+    // Autumn — vivid orange, some red/yellow variety
+    hue = 0.07 + t * 0.06 + meta.spreadBias * 0.03
+    sat = 0.84 + noise * 0.12 + meta.spreadBias * 0.04
+    light = 0.48 + noise * 0.08 + t * 0.06
+  } else if (w <= -0.5) {
+    // Winter — near-white, icy pale
+    hue = 0.57 + t * 0.05
+    sat = 0.08 + noise * 0.06
+    light = 0.74 + noise * 0.10 + t * 0.08
+  } else if (w <= -0.1) {
+    // Spring — bright yellow-green
+    hue = 0.29 + t * 0.05 + meta.spreadBias * 0.02
+    sat = 0.74 + noise * 0.14
+    light = 0.48 + noise * 0.10 + t * 0.06
+  } else {
+    // Summer — deep rich green
+    hue = 0.27 + t * 0.05 + meta.spreadBias * 0.02
+    sat = 0.64 + noise * 0.14
+    light = 0.34 + noise * 0.10 + t * 0.06
+  }
+
   return tmpColor.setHSL(hue, sat, light)
 }
 

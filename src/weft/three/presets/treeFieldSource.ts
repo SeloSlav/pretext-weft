@@ -36,14 +36,14 @@ const TREE_FIELD_PALETTE: readonly SurfacePaletteEntry<TreeTokenId, TreeTokenMet
 function seasonalMeta(meta: TreeTokenMeta, season: TreeFoliageSeason): TreeTokenMeta {
   switch (season) {
     case 'spring':
-      return { ...meta, warmth: meta.warmth - 0.04 }
+      return { ...meta, warmth: meta.warmth - 0.18 }  // cool yellow-green new growth
     case 'summer':
-      return { ...meta, warmth: meta.warmth - 0.01 }
+      return { ...meta, warmth: meta.warmth - 0.06 }  // rich deep green
     case 'autumn':
-      return { ...meta, warmth: meta.warmth + 0.1 }
+      return { ...meta, warmth: meta.warmth + 0.55 }  // strong orange-red shift
     case 'winter':
     default:
-      return { ...meta, warmth: meta.warmth - 0.18 }
+      return { ...meta, warmth: meta.warmth - 0.72 }  // near-desaturated, pale/grey
   }
 }
 

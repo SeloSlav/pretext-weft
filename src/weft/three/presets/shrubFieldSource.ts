@@ -35,14 +35,14 @@ const SHRUB_FIELD_PALETTE: readonly SurfacePaletteEntry<ShrubTokenId, ShrubToken
 function seasonalMeta(meta: ShrubTokenMeta, season: ShrubFoliageSeason): ShrubTokenMeta {
   switch (season) {
     case 'spring':
-      return { ...meta, warmth: meta.warmth - 0.04 }
+      return { ...meta, warmth: meta.warmth - 0.18 }  // cool yellow-green
     case 'summer':
-      return { ...meta, warmth: meta.warmth - 0.01 }
+      return { ...meta, warmth: meta.warmth - 0.06 }  // deep green
     case 'autumn':
-      return { ...meta, warmth: meta.warmth + 0.1 }
+      return { ...meta, warmth: meta.warmth + 0.55 }  // vivid orange-red
     case 'winter':
     default:
-      return { ...meta, warmth: meta.warmth - 0.18 }
+      return { ...meta, warmth: meta.warmth - 0.72 }  // pale, near-desaturated
   }
 }
 

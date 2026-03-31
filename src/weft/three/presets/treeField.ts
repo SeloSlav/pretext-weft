@@ -125,13 +125,35 @@ function makeTrunkGeometry(): THREE.BufferGeometry {
   return new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1, false)
 }
 
+// warmth encodes season: spring ~ -0.18, summer ~ -0.06, autumn ~ +0.55, winter ~ -0.72
 function treeCrownColor(identity: number, noise: number, meta: TreeTokenMeta): THREE.Color {
   const t = uhash(identity * 2654435761)
-  const hue = 0.26 + t * 0.06 + meta.warmth * 0.08
-  const seasonalFade = Math.max(0, -meta.warmth)
-  const seasonalDryness = Math.max(0, meta.warmth)
-  const sat = 0.55 + noise * 0.18 + meta.crownBias * 0.06 + seasonalDryness * 0.22 - seasonalFade * 0.3
-  const light = 0.36 + noise * 0.14 + t * 0.08 + seasonalDryness * 0.06 + seasonalFade * 0.18
+  const w = meta.warmth
+
+  let hue: number, sat: number, light: number
+
+  if (w >= 0.3) {
+    // Autumn — vivid orange, some red/yellow variety
+    hue = 0.07 + t * 0.05 + meta.crownBias * 0.03
+    sat = 0.82 + noise * 0.12 + meta.crownBias * 0.06
+    light = 0.46 + noise * 0.08 + t * 0.06
+  } else if (w <= -0.5) {
+    // Winter — near-white, cold grey
+    hue = 0.58 + t * 0.04
+    sat = 0.06 + noise * 0.06
+    light = 0.72 + noise * 0.10 + t * 0.08
+  } else if (w <= -0.1) {
+    // Spring — bright yellow-green
+    hue = 0.28 + t * 0.05 + meta.crownBias * 0.02
+    sat = 0.72 + noise * 0.14
+    light = 0.46 + noise * 0.10 + t * 0.06
+  } else {
+    // Summer — deep rich green
+    hue = 0.26 + t * 0.05 + meta.crownBias * 0.02
+    sat = 0.62 + noise * 0.14
+    light = 0.32 + noise * 0.10 + t * 0.06
+  }
+
   return tmpColor.setHSL(hue, sat, light)
 }
 

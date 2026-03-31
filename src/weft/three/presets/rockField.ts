@@ -19,8 +19,8 @@ export type RockFieldParams = {
 }
 
 export const DEFAULT_ROCK_FIELD_PARAMS: RockFieldParams = {
-  layoutDensity: 1.0,
-  sizeScale: 1.0,
+  layoutDensity: 1.5,
+  sizeScale: 2.5,
 }
 
 /** Impulse / laser hit applied in world space; destruction is keyed by authored layout identity. */

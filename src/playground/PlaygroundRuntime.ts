@@ -64,9 +64,16 @@ import {
   type PresetLayoutViewCull,
 } from '../weft/three'
 import { createWebGPURenderer } from '../createWebGPURenderer'
+import { ToonShadingPipeline, type ToonShadingConfig } from './toonShading'
 import { Timer } from 'three'
 import * as THREE from 'three'
-import { applyPlaygroundAtmosphere, addPlaygroundLighting } from './playgroundEnvironment'
+import {
+  applyPlaygroundAtmosphere,
+  addPlaygroundLighting,
+  applySkyMode,
+  type PlaygroundLighting,
+  type SkyMode,
+} from './playgroundEnvironment'
 import {
   type PlayerAnimationState,
   ThirdPersonController,
@@ -380,6 +387,7 @@ export class PlaygroundRuntime {
   private readonly logFieldEffect: ReturnType<typeof createLogFieldEffect>
   private readonly stickFieldEffect: ReturnType<typeof createStickFieldEffect>
   private readonly needleLitterEffect: ReturnType<typeof createNeedleLitterFieldEffect>
+  private readonly shootSound = new Audio('/shoot_gun.mp3')
   private readonly neonSignEffects: FireWallEffect[] = NEON_BARRIERS.map((barrier) =>
     createFireWallEffect({
       surface: getPreparedFireSurface(),
@@ -413,12 +421,15 @@ export class PlaygroundRuntime {
   }
 
   private renderer: Awaited<ReturnType<typeof createWebGPURenderer>> | null = null
+  private toonPipeline: ToonShadingPipeline | null = null
+  private toonEnabled = true
   private resizeObserver: ResizeObserver | null = null
   private rafId = 0
   private disposed = false
   private lastElapsed = 0
   private sceneryPointerLocked = false
   private readonly skybox: THREE.Mesh
+  private lighting!: PlaygroundLighting
   private walkStampDistance = 0
   private pendingShoot = false
   private pendingJump = false
@@ -684,6 +695,7 @@ export class PlaygroundRuntime {
     this.grassFieldParams.colorSeason = season
     this.grassEffect.setParams({ colorSeason: season })
     this.leafPileParams.season = season
+    this.leafPileEffect.setParams({ season })
     this.leafPileEffect.setSurface(buildLeafPileSeasonSurface(season))
     this.shrubFieldEffect.setSurface(buildShrubSeasonSurface(season), seedCursor)
     this.treeFieldEffect.setSurface(buildTreeSeasonSurface(season), seedCursor)
@@ -788,11 +800,11 @@ export class PlaygroundRuntime {
         edgeSoftness: 1.8,
         season: this.resolvedSceneryFoliageSeason(),
       }
-      this.userRockLayoutDensity = 0.48
+      this.userRockLayoutDensity = 1.5
       this.rockFieldParams = {
         ...DEFAULT_ROCK_FIELD_PARAMS,
         layoutDensity: this.userRockLayoutDensity,
-        sizeScale: 1.28,
+        sizeScale: 2.5,
       }
       this.userShrubLayoutDensity = 1
       this.shrubFieldParams = {
@@ -984,7 +996,7 @@ export class PlaygroundRuntime {
     this.camera.position.set(0, 2.2, 10.8)
 
     this.skybox = applyPlaygroundAtmosphere(this.scene)
-    addPlaygroundLighting(this.scene)
+    this.lighting = addPlaygroundLighting(this.scene)
 
     if (this.sceneryMode) {
       this.townGroup = new THREE.Group()
@@ -1166,6 +1178,8 @@ export class PlaygroundRuntime {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.08
 
+    this.toonPipeline = new ToonShadingPipeline(this.renderer, this.scene, this.camera)
+
     this.resize()
     this.resizeObserver = new ResizeObserver(() => this.resize())
     this.resizeObserver.observe(this.host)
@@ -1183,6 +1197,17 @@ export class PlaygroundRuntime {
     window.addEventListener('blur', this.handleWindowBlur)
 
     this.frame()
+  }
+
+  setToonShading(enabled: boolean, config?: Partial<ToonShadingConfig>): void {
+    this.toonEnabled = enabled
+    if (config && this.toonPipeline) {
+      this.toonPipeline.setConfig(config)
+    }
+  }
+
+  setToonShadingConfig(config: Partial<ToonShadingConfig>): void {
+    this.toonPipeline?.setConfig(config)
   }
 
   setShellSurfaceParams(params: Partial<ShellSurfaceParams>): void {
@@ -1450,6 +1475,11 @@ export class PlaygroundRuntime {
     this.starSkyEffect.setParams(this.starSkyParams)
   }
 
+  setSkyMode(mode: SkyMode): void {
+    applySkyMode(mode, this.skybox, this.scene, this.lighting)
+    this.starSkyEffect.group.visible = mode === 'night'
+  }
+
   setCollisionDebugVisible(visible: boolean): void {
     this.collisionDebugVisible = visible
     this.collisionDebugGroup.visible = visible
@@ -1621,6 +1651,7 @@ export class PlaygroundRuntime {
       effect.dispose()
     }
     this.controller.player.dispose()
+    this.toonPipeline?.dispose()
     this.renderer?.dispose()
     this.timer.dispose()
     this.canvas.remove()
@@ -2806,6 +2837,8 @@ export class PlaygroundRuntime {
   }
 
   private fireShot(): void {
+    this.shootSound.currentTime = 0
+    this.shootSound.play().catch(() => {})
     const hit = this.getCenterRayHit()
     if (this.activeFrame) {
       this.getLaserImpactPoint(hit, this.laserEndPoint)
@@ -3265,7 +3298,11 @@ export class PlaygroundRuntime {
     this.effectUpdateMs = effectsCpuMs
 
     const tRender0 = now()
-    this.renderer.render(this.scene, this.camera)
+    if (this.toonEnabled && this.toonPipeline) {
+      this.toonPipeline.render()
+    } else {
+      this.renderer.render(this.scene, this.camera)
+    }
     const renderCpuMs = now() - tRender0
     const frameCpuMs = now() - tFrame0
     const fishCpuMs = shutterCpuMs + ivyCpuMs
@@ -3378,6 +3415,7 @@ export class PlaygroundRuntime {
       this.controllerConfig.shoulderOffset = 0
       this.controllerConfig.cameraHeight = PlaygroundRuntime.SCENERY_FIRST_PERSON_CAMERA_HEIGHT
       this.controllerConfig.cameraFollowLerp = PLAYGROUND_CONTROLLER.cameraFollowLerp
+      this.controllerConfig.maxPitch = 1.48
       const targetFov = PlaygroundRuntime.SCENERY_FIRST_PERSON_FOV
       if (Math.abs(this.camera.fov - targetFov) > 0.01) {
         this.camera.fov = targetFov
@@ -3386,6 +3424,7 @@ export class PlaygroundRuntime {
       return
     }
     this.controllerConfig.firstPerson = false
+    this.controllerConfig.maxPitch = PLAYGROUND_CONTROLLER.maxPitch
     const playerPos = this.activeFrame?.playerPosition ?? this.controller.player.group.position
     const isIndoor = isInsideBuildingInterior(playerPos.x, playerPos.z)
     if (delta <= 0) {

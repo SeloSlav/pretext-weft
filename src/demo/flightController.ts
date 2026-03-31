@@ -48,7 +48,7 @@ export const DEFAULT_FLIGHT_CONFIG: FlightControllerConfig = {
   lookYawSpeed: PLAYGROUND_CONTROLLER.lookYawSpeed,
   lookPitchSpeed: PLAYGROUND_CONTROLLER.lookPitchSpeed,
   minPitch: PLAYGROUND_CONTROLLER.minPitch,
-  maxPitch: PLAYGROUND_CONTROLLER.maxPitch,
+  maxPitch: 1.48,
   cameraDistance: PLAYGROUND_CONTROLLER.cameraDistance,
   cameraHeight: PLAYGROUND_CONTROLLER.cameraHeight,
   shoulderOffset: PLAYGROUND_CONTROLLER.shoulderOffset,

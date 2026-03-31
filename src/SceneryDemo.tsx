@@ -17,6 +17,7 @@ import {
   SCENERY_NEEDLE_LITTER_BURN_PARAMS,
 } from "./playground/playgroundSceneryWorld";
 import {
+  DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT,
   DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
   DEMO_GRASS_LAYOUT_DENSITY_MAX,
 } from "./playground/playgroundQuality";
@@ -31,13 +32,14 @@ type ControlSectionProps = {
   children: ReactNode;
 };
 
-const GRASS_STATE_LABELS = ["Healthy", "Dry", "Corrupted", "Dead"] as const;
 const LEAF_PILE_SEASON_LABELS = {
   spring: "Spring",
   summer: "Summer",
   autumn: "Autumn",
   winter: "Winter",
 } as const;
+
+const FOLIAGE_SEASON_CYCLE = ["auto", ...LEAF_PILE_SEASONS] as const;
 
 function foliageSeasonForWorldState(state: number): keyof typeof LEAF_PILE_SEASON_LABELS {
   const step = Math.max(0, Math.min(3, Math.round(state)));
@@ -77,7 +79,7 @@ export function SceneryDemo() {
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
 
   const [disturbanceRadius, setDisturbanceRadius] = useState(
-    DEFAULT_GRASS_FIELD_PARAMS.disturbanceRadius,
+    DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT,
   );
   const [disturbanceStrength, setDisturbanceStrength] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.disturbanceStrength,
@@ -89,7 +91,7 @@ export function SceneryDemo() {
   const [recoveryRate, setRecoveryRate] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.recoveryRate,
   );
-  const [grassState, setGrassState] = useState(DEFAULT_GRASS_FIELD_PARAMS.state);
+  const grassState = DEFAULT_GRASS_FIELD_PARAMS.state;
   const [grassLayoutDensity, setGrassLayoutDensity] = useState(
     DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
   );
@@ -114,8 +116,8 @@ export function SceneryDemo() {
       ? foliageSeasonForWorldState(grassState)
       : foliageSeasonOverride;
 
-  const [rockLayoutDensity, setRockLayoutDensity] = useState(0.48);
-  const [rockSizeScale, setRockSizeScale] = useState(1.28);
+  const [rockLayoutDensity, setRockLayoutDensity] = useState(1.5);
+  const [rockSizeScale, setRockSizeScale] = useState(2.5);
   const [showRocks, setShowRocks] = useState(true);
   const [shrubLayoutDensity, setShrubLayoutDensity] = useState(1);
   const [shrubSizeScale, setShrubSizeScale] = useState(2.25);
@@ -209,6 +211,11 @@ export function SceneryDemo() {
   const [starRecoveryRate, setStarRecoveryRate] = useState(
     DEFAULT_STAR_SKY_PARAMS.recoveryRate,
   );
+  const [skyMode, setSkyMode] = useState<"night" | "day">("day");
+  const [toonEnabled, setToonEnabled] = useState(true);
+  const [toonBands, setToonBands] = useState(8);
+  const [toonEdgeStrength, setToonEdgeStrength] = useState(0.6);
+  const [toonEdgeThreshold, setToonEdgeThreshold] = useState(0.15);
   const [perfStats, setPerfStats] = useState<PlaygroundPerfStats | null>(null);
   const [perfHudMinimized, setPerfHudMinimized] = useState(true);
 
@@ -322,6 +329,12 @@ export function SceneryDemo() {
           recoveryRate: starRecoveryRate,
           reactive: false,
         });
+        runtime.setSkyMode(skyMode);
+        runtime.setToonShading(toonEnabled, {
+          bands: toonBands,
+          edgeStrength: toonEdgeStrength,
+          edgeThreshold: toonEdgeThreshold,
+        });
         setRuntimeState("ready");
       })
       .catch((error: unknown) => {
@@ -366,7 +379,6 @@ export function SceneryDemo() {
     disturbanceRadius,
     disturbanceStrength,
     grassLayoutDensity,
-    grassState,
     recoveryRate,
     trampleDepth,
     wind,
@@ -526,6 +538,18 @@ export function SceneryDemo() {
     });
   }, [starLayoutDensity, starRecoveryRate]);
 
+  useEffect(() => {
+    runtimeRef.current?.setSkyMode(skyMode);
+  }, [skyMode]);
+
+  useEffect(() => {
+    runtimeRef.current?.setToonShading(toonEnabled, {
+      bands: toonBands,
+      edgeStrength: toonEdgeStrength,
+      edgeThreshold: toonEdgeThreshold,
+    });
+  }, [toonEnabled, toonBands, toonEdgeStrength, toonEdgeThreshold]);
+
   return (
     <div className="app-shell">
       <aside
@@ -567,9 +591,156 @@ export function SceneryDemo() {
             <section className="sample-detail">
               <div className="sample-controls">
 
+                <ControlSection title="Sky" summary="Atmosphere">
+                  <label className="control">
+                    <span>Time of day</span>
+                    <select
+                      value={skyMode}
+                      onChange={(e) =>
+                        setSkyMode(e.target.value as "night" | "day")
+                      }
+                    >
+                      <option value="day">Day</option>
+                      <option value="night">Night</option>
+                    </select>
+                  </label>
+                  {skyMode === "night" && (
+                    <>
+                      <label className="control">
+                        <span>Star density</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={3}
+                          step={0.05}
+                          value={starLayoutDensity}
+                          onChange={(e) =>
+                            setStarLayoutDensity(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                      <label className="control">
+                        <span>Star recovery rate</span>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.02}
+                          value={starRecoveryRate}
+                          onChange={(e) =>
+                            setStarRecoveryRate(Number(e.target.value))
+                          }
+                        />
+                      </label>
+                    </>
+                  )}
+                </ControlSection>
+
+                <ControlSection
+                  title="Season"
+                  summary="Leaf piles and understory palette"
+                >
+                  <div className="control">
+                    <span>Foliage season</span>
+                    <div className="control-cycle">
+                      <button
+                        type="button"
+                        className="control-cycle__btn"
+                        aria-label="Previous season"
+                        onClick={() => {
+                          const i = FOLIAGE_SEASON_CYCLE.indexOf(
+                            foliageSeasonOverride,
+                          );
+                          const idx = i < 0 ? 0 : i;
+                          const prev =
+                            (idx - 1 + FOLIAGE_SEASON_CYCLE.length) %
+                            FOLIAGE_SEASON_CYCLE.length;
+                          setFoliageSeasonOverride(FOLIAGE_SEASON_CYCLE[prev]!);
+                        }}
+                      >
+                        ‹
+                      </button>
+                      <div className="control-cycle__value" aria-live="polite">
+                        {foliageSeasonOverride === "auto"
+                          ? `Auto (${LEAF_PILE_SEASON_LABELS[foliageSeason]})`
+                          : LEAF_PILE_SEASON_LABELS[foliageSeasonOverride]}
+                      </div>
+                      <button
+                        type="button"
+                        className="control-cycle__btn"
+                        aria-label="Next season"
+                        onClick={() => {
+                          const i = FOLIAGE_SEASON_CYCLE.indexOf(
+                            foliageSeasonOverride,
+                          );
+                          const idx = i < 0 ? 0 : i;
+                          const next = (idx + 1) % FOLIAGE_SEASON_CYCLE.length;
+                          setFoliageSeasonOverride(FOLIAGE_SEASON_CYCLE[next]!);
+                        }}
+                      >
+                        ›
+                      </button>
+                    </div>
+                  </div>
+                </ControlSection>
+
+                <ControlSection
+                  title="Toon shading"
+                  summary="Screen-space posterization and edge detection"
+                >
+                  <label className="control">
+                    <span>Enabled</span>
+                    <input
+                      type="checkbox"
+                      checked={toonEnabled}
+                      onChange={(e) => setToonEnabled(e.target.checked)}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Color bands ({toonBands}) — raise for less posterization</span>
+                    <input
+                      type="range"
+                      min={2}
+                      max={16}
+                      step={1}
+                      value={toonBands}
+                      disabled={!toonEnabled}
+                      onChange={(e) => setToonBands(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Edge darkness ({Math.round(toonEdgeStrength * 100)}%)</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={0.95}
+                      step={0.05}
+                      value={toonEdgeStrength}
+                      disabled={!toonEnabled}
+                      onChange={(e) => setToonEdgeStrength(Number(e.target.value))}
+                    />
+                  </label>
+                  <label className="control">
+                    <span>Edge threshold ({toonEdgeThreshold.toFixed(2)}) — raise to reduce lines</span>
+                    <input
+                      type="range"
+                      min={0.02}
+                      max={0.8}
+                      step={0.01}
+                      value={toonEdgeThreshold}
+                      disabled={!toonEnabled}
+                      onChange={(e) => setToonEdgeThreshold(Number(e.target.value))}
+                    />
+                  </label>
+                  <p className="control-hint">
+                    Posterizes colors into discrete bands and draws depth-discontinuity outlines
+                    (silhouettes only — no lines on flat ground or sky).
+                  </p>
+                </ControlSection>
+
                 <ControlSection
                   title="Grass"
-                  summary="Ground response and world-state swap"
+                  summary="Ground response"
                 >
                   <label className="control">
                     <span>
@@ -579,7 +750,7 @@ export function SceneryDemo() {
                     <input
                       type="range"
                       min={0}
-                      max={2.4}
+                      max={DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT}
                       step={0.02}
                       value={disturbanceRadius}
                       onChange={(e) =>
@@ -669,20 +840,6 @@ export function SceneryDemo() {
                       onChange={(e) =>
                         setGrassBladeHeightScale(Number(e.target.value))
                       }
-                    />
-                  </label>
-                  <label className="control">
-                    <span>
-                      Field state (
-                      {GRASS_STATE_LABELS[grassState] ?? "Healthy"})
-                    </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={3}
-                      step={1}
-                      value={grassState}
-                      onChange={(e) => setGrassState(Number(e.target.value))}
                     />
                   </label>
                   <label className="control">
@@ -1062,29 +1219,6 @@ export function SceneryDemo() {
                         setLeafPileSizeScale(Number(e.target.value))
                       }
                     />
-                  </label>
-                  <label className="control">
-                    <span>
-                      Foliage season (
-                      {LEAF_PILE_SEASON_LABELS[foliageSeason] ?? "Autumn"})
-                    </span>
-                    <select
-                      value={foliageSeasonOverride}
-                      onChange={(e) =>
-                        setFoliageSeasonOverride(
-                          e.target.value as keyof typeof LEAF_PILE_SEASON_LABELS | "auto",
-                        )
-                      }
-                    >
-                      <option value="auto">
-                        Auto ({LEAF_PILE_SEASON_LABELS[foliageSeason] ?? "Autumn"})
-                      </option>
-                      {LEAF_PILE_SEASONS.map((season) => (
-                        <option key={season} value={season}>
-                          {LEAF_PILE_SEASON_LABELS[season]}
-                        </option>
-                      ))}
-                    </select>
                   </label>
                   <p className="control-hint">
                     Understory and litter placement follow the same scenery world
@@ -1468,35 +1602,6 @@ export function SceneryDemo() {
                     Needle litter stays passive under footsteps, but shots burn
                     it outward in a spreading ring.
                   </p>
-                </ControlSection>
-
-                <ControlSection title="Star sky" summary="Atmosphere">
-                  <label className="control">
-                    <span>Layout density</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={3}
-                      step={0.05}
-                      value={starLayoutDensity}
-                      onChange={(e) =>
-                        setStarLayoutDensity(Number(e.target.value))
-                      }
-                    />
-                  </label>
-                  <label className="control">
-                    <span>Recovery rate</span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={1}
-                      step={0.02}
-                      value={starRecoveryRate}
-                      onChange={(e) =>
-                        setStarRecoveryRate(Number(e.target.value))
-                      }
-                    />
-                  </label>
                 </ControlSection>
 
                 <ControlSection title="Quick actions" summary="Reset surfaces">
