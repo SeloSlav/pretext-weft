@@ -12,11 +12,6 @@ import { createBarkGrainTexture, warmBarkColor } from './barkShared'
 import { createBurnRimInstancedAttribute, patchMeshStandardBurnNeonRim } from './burnNeonRim'
 import { makeTreeCrownBranchedGeometries, TREE_CROWN_LOCAL_EXTENT_Y } from './branchedFoliageGeometry'
 import {
-  createTreeBarkSurfaceEffect,
-  DEFAULT_TREE_BARK_SURFACE_PARAMS,
-  type TreeBarkPlacement,
-} from './treeBarkSurface'
-import {
   getPreparedTreeSurface,
   type TreeTokenId,
   type TreeTokenMeta,
@@ -27,10 +22,6 @@ export type TreeFieldParams = {
   sizeScale: number
   heightScale: number
   crownScale: number
-  trunkBurnRadius: number
-  trunkBurnSpreadSpeed: number
-  trunkBurnMaxRadius: number
-  trunkBurnRecoveryRate: number
   crownBurnRadius: number
   crownBurnSpreadSpeed: number
   crownBurnMaxRadius: number
@@ -42,10 +33,6 @@ export const DEFAULT_TREE_FIELD_PARAMS: TreeFieldParams = {
   sizeScale: 1.25,
   heightScale: 1.3,
   crownScale: 1.2,
-  trunkBurnRadius: 0.38,
-  trunkBurnSpreadSpeed: 0.14,
-  trunkBurnMaxRadius: 2.4,
-  trunkBurnRecoveryRate: 0.014,
   crownBurnRadius: 0.65,
   crownBurnSpreadSpeed: 2.0,
   crownBurnMaxRadius: 3.8,
@@ -84,7 +71,6 @@ const tmpPlacementBasisX = new THREE.Vector3()
 const tmpPlacementBasisY = new THREE.Vector3()
 const tmpPlacementBasisZ = new THREE.Vector3()
 const tmpCrownAttach = new THREE.Vector3()
-const tmpHitLocal = new THREE.Vector3()
 const tmpAshColor = new THREE.Color()
 const tmpEmberColor = new THREE.Color()
 const tmpCrispOrange = new THREE.Color()
@@ -110,14 +96,6 @@ export type TreeCrownBurnOptions = {
   mergeRadius?: number
 }
 
-export type TreeTrunkBurnOptions = {
-  radiusScale?: number
-  maxRadiusScale?: number
-  strength?: number
-  mergeRadius?: number
-  recoveryRate?: number
-}
-
 function uhash(n: number): number {
   n = (n ^ 61) ^ (n >>> 16)
   n = Math.imul(n, 0x45d9f3b)
@@ -140,10 +118,18 @@ function lineSignature(text: string): number {
   return (hash >>> 0) / 4294967296
 }
 
-function ellipseCircumference(radiusX: number, radiusZ: number): number {
-  const a = Math.max(radiusX, 0.0001)
-  const b = Math.max(radiusZ, 0.0001)
-  return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)))
+type TreePlacement = {
+  key: string
+  identity: number
+  warmth: number
+  noise: number
+  center: THREE.Vector3
+  basisX: THREE.Vector3
+  basisY: THREE.Vector3
+  basisZ: THREE.Vector3
+  trunkHeight: number
+  radiusX: number
+  radiusZ: number
 }
 
 const treeOrganicWorldField = createWorldField(1427, {
@@ -219,10 +205,8 @@ const TREE_CROWN_GEOMS = makeTreeCrownBranchedGeometries()
 
 export class TreeFieldEffect {
   readonly group = new THREE.Group()
-  readonly trunkInteractionMesh: THREE.InstancedMesh
   readonly crownInteractionMesh: THREE.InstancedMesh
 
-  private readonly barkSurfaceEffect: ReturnType<typeof createTreeBarkSurfaceEffect>
   private readonly trunkBarkTexture = createBarkGrainTexture()
   private readonly trunkGeometry = makeTrunkGeometry()
   private readonly trunkMaterial = new THREE.MeshLambertMaterial({
@@ -256,7 +240,7 @@ export class TreeFieldEffect {
   private layoutDriver: SurfaceLayoutDriver<TreeTokenId, TreeTokenMeta>
   private placementsDirty = true
   private params: TreeFieldParams
-  private readonly treePlacements: TreeBarkPlacement[] = []
+  private readonly treePlacements: TreePlacement[] = []
   private readonly crownBurns: TreeCrownBurn[] = []
   private lastElapsed = 0
 
@@ -277,16 +261,10 @@ export class TreeFieldEffect {
       includeAtXZ: placementMask.includeAtXZ ?? (() => true),
     }
     this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
-    this.barkSurfaceEffect = createTreeBarkSurfaceEffect({
-      seedCursor,
-      initialParams: this.barkSurfaceParamsFromTreeParams(initialParams),
-      showBarkMesh: false,
-    })
 
     this.trunkMesh = new THREE.InstancedMesh(this.trunkGeometry, this.trunkMaterial, MAX_INSTANCES)
     this.trunkMesh.frustumCulled = false
     this.trunkMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
-    this.trunkInteractionMesh = this.trunkMesh
     this.crownWoodMesh = new THREE.InstancedMesh(this.crownWoodGeometry, this.crownWoodMaterial, MAX_INSTANCES)
     this.crownWoodMesh.frustumCulled = false
     this.crownWoodMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
@@ -298,14 +276,12 @@ export class TreeFieldEffect {
     this.crownLeafGeometry.setAttribute('burnRim', this.crownLeafBurnRimAttr)
     patchMeshStandardBurnNeonRim(this.crownLeafMaterial, 'tree-crown-leaf')
     this.group.add(this.trunkMesh)
-    this.group.add(this.barkSurfaceEffect.group)
     this.group.add(this.crownWoodMesh)
     this.group.add(this.crownLeafMesh)
   }
 
   setParams(params: Partial<TreeFieldParams>): void {
     this.params = { ...this.params, ...params }
-    this.barkSurfaceEffect.setParams(this.barkSurfaceParamsFromTreeParams(this.params))
     for (const burn of this.crownBurns) {
       burn.maxRadius = this.params.crownBurnMaxRadius
     }
@@ -345,18 +321,8 @@ export class TreeFieldEffect {
 
     if (needsTreeRebuild) {
       this.updateTrees(getGroundHeight)
-      this.barkSurfaceEffect.setPlacements(this.treePlacements)
       this.placementsDirty = false
     }
-    this.barkSurfaceEffect.update(elapsedTime)
-  }
-
-  hasTrunkBurns(): boolean {
-    return this.barkSurfaceEffect.hasWounds()
-  }
-
-  clearTrunkBurns(): void {
-    this.barkSurfaceEffect.clearWounds()
   }
 
   addCrownBurnFromWorldPoint(worldPoint: THREE.Vector3, options: TreeCrownBurnOptions = {}): void {
@@ -389,40 +355,7 @@ export class TreeFieldEffect {
     return this.crownBurns.length > 0
   }
 
-  addTrunkWoundFromRaycastHit(
-    hit: THREE.Intersection<THREE.Object3D>,
-    worldDirection: THREE.Vector3,
-    options: TreeTrunkBurnOptions = {},
-  ): boolean {
-    const instanceId = hit.instanceId
-    if (instanceId == null) return false
-    const placement = this.treePlacements[instanceId]
-    if (!placement || !hit.point) return false
-
-    tmpHitLocal.copy(hit.point).sub(placement.center)
-    const localX = tmpHitLocal.dot(placement.basisX)
-    const localY = tmpHitLocal.dot(placement.basisY)
-    const localZ = tmpHitLocal.dot(placement.basisZ)
-    const theta = Math.atan2(localZ / Math.max(placement.radiusZ, 0.0001), localX / Math.max(placement.radiusX, 0.0001))
-    const circumference = ellipseCircumference(placement.radiusX, placement.radiusZ)
-    const u = (theta / (Math.PI * 2)) * circumference
-    const v = THREE.MathUtils.clamp(localY, -placement.trunkHeight * 0.5, placement.trunkHeight * 0.5)
-
-    this.barkSurfaceEffect.addWound(placement.key, u, v, {
-      radiusScale: options.radiusScale,
-      maxRadiusScale: options.maxRadiusScale,
-      strength: options.strength,
-      mergeRadius: options.mergeRadius,
-      recoveryRate: options.recoveryRate,
-      directionX: worldDirection.x,
-      directionY: worldDirection.y,
-      directionZ: worldDirection.z,
-    })
-    return true
-  }
-
   dispose(): void {
-    this.barkSurfaceEffect.dispose()
     this.trunkBarkTexture.dispose()
     this.trunkGeometry.dispose()
     this.trunkMaterial.dispose()
@@ -449,16 +382,6 @@ export class TreeFieldEffect {
       staggerFactor: 0.64,
       minSpanFactor: 0.42,
     })
-  }
-
-  private barkSurfaceParamsFromTreeParams(params: TreeFieldParams) {
-    return {
-      ...DEFAULT_TREE_BARK_SURFACE_PARAMS,
-      woundRadius: params.trunkBurnRadius,
-      woundSpreadSpeed: params.trunkBurnSpreadSpeed,
-      woundMaxRadius: params.trunkBurnMaxRadius,
-      recoveryRate: params.trunkBurnRecoveryRate,
-    }
   }
 
   private crownBurnFieldAt(instanceId: number, target: { burn: number; front: number }) {
@@ -641,7 +564,7 @@ export class TreeFieldEffect {
           trunkHeight: 0,
           radiusX: 0,
           radiusZ: 0,
-        } satisfies TreeBarkPlacement)
+        } satisfies TreePlacement)
       this.treePlacements[instanceIndex] = placement
       placement.key = `${slot.row}:${slot.sector}:${tokenLineKey}:${k}`
       placement.identity = identity

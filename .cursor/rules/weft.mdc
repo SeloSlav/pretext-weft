@@ -67,16 +67,25 @@ Use this section to route common requests to the right Weft layer quickly.
 | If the user asks for... | Prefer... | Why |
 | --- | --- | --- |
 | a roadside strip, shoreline band, crop row, root seam, or narrow clutter corridor | `createBandFieldEffect()` | gives a reusable terrain-projected band primitive for narrow environmental surfaces |
+| a leaf accumulation strip, verge drift, or gutter pile | `createLeafPileBandEffect()` | gives a band-style preset with season-aware leaf vocabulary plus burn/recovery behavior |
+| a glowing seam, fungal crack, or root-line growth band | `createFungusSeamEffect()` | provides a narrow recoverable seam preset instead of inventing custom band damage logic |
 | a new reactive grass-like surface | `createGrassEffect()` plus `DEFAULT_GRASS_FIELD_PARAMS` | fastest path for ground-cover behavior with disturbance, recovery, density, wind, and state |
 | a woundable wall or shell surface | `createShellSurfaceEffect()` | already models wall-like deformation, wounds, subtype appearances, and thinning |
 | deterministic rock or doodad placement on terrain | `createRockFieldEffect()` | preserves the layout-driven approach without inventing scatter tooling |
+| laid-out logs with persistent shove/roll response | `createLogFieldEffect()` plus `createSurfaceMotionField()` | keeps heavy clutter anchored to authored slots while allowing gameplay impulses |
+| twig or stick clutter that should slide/twist in place | `createStickFieldEffect()` plus `createSurfaceMotionField()` | uses authored placement with lightweight persistent motion instead of physics scatter |
+| conifer litter or forest floor debris | `createNeedleLitterFieldEffect()` | gives a cheap field preset for pine-like litter without inventing another surface family |
+| shrub understory or mid-layer foliage | `createShrubFieldEffect()` | already expresses deterministic understory placement plus season-aware foliage |
+| sparse tree silhouettes or canopy fields | `createTreeFieldEffect()` | handles trunks and crowns as one deterministic field preset |
 | a puncturable glowing/particle wall | `createFireWallEffect()` | already expresses holes plus recovery over time |
 | a reactive sky or dome surface | `createStarSkyEffect()` | built for sky-style density and recoverable wounds |
+| book-page or text-surface layouts | `createBookPageEffect()` | gives a readable/decorative page preset that still follows Weft layout rules |
 | a surface built from custom glyphs or a palette | `createSurfaceSource()` | standard source-authoring entrypoint |
 | stable semantic ids, weights, and metadata | `createSurfaceSource({ semantic: true, palette: [...] })` | use semantic palettes instead of plain repeated units |
 | a custom effect that still follows Weft’s model | `createSurfaceEffect()` with `fieldLayout()`, `wallLayout()`, or `skyLayout()` | keeps authoring inside the official source-layout-effect pipeline |
 | custom state transitions across a surface | `semanticStates()` and runtime state helpers | use built-in state vocabulary before inventing a separate state machine |
 | grounded reactive clutter that should stay anchored to authored placement | Weft-authored layout plus persistent per-slot motion state | preserves authored placement while still allowing gameplay impulses and recovery |
+| a reusable procedural terrain height sampler | `createTerrainReliefField()` | provides a lightweight deterministic terrain relief field instead of bespoke noise wiring |
 | healing, decay, or recoverable impacts | `recoverableDamage()`, `decayRecoveringStrength()`, `updateRecoveringImpacts()` | matches the intended recovery model |
 | low-level text or source preparation | `src/weft/core` exports | only drop lower when `src/weft/three` is not enough |
 | docs or examples | real exports from `src/weft/three/index.ts` and the patterns in `src/Docs.tsx` | prevents speculative or stale guidance |
@@ -85,7 +94,11 @@ Use this section to route common requests to the right Weft layer quickly.
 
 - If a request sounds like "make a new kind of grass/wall/fire/sky/rock effect", start from the closest shipped preset and adapt it.
 - If a request sounds like "I need a narrow strip, seam, roadside band, or row-like surface", start from `createBandFieldEffect()`.
+- If a request sounds like "I need leaf drift/piles along a corridor", start from `createLeafPileBandEffect()`.
+- If a request sounds like "I need a recoverable glowing seam or fungal crack", start from `createFungusSeamEffect()`.
 - If a request sounds like "I have my own glyph vocabulary or semantic palette", start from `createSurfaceSource()`.
+- If a request sounds like "I need authored logs, sticks, shrubs, trees, or needle litter", start from the matching shipped preset before proposing a custom effect.
+- If a request sounds like "I need procedural ground height/terrain relief for placement or demos", start from `createTerrainReliefField()`.
 - If a request sounds like "I need a brand new topology or projection model", use `createSurfaceEffect()` and the layout helpers before dropping to fully bespoke code.
 - If a request sounds like "I need stable ids, metadata, or multi-state surface behavior", prefer semantic palettes and semantic state helpers.
 - If a request sounds like "I need raw text measurement, seeded traversal, or recovery internals", then and only then reach for `src/weft/core` or `src/weft/runtime`.
@@ -108,46 +121,104 @@ Primary Three.js-facing entrypoint:
 - `semanticStates()`
 - `threeInstancedMeshRenderer()`
 - `createInstancedMesh()`
+- `createTerrainReliefField()`
+- `DEFAULT_TERRAIN_RELIEF_PARAMS`
+- `TerrainReliefField`
+- `slotIntersectsViewFrustum()`
+- `shouldVisitSlotForViewCull()`
 
 Preset factories:
 
-- `createGrassEffect()`
 - `createBandFieldEffect()`
-- `createShellSurfaceEffect()`
+- `createLeafPileBandEffect()`
+- `createFungusSeamEffect()`
+- `createGrassEffect()`
 - `createRockFieldEffect()`
+- `createShrubFieldEffect()`
+- `createTreeFieldEffect()`
+- `createLogFieldEffect()`
+- `createStickFieldEffect()`
+- `createNeedleLitterFieldEffect()`
+- `createShellSurfaceEffect()`
+- `createFishScaleEffect()`
 - `createFireWallEffect()`
 - `createStarSkyEffect()`
+- `createBookPageEffect()`
 
 Preset defaults:
 
 - `DEFAULT_BAND_FIELD_PARAMS`
+- `DEFAULT_LEAF_PILE_BAND_PARAMS`
+- `DEFAULT_FUNGUS_SEAM_PARAMS`
 - `DEFAULT_GRASS_FIELD_PARAMS`
-- `DEFAULT_SHELL_SURFACE_PARAMS`
 - `DEFAULT_ROCK_FIELD_PARAMS`
+- `DEFAULT_SHRUB_FIELD_PARAMS`
+- `DEFAULT_TREE_FIELD_PARAMS`
+- `DEFAULT_LOG_FIELD_PARAMS`
+- `DEFAULT_STICK_FIELD_PARAMS`
+- `DEFAULT_NEEDLE_LITTER_FIELD_PARAMS`
+- `DEFAULT_SHELL_SURFACE_PARAMS`
+- `DEFAULT_FISH_SCALE_PARAMS`
 - `DEFAULT_FIRE_WALL_PARAMS`
 - `DEFAULT_STAR_SKY_PARAMS`
+- `DEFAULT_BOOK_PAGE_PARAMS`
 
 Prepared source builders:
 
 - `getPreparedBandSurface()`
+- `getPreparedFungusBandSurface()`
+- `buildLeafPileSeasonSurface()`
+- `getPreparedLeafPileSurface()`
 - `buildGrassStateSurface()`
 - `getPreparedGrassSurface()`
-- `getPreparedShellSurface()`
 - `getPreparedRockSurface()`
+- `buildShrubSeasonSurface()`
+- `getPreparedShrubSurface()`
+- `buildTreeSeasonSurface()`
+- `getPreparedTreeSurface()`
+- `buildLogSeasonSurface()`
+- `getPreparedLogSurface()`
+- `getPreparedStickSurface()`
+- `getPreparedNeedleLitterSurface()`
+- `getPreparedShellSurface()`
+- `getPreparedFishSurface()`
+- `getPreparedGlassSurface()`
+- `getPreparedIvySurface()`
 - `getPreparedFireSurface()`
 - `getPreparedStarSurface()`
+- `createBookPageSurface()`
+
+Useful shared value exports:
+
+- `LEAF_PILE_SEASONS`
+- `SHRUB_FOLIAGE_SEASONS`
+- `TREE_FOLIAGE_SEASONS`
+- `warmBarkColor`
 
 Useful exported types:
 
 - `RecoverableDamageConfig`
 - `SurfaceEffectConfig`
 - `ThreeInstancedMeshRendererConfig`
+- `TerrainHeightSampler`
+- `TerrainReliefParams`
+- `PresetLayoutViewCull`
+- `PresetLayoutViewCullFrustumContext`
 - `CreateBandFieldEffectOptions`, `BandFieldParams`
+- `CreateLeafPileBandEffectOptions`, `LeafPileBandParams`, `LeafPileDisturbanceOptions`
+- `CreateFungusSeamEffectOptions`, `FungusSeamParams`, `FungusBurnOptions`
 - `CreateGrassEffectOptions`, `GrassFieldParams`, `GrassDisturbanceOptions`
-- `CreateShellSurfaceEffectOptions`, `ShellSurfaceParams`, `ShellSurfaceAppearance`
 - `CreateRockFieldEffectOptions`, `RockFieldParams`
+- `CreateShrubFieldEffectOptions`, `ShrubFieldParams`, `ShrubFoliageBurnOptions`
+- `CreateTreeFieldEffectOptions`, `TreeFieldParams`, `TreeCrownBurnOptions`
+- `CreateLogFieldEffectOptions`, `LogFieldParams`
+- `CreateStickFieldEffectOptions`, `StickFieldParams`
+- `CreateNeedleLitterFieldEffectOptions`, `NeedleLitterFieldParams`, `NeedleLitterBurnOptions`
+- `CreateShellSurfaceEffectOptions`, `ShellSurfaceParams`, `ShellSurfaceAppearance`
+- `CreateFishScaleEffectOptions`, `FishScaleParams`, `FishScaleAppearance`
 - `CreateFireWallEffectOptions`, `FireWallParams`
 - `CreateStarSkyEffectOptions`, `StarSkyParams`
+- `CreateBookPageEffectOptions`, `BookPageParams`, `BookGlyphMeta`
 
 ### `src/weft/core`
 
@@ -163,6 +234,14 @@ Lower-level source preparation and layout tools:
 - `WEFT_TEXT_FONT`
 - `SurfaceLayoutDriver`
 - `createBandSeeds`
+- `createWorldField`
+- `createFbmField`
+- `createValueNoiseField`
+- `domainWarpField`
+- `hash01`
+- `remapField`
+- `ridgeField`
+- `thresholdField`
 
 Useful exported types:
 
@@ -174,6 +253,13 @@ Useful exported types:
 - `SurfaceShorthandMeta`
 - `SurfaceLayoutLine`
 - `SurfaceLayoutSlot`
+- `CreateWorldFieldOptions`
+- `DomainWarpFieldOptions`
+- `FbmFieldOptions`
+- `RemapFieldOptions`
+- `ThresholdFieldOptions`
+- `ValueNoiseFieldOptions`
+- `WorldField2`
 
 ### `src/weft/runtime`
 
@@ -222,12 +308,17 @@ Useful exported types:
 
 ## Preset Selection Guidance
 
-- Use `createBandFieldEffect()` for terrain-projected strips such as roadsides, root bands, shoreline foam, fungus seams, and narrow clutter corridors.
+- Use `createBandFieldEffect()` for terrain-projected strips such as roadsides, root bands, shoreline foam, and narrow clutter corridors.
+- Use `createLeafPileBandEffect()` for verge drifts, gutter accumulations, or other leaf-heavy corridor surfaces with season-aware appearance.
+- Use `createFungusSeamEffect()` for glowing cracks, fungal seams, and other narrow recoverable growth bands.
 - Use `createGrassEffect()` for reactive ground cover with disturbance, trampling, recovery, density tuning, wind, and semantic state changes.
-- Use `createShellSurfaceEffect()` for shell-like wall surfaces with wounds, deformation, retained width, and subtype variants such as `fish`, `shutter`, `ivy`, and `glass`.
 - Use `createRockFieldEffect()` for deterministic terrain-projected rock placement without a separate scatter system.
+- Use `createShrubFieldEffect()` for understory foliage and `createTreeFieldEffect()` for sparse trunks/crowns when you want forest structure from shipped presets.
+- Use `createLogFieldEffect()`, `createStickFieldEffect()`, and `createNeedleLitterFieldEffect()` for grounded forest clutter families before inventing a new clutter runtime.
+- Use `createShellSurfaceEffect()` for shell-like wall surfaces with wounds, deformation, retained width, and subtype variants such as `fish`, `shutter`, `ivy`, and `glass`.
 - Use `createFireWallEffect()` for puncturable particle-like walls that open up and recover over time.
 - Use `createStarSkyEffect()` for sky-dome style surfaces with density control and recoverable wounds.
+- Use `createBookPageEffect()` for readable/decorative page-like layouts that still follow Weft's source-layout-effect model.
 
 If a requested effect is close to one of these, adapt the preset before proposing a fully custom effect architecture.
 
@@ -302,6 +393,8 @@ scene.add(grass.group)
 For this SDK, the most reliable references are:
 
 - the exported surface in `src/weft/three/index.ts`
+- the exported surface in `src/weft/core/index.ts`
+- the exported surface in `src/weft/runtime/index.ts`
 - the conceptual guide and examples in `src/Docs.tsx`
 - the project overview in `README.md`
 

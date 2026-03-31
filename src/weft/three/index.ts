@@ -159,20 +159,7 @@ export type {
   TreeFieldBounds,
   TreeFieldPlacementMask,
   TreeFieldParams,
-  TreeTrunkBurnOptions,
 } from './presets/treeField.ts'
-export {
-  createTreeBarkSurfaceEffect,
-  DEFAULT_TREE_BARK_SURFACE_PARAMS,
-  TreeBarkSurfaceEffect,
-} from './presets/treeBarkSurface.ts'
-export type {
-  CreateTreeBarkSurfaceEffectOptions,
-  TreeBarkPlacement,
-  TreeBarkSurfaceParams,
-  TreeBarkWoundOptions,
-} from './presets/treeBarkSurface.ts'
-export { getPreparedTreeBarkSurface } from './presets/treeBarkSurfaceSource.ts'
 export { warmBarkColor } from './presets/barkShared.ts'
 export { buildTreeSeasonSurface, getPreparedTreeSurface, TREE_FOLIAGE_SEASONS } from './presets/treeFieldSource.ts'
 

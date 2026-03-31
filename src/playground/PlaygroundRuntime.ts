@@ -165,7 +165,7 @@ type SceneryMotionResponseParams = {
 }
 
 type ReticleHit = THREE.Intersection & {
-  targetKind: 'shutter' | 'ivy' | 'grass' | 'neon' | 'lamp' | 'glass' | 'rock' | 'tree' | 'tree-crown' | 'shrub'
+  targetKind: 'shutter' | 'ivy' | 'grass' | 'neon' | 'lamp' | 'glass' | 'rock' | 'tree-crown' | 'shrub'
 }
 
 /** Rolling CPU/FPS averages over wall-clock window (see `PlaygroundRuntime` long-window buffer). */
@@ -821,8 +821,6 @@ export class PlaygroundRuntime {
         sizeScale: 1.7,
         heightScale: 1.85,
         crownScale: 1.45,
-        trunkBurnSpreadSpeed: 0,
-        trunkBurnRecoveryRate: 0,
       }
       this.userLogLayoutDensity = 0.26
       this.logFieldParams = {
@@ -1089,7 +1087,6 @@ export class PlaygroundRuntime {
           this.rockFieldEffect.interactionMesh,
           this.shrubFieldEffect.foliageInteractionMesh,
           this.treeFieldEffect.crownInteractionMesh,
-          this.treeFieldEffect.trunkInteractionMesh,
         ]
       : [
           this.shutterEffect.interactionMesh,
@@ -1098,7 +1095,6 @@ export class PlaygroundRuntime {
           this.rockFieldEffect.interactionMesh,
           this.shrubFieldEffect.foliageInteractionMesh,
           this.treeFieldEffect.crownInteractionMesh,
-          this.treeFieldEffect.trunkInteractionMesh,
         ]
     if (!this.sceneryMode) {
       for (const e of this.neonSignEffects) {
@@ -1527,11 +1523,6 @@ export class PlaygroundRuntime {
     this.grassEffect.clearBurns()
   }
 
-  clearTreeTrunkBurns(): void {
-    this.treeFieldEffect.clearTrunkBurns()
-    this.treeFieldDirty = true
-  }
-
   clearShrubBurns(): void {
     this.shrubFieldEffect.clearBurns()
     this.shrubFieldDirty = true
@@ -1582,7 +1573,6 @@ export class PlaygroundRuntime {
     this.clearGlassWounds()
     this.clearGrassDisturbances()
     this.clearGrassBurns()
-    this.clearTreeTrunkBurns()
     this.clearShrubBurns()
     this.clearTreeCrownBurns()
     this.clearLeafPileDisturbances()
@@ -2688,27 +2678,6 @@ export class PlaygroundRuntime {
     }
   }
 
-  private stampTreeTrunkBurn(hit: ReticleHit, direction: THREE.Vector3): void {
-    const opts = this.sceneryMode
-      ? {
-          radiusScale: 0.72,
-          maxRadiusScale: 0.92,
-          strength: 0.72,
-          mergeRadius: 0.5,
-          recoveryRate: 0,
-        }
-      : {
-          radiusScale: 0.95,
-          maxRadiusScale: 1.12,
-          strength: 0.9,
-          mergeRadius: 0.58,
-          recoveryRate: 0.00062,
-        }
-    if (this.treeFieldEffect.addTrunkWoundFromRaycastHit(hit, direction, opts)) {
-      this.treeFieldDirty = true
-    }
-  }
-
   private stampGrassBurn(point: THREE.Vector3): void {
     if (isInsideBuildingInterior(point.x, point.z)) return
     const opts = this.sceneryMode
@@ -2813,7 +2782,6 @@ export class PlaygroundRuntime {
     else if (hit.object === this.rockFieldEffect.interactionMesh) targetKind = 'rock'
     else if (hit.object === this.shrubFieldEffect.foliageInteractionMesh) targetKind = 'shrub'
     else if (hit.object === this.treeFieldEffect.crownInteractionMesh) targetKind = 'tree-crown'
-    else if (hit.object === this.treeFieldEffect.trunkInteractionMesh) targetKind = 'tree'
     else targetKind = 'grass'
 
     return { ...hit, targetKind }
@@ -2907,11 +2875,6 @@ export class PlaygroundRuntime {
         burstScale: 1.05,
       })
       this.rockFieldDirty = true
-    }
-
-    if (hit?.targetKind === 'tree') {
-      this.stampTreeTrunkBurn(hit, this.raycaster.ray.direction)
-      return
     }
 
     if (hit?.targetKind === 'tree-crown' || hit?.targetKind === 'shrub') {
@@ -3283,10 +3246,9 @@ export class PlaygroundRuntime {
       this.shrubFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
       this.shrubFieldDirty = this.shrubFieldEffect.hasBurns()
     }
-    const treeHasTrunkBurns = this.treeFieldEffect.hasTrunkBurns()
     const treeHasCrownBurns = this.treeFieldEffect.hasCrownBurns()
-    const treeHasBurns = treeHasTrunkBurns || treeHasCrownBurns
-    const treeCadence = treeHasCrownBurns || this.treeFieldDirty ? 2 : treeHasTrunkBurns ? this.cadenceFor('tree') : this.idleCadenceFor('tree')
+    const treeHasBurns = treeHasCrownBurns
+    const treeCadence = treeHasCrownBurns || this.treeFieldDirty ? 2 : this.idleCadenceFor('tree')
     if (
       this.treeFieldDirty ||
       (treeHasBurns && this.shouldRunCadencedUpdate(treeCadence, treeHasBurns ? 0 : 2))

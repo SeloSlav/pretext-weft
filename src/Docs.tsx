@@ -16,6 +16,17 @@ const API_GROUPS = [
     ],
   },
   {
+    title: 'Terrain and culling helpers',
+    description: 'Terrain shaping and layout-visit helpers for field-style presets.',
+    items: [
+      'createTerrainReliefField()',
+      'DEFAULT_TERRAIN_RELIEF_PARAMS',
+      'TerrainReliefField',
+      'slotIntersectsViewFrustum()',
+      'shouldVisitSlotForViewCull()',
+    ],
+  },
+  {
     title: 'Core world fields',
     description: 'Build deterministic scalar fields for placement masks, coverage, and authored world signals.',
     items: [
@@ -23,6 +34,7 @@ const API_GROUPS = [
       'createFbmField()',
       'createValueNoiseField()',
       'domainWarpField()',
+      'hash01()',
       'ridgeField()',
       'remapField()',
       'thresholdField()',
@@ -130,6 +142,143 @@ const API_GROUPS = [
   },
 ] as const
 
+const TYPE_GROUPS = [
+  {
+    title: 'Shared three-entrypoint types',
+    description: 'Top-level config, terrain, and culling types from `weft-sdk/three`.',
+    items: [
+      'RecoverableDamageConfig',
+      'SurfaceEffectConfig',
+      'ThreeInstancedMeshRendererConfig',
+      'TerrainHeightSampler',
+      'TerrainReliefParams',
+      'PresetLayoutViewCull',
+      'PresetLayoutViewCullFrustumContext',
+    ],
+  },
+  {
+    title: 'Band and seam preset types',
+    description: 'Band-family option, param, season, and placement types.',
+    items: [
+      'BandFieldAppearance',
+      'BandFieldBounds',
+      'BandFieldPlacementMask',
+      'BandFieldParams',
+      'CreateBandFieldEffectOptions',
+      'CreateLeafPileBandEffectOptions',
+      'LeafPileDisturbanceOptions',
+      'LeafPileBandBounds',
+      'LeafPileBandPlacementMask',
+      'LeafPileBandParams',
+      'LeafPileSeason',
+      'LeafPileTokenId',
+      'LeafPileTokenMeta',
+      'CreateFungusSeamEffectOptions',
+      'FungusBurnOptions',
+      'FungusSeamBounds',
+      'FungusSeamPlacementMask',
+      'FungusSeamParams',
+    ],
+  },
+  {
+    title: 'Field and bark preset types',
+    description: 'Ground-cover, clutter, tree, and bark option/param exports.',
+    items: [
+      'CreateGrassEffectOptions',
+      'GrassFieldBounds',
+      'GrassFieldPlacementMask',
+      'GrassDisturbanceOptions',
+      'GrassBurnOptions',
+      'GrassFieldParams',
+      'CreateRockFieldEffectOptions',
+      'RockFieldBounds',
+      'RockFieldDestructOptions',
+      'RockFieldPlacementMask',
+      'RockFieldParams',
+      'CreateShrubFieldEffectOptions',
+      'ShrubFieldBounds',
+      'ShrubFieldPlacementMask',
+      'ShrubFieldParams',
+      'ShrubFoliageBurnOptions',
+      'CreateTreeFieldEffectOptions',
+      'TreeCrownBurnOptions',
+      'TreeFieldBounds',
+      'TreeFieldPlacementMask',
+      'TreeFieldParams',
+      'CreateLogFieldEffectOptions',
+      'LogFieldBounds',
+      'LogFieldPlacementMask',
+      'LogFieldParams',
+      'CreateStickFieldEffectOptions',
+      'StickFieldBounds',
+      'StickFieldPlacementMask',
+      'StickFieldParams',
+      'CreateNeedleLitterFieldEffectOptions',
+      'NeedleLitterFieldBounds',
+      'NeedleLitterFieldPlacementMask',
+      'NeedleLitterFieldParams',
+      'NeedleLitterBurnOptions',
+    ],
+  },
+  {
+    title: 'Wall, sky, and page preset types',
+    description: 'Shell-family, sky, fire, and page export types.',
+    items: [
+      'CreateShellSurfaceEffectOptions',
+      'CreateFishScaleEffectOptions',
+      'ShellSurfaceAppearance',
+      'ShellSurfaceParams',
+      'FishScaleAppearance',
+      'FishScaleParams',
+      'CreateFireWallEffectOptions',
+      'FireWallParams',
+      'CreateStarSkyEffectOptions',
+      'StarSkyParams',
+      'CreateBookPageEffectOptions',
+      'BookPageParams',
+      'BookGlyphMeta',
+    ],
+  },
+  {
+    title: 'Core entrypoint types',
+    description: 'Source, layout, and world-field types from `weft-sdk/core`.',
+    items: [
+      'PreparedSurfaceSource',
+      'ResolvedSurfaceGlyph',
+      'SeedCursorFactory',
+      'SurfaceGlyphUnits',
+      'SurfacePaletteEntry',
+      'SurfaceShorthandMeta',
+      'SurfaceLayoutLine',
+      'SurfaceLayoutSlot',
+      'CreateWorldFieldOptions',
+      'DomainWarpFieldOptions',
+      'FbmFieldOptions',
+      'RemapFieldOptions',
+      'ThresholdFieldOptions',
+      'ValueNoiseFieldOptions',
+      'WorldField2',
+    ],
+  },
+  {
+    title: 'Runtime entrypoint types',
+    description: 'State, recovery, and motion field types from `weft-sdk/runtime`.',
+    items: [
+      'SemanticStateSet',
+      'SurfaceBehavior',
+      'SurfacePreset',
+      'SurfaceRendererAdapter',
+      'SurfaceStateField',
+      'SurfaceMotionField',
+      'SurfaceMotionFieldBounds',
+      'SurfaceMotionFieldOptions',
+      'SurfaceMotionFieldSample',
+      'SurfaceMotionImpulseOptions',
+      'RecoveringImpact',
+    ],
+  },
+] as const
+
 const PRESET_GUIDES = [
   {
     name: 'Band field',
@@ -143,14 +292,14 @@ const PRESET_GUIDES = [
     factory: 'createLeafPileBandEffect()',
     builders: ['buildLeafPileSeasonSurface()', 'getPreparedLeafPileSurface()'],
     useCase: 'A flatter band-style preset for verge piles, gutter clutter, hedgerow drift, and other leaf accumulations with season-driven visual states.',
-    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness', 'season'],
+    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness', 'season', 'burnRadius', 'burnSpreadSpeed', 'burnMaxRadius'],
   },
   {
     name: 'Fungus seam',
     factory: 'createFungusSeamEffect()',
     builders: ['getPreparedFungusBandSurface()'],
     useCase: 'A narrow reactive seam preset for roots, glowing cracks, fungal growth, and other edge-following clutter that can burn and recover.',
-    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness'],
+    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness', 'burnRadius', 'burnSpreadSpeed', 'burnMaxRadius', 'recoveryRate'],
   },
   {
     name: 'Grass field',
@@ -192,14 +341,14 @@ const PRESET_GUIDES = [
     factory: 'createShrubFieldEffect()',
     builders: ['buildShrubSeasonSurface()', 'getPreparedShrubSurface()'],
     useCase: 'Static clustered understory that fills the mid-layer between ground litter and taller trees, with season-aware foliage appearance.',
-    params: ['layoutDensity', 'sizeScale', 'heightScale'],
+    params: ['layoutDensity', 'sizeScale', 'heightScale', 'burnRadius', 'burnSpreadSpeed', 'burnMaxRadius', 'recoveryRate'],
   },
   {
     name: 'Tree field',
     factory: 'createTreeFieldEffect()',
     builders: ['buildTreeSeasonSurface()', 'getPreparedTreeSurface()'],
     useCase: 'Sparse deterministic trunks and canopies for forest silhouettes without adding a new core placement primitive.',
-    params: ['layoutDensity', 'sizeScale', 'heightScale', 'crownScale'],
+    params: ['layoutDensity', 'sizeScale', 'heightScale', 'crownScale', 'crownBurnRadius', 'crownBurnSpreadSpeed', 'crownBurnMaxRadius', 'crownBurnRecoveryRate'],
   },
   {
     name: 'Shell surface',
@@ -755,12 +904,31 @@ scene.add(grass.group)`}</pre>
         <section id="api-reference" className="docs__section">
           <h2 className="docs__section-title">API reference</h2>
           <p className="docs__text">
-            These groups mirror the public surface currently exported from{' '}
-            <code className="docs__code-inline">weft-sdk/three</code> and the runtime helpers in{' '}
+            These groups mirror the public value exports currently shipped from{' '}
+            <code className="docs__code-inline">weft-sdk/three</code>,{' '}
+            <code className="docs__code-inline">weft-sdk/core</code>, and{' '}
             <code className="docs__code-inline">weft-sdk/runtime</code>.
           </p>
           <div className="docs__api-grid">
             {API_GROUPS.map((group) => (
+              <article key={group.title} className="docs__api-card">
+                <h3 className="docs__card-title">{group.title}</h3>
+                <p className="docs__card-text">{group.description}</p>
+                <ul className="docs__api-list">
+                  {group.items.map((item) => (
+                    <li key={item}><code className="docs__code-inline">{item}</code></li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+          <p className="docs__text">
+            The package also exports a large typed surface for preset options, params, placement masks, burn/wound
+            options, and runtime helpers. Those type exports are grouped below so the docs stay aligned with the
+            real entrypoints instead of hand-waving over "and some types".
+          </p>
+          <div className="docs__api-grid">
+            {TYPE_GROUPS.map((group) => (
               <article key={group.title} className="docs__api-card">
                 <h3 className="docs__card-title">{group.title}</h3>
                 <p className="docs__card-text">{group.description}</p>

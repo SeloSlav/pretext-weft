@@ -19,7 +19,6 @@ import {
 import {
   DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT,
   DEMO_GRASS_DISTURBANCE_RADIUS_MAX,
-  DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
   DEMO_GRASS_LAYOUT_DENSITY_MAX,
 } from "./playground/playgroundQuality";
 import {
@@ -41,6 +40,27 @@ const LEAF_PILE_SEASON_LABELS = {
 } as const;
 
 const FOLIAGE_SEASON_CYCLE = ["auto", ...LEAF_PILE_SEASONS] as const;
+
+const SCENERY_DEMO_GRASS_LAYOUT_DENSITY_DEFAULT = 14;
+const SCENERY_DEMO_GRASS_BLADE_WIDTH_SCALE_DEFAULT = 1.2;
+const SCENERY_DEMO_GRASS_BLADE_HEIGHT_SCALE_DEFAULT = 1.0;
+const SCENERY_DEMO_BAND_LAYOUT_DENSITY_DEFAULT = 0.58;
+const SCENERY_DEMO_UNDERSTORY_WIDTH_DEFAULT = 2.2;
+const SCENERY_DEMO_UNDERSTORY_SIZE_SCALE_DEFAULT = 0.95;
+const SCENERY_DEMO_LEAF_PILE_WIDTH_DEFAULT = 2.1;
+const SCENERY_DEMO_LEAF_PILE_SIZE_SCALE_DEFAULT = 1.2;
+const SCENERY_DEMO_ROCK_LAYOUT_DENSITY_DEFAULT = 1.2;
+const SCENERY_DEMO_ROCK_SIZE_SCALE_DEFAULT = 2.3;
+const SCENERY_DEMO_SHRUB_LAYOUT_DENSITY_DEFAULT = 0.78;
+const SCENERY_DEMO_SHRUB_SIZE_SCALE_DEFAULT = 1.95;
+const SCENERY_DEMO_SHRUB_HEIGHT_SCALE_DEFAULT = 2.55;
+const SCENERY_DEMO_TREE_LAYOUT_DENSITY_DEFAULT = 0.48;
+const SCENERY_DEMO_TREE_SIZE_SCALE_DEFAULT = 1.6;
+const SCENERY_DEMO_TREE_HEIGHT_SCALE_DEFAULT = 1.75;
+const SCENERY_DEMO_TREE_CROWN_SCALE_DEFAULT = 0.6;
+const SCENERY_DEMO_STICK_LAYOUT_DENSITY_DEFAULT = 0.36;
+const SCENERY_DEMO_STICK_SIZE_SCALE_DEFAULT = 1.75;
+const SCENERY_DEMO_STICK_LENGTH_SCALE_DEFAULT = 1.8;
 
 function foliageSeasonForWorldState(state: number): keyof typeof LEAF_PILE_SEASON_LABELS {
   const step = Math.max(0, Math.min(3, Math.round(state)));
@@ -94,19 +114,29 @@ export function SceneryDemo() {
   );
   const grassState = DEFAULT_GRASS_FIELD_PARAMS.state;
   const [grassLayoutDensity, setGrassLayoutDensity] = useState(
-    DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
+    SCENERY_DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
   );
   const [grassBladeWidthScale, setGrassBladeWidthScale] = useState(
-    DEFAULT_GRASS_FIELD_PARAMS.bladeWidthScale,
+    SCENERY_DEMO_GRASS_BLADE_WIDTH_SCALE_DEFAULT,
   );
   const [grassBladeHeightScale, setGrassBladeHeightScale] = useState(
-    DEFAULT_GRASS_FIELD_PARAMS.bladeHeightScale,
+    SCENERY_DEMO_GRASS_BLADE_HEIGHT_SCALE_DEFAULT,
   );
-  const [bandLayoutDensity, setBandLayoutDensity] = useState(0.66);
-  const [understoryWidth, setUnderstoryWidth] = useState(2.6);
-  const [understorySizeScale, setUnderstorySizeScale] = useState(1.08);
-  const [leafPileWidth, setLeafPileWidth] = useState(2.45);
-  const [leafPileSizeScale, setLeafPileSizeScale] = useState(1.38);
+  const [bandLayoutDensity, setBandLayoutDensity] = useState(
+    SCENERY_DEMO_BAND_LAYOUT_DENSITY_DEFAULT,
+  );
+  const [understoryWidth, setUnderstoryWidth] = useState(
+    SCENERY_DEMO_UNDERSTORY_WIDTH_DEFAULT,
+  );
+  const [understorySizeScale, setUnderstorySizeScale] = useState(
+    SCENERY_DEMO_UNDERSTORY_SIZE_SCALE_DEFAULT,
+  );
+  const [leafPileWidth, setLeafPileWidth] = useState(
+    SCENERY_DEMO_LEAF_PILE_WIDTH_DEFAULT,
+  );
+  const [leafPileSizeScale, setLeafPileSizeScale] = useState(
+    SCENERY_DEMO_LEAF_PILE_SIZE_SCALE_DEFAULT,
+  );
   const [showUnderstory, setShowUnderstory] = useState(false);
   const [showLeafPiles, setShowLeafPiles] = useState(true);
   const [foliageSeasonOverride, setFoliageSeasonOverride] = useState<
@@ -117,17 +147,35 @@ export function SceneryDemo() {
       ? foliageSeasonForWorldState(grassState)
       : foliageSeasonOverride;
 
-  const [rockLayoutDensity, setRockLayoutDensity] = useState(1.5);
-  const [rockSizeScale, setRockSizeScale] = useState(2.5);
+  const [rockLayoutDensity, setRockLayoutDensity] = useState(
+    SCENERY_DEMO_ROCK_LAYOUT_DENSITY_DEFAULT,
+  );
+  const [rockSizeScale, setRockSizeScale] = useState(
+    SCENERY_DEMO_ROCK_SIZE_SCALE_DEFAULT,
+  );
   const [showRocks, setShowRocks] = useState(true);
-  const [shrubLayoutDensity, setShrubLayoutDensity] = useState(1);
-  const [shrubSizeScale, setShrubSizeScale] = useState(2.25);
-  const [shrubHeightScale, setShrubHeightScale] = useState(3);
+  const [shrubLayoutDensity, setShrubLayoutDensity] = useState(
+    SCENERY_DEMO_SHRUB_LAYOUT_DENSITY_DEFAULT,
+  );
+  const [shrubSizeScale, setShrubSizeScale] = useState(
+    SCENERY_DEMO_SHRUB_SIZE_SCALE_DEFAULT,
+  );
+  const [shrubHeightScale, setShrubHeightScale] = useState(
+    SCENERY_DEMO_SHRUB_HEIGHT_SCALE_DEFAULT,
+  );
   const [showShrubs, setShowShrubs] = useState(true);
-  const [treeLayoutDensity, setTreeLayoutDensity] = useState(0.56);
-  const [treeSizeScale, setTreeSizeScale] = useState(1.7);
-  const [treeHeightScale, setTreeHeightScale] = useState(1.85);
-  const [treeCrownScale, setTreeCrownScale] = useState(1.45);
+  const [treeLayoutDensity, setTreeLayoutDensity] = useState(
+    SCENERY_DEMO_TREE_LAYOUT_DENSITY_DEFAULT,
+  );
+  const [treeSizeScale, setTreeSizeScale] = useState(
+    SCENERY_DEMO_TREE_SIZE_SCALE_DEFAULT,
+  );
+  const [treeHeightScale, setTreeHeightScale] = useState(
+    SCENERY_DEMO_TREE_HEIGHT_SCALE_DEFAULT,
+  );
+  const [treeCrownScale, setTreeCrownScale] = useState(
+    SCENERY_DEMO_TREE_CROWN_SCALE_DEFAULT,
+  );
   const [showTrees, setShowTrees] = useState(true);
   const [logLayoutDensity, setLogLayoutDensity] = useState(0.26);
   const [logSizeScale, setLogSizeScale] = useState(2.2);
@@ -137,9 +185,15 @@ export function SceneryDemo() {
     DEFAULT_LOG_FIELD_PARAMS.downhillDrift,
   );
   const [showLogs, setShowLogs] = useState(true);
-  const [stickLayoutDensity, setStickLayoutDensity] = useState(0.5);
-  const [stickSizeScale, setStickSizeScale] = useState(2);
-  const [stickLengthScale, setStickLengthScale] = useState(2.2);
+  const [stickLayoutDensity, setStickLayoutDensity] = useState(
+    SCENERY_DEMO_STICK_LAYOUT_DENSITY_DEFAULT,
+  );
+  const [stickSizeScale, setStickSizeScale] = useState(
+    SCENERY_DEMO_STICK_SIZE_SCALE_DEFAULT,
+  );
+  const [stickLengthScale, setStickLengthScale] = useState(
+    SCENERY_DEMO_STICK_LENGTH_SCALE_DEFAULT,
+  );
   const [stickPushScale, setStickPushScale] = useState(2.6);
   const [stickDownhillDrift, setStickDownhillDrift] = useState(
     DEFAULT_STICK_FIELD_PARAMS.downhillDrift,
@@ -1397,9 +1451,9 @@ export function SceneryDemo() {
                     />
                   </label>
                   <p className="control-hint">
-                    Trees stay deterministic, but the default tuning now aims
-                    for heavier trunks and fuller canopies so the scenery reads
-                    like an actual forest instead of a lightly dressed field.
+                    Trees stay deterministic, but the default tuning now keeps
+                    the forest silhouette while easing back the canopy fill so
+                    the scenery lands above the heavier preset.
                   </p>
                 </ControlSection>
 
