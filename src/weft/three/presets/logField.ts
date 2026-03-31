@@ -13,7 +13,6 @@ import {
   type LogTokenMeta,
 } from './logFieldSource'
 import { createBarkGrainTexture, warmBarkColor } from './barkShared'
-import { type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type LogFieldParams = {
   layoutDensity: number
@@ -253,7 +252,6 @@ export class LogFieldEffect {
   update(
     elapsedTime: number,
     getGroundHeight: (x: number, z: number) => number,
-    viewCull?: PresetLayoutViewCull | null,
   ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
@@ -277,7 +275,6 @@ export class LogFieldEffect {
           instanceIndex,
           delta,
           visitedKeys,
-          viewCull,
         )
       },
     })
@@ -534,7 +531,6 @@ export class LogFieldEffect {
     instanceIndex: number,
     delta: number,
     visitedKeys: Set<string>,
-    viewCull?: PresetLayoutViewCull | null,
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
@@ -597,20 +593,6 @@ export class LogFieldEffect {
           motionVelocityZ = ensuredState.velocityZ
           motionYaw = ensuredState.yaw
           motionRoll = ensuredState.roll
-        }
-      }
-      // Per-instance disc cull: skip expensive ground-fitting for off-screen logs.
-      // Always increment instanceIndex so InstancedMesh.count stays stable (no pop).
-      if (viewCull) {
-        const cx = movedX - viewCull.cameraWorld.x
-        const cz = movedZ - viewCull.cameraWorld.z
-        const cullR = viewCull.radius + (viewCull.padding ?? 0)
-        if (cx * cx + cz * cz > cullR * cullR) {
-          dummy.scale.set(0, 0, 0)
-          dummy.updateMatrix()
-          this.logMesh.setMatrixAt(instanceIndex, dummy.matrix)
-          instanceIndex++
-          continue
         }
       }
       const radiusTier = THREE.MathUtils.lerp(0.74, 1.56, hashRadius)

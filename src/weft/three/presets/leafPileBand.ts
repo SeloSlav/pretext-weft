@@ -15,11 +15,6 @@ import {
   type LeafPileTokenMeta,
 } from './leafPileBandSource'
 import { makeLeafPileLeafGeometry } from './leafPileLeafGeometry'
-import {
-  shouldVisitSlotForViewCull,
-  type PresetLayoutViewCull,
-  type PresetLayoutViewCullFrustumContext,
-} from './presetLayoutCull'
 import { createBurnRimInstancedAttribute, patchMeshStandardBurnNeonRim } from './burnNeonRim'
 
 export type LeafPileBandParams = {
@@ -230,10 +225,9 @@ function smoothBandCoverage(distance: number, halfWidth: number, edgeSoftness: n
 
 const leafOrganicWorldField = createWorldField(823, {
   scale: 7.2,
-  octaves: 3,
+  octaves: 2,
   roughness: 0.58,
-  warpAmplitude: 1.65,
-  warpScale: 5.9,
+  warpAmplitude: 0,
   contrast: 1.16,
 })
 
@@ -290,7 +284,7 @@ export class LeafPileBandEffect {
   private readonly disturbances: Disturbance[] = []
   private readonly leafStates = new Map<number, LeafState>()
   private readonly burns: LeafPileBurn[] = []
-  private readonly tmpViewCullBox = new THREE.Box3()
+
   private lastElapsed = 0
   private updateGeneration = 0
 
@@ -425,7 +419,6 @@ export class LeafPileBandEffect {
   update(
     elapsedTime: number,
     getGroundHeight: (x: number, z: number) => number,
-    viewCull?: PresetLayoutViewCull | null,
   ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
@@ -451,22 +444,11 @@ export class LeafPileBandEffect {
     let instanceIndex = 0
     const generation = ++this.updateGeneration
 
-    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
-      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
-      : undefined
-
-    if (viewCull?.frustum) {
-      this.group.updateMatrixWorld(true)
-    }
-
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
-      shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
-        : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
           slot,
@@ -745,10 +727,10 @@ export class LeafPileBandEffect {
       if (glyphHash(identity + 5, slot.row, k ^ 0x55) > remainingCoverage * seasonStyle.presence) continue
 
       const leavesInClump = Math.min(
-        20,
+        14,
         Math.max(
-          5,
-          seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 5 + hashYaw * 4 + organicNoise * 4),
+          4,
+          seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 4 + hashYaw * 3 + organicNoise * 3),
         ),
       )
       const spreadScale = seasonStyle.spread * (1.02 + organicNoise * 0.36)

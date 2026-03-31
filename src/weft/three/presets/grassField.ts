@@ -45,7 +45,7 @@ export type GrassFieldParams = {
 }
 
 export const DEFAULT_GRASS_FIELD_PARAMS: GrassFieldParams = {
-  disturbanceRadius: 1.15,
+  disturbanceRadius: 2.0,
   disturbanceStrength: 0.78,
   trampleDepth: 0.68,
   wind: 0.58,
@@ -92,7 +92,7 @@ const MAX_INSTANCES = 280_000
 /** World units; buckets blades for camera / effect–zone iteration when view culling is on. */
 const BLADE_CELL_SIZE = 5.75
 const LAYOUT_PX_PER_WORLD = 16
-const DISTURBANCE_RADIUS_MULTIPLIER = 2.35
+const DISTURBANCE_RADIUS_MULTIPLIER = 3.8
 const MAX_ACTIVE_DISTURBANCES = 72
 const MAX_GRASS_BURNS = 22
 /** Depth bias for overlapping instanced blades (same plane / tight clumps). */
@@ -111,56 +111,56 @@ const ZERO_GRASS_BURN_FIELD = { burn: 0, front: 0, cull: 0 }
 const dummy = new THREE.Object3D()
 
 const STATE_BLADE_BASE = [
-  new THREE.Color('#2d7a1a'),
+  new THREE.Color('#3a7a20'),
   new THREE.Color('#a07a18'),
   new THREE.Color('#3d1660'),
   new THREE.Color('#4e4840'),
 ] as const
 const STATE_BLADE_TIP = [
-  new THREE.Color('#d4ff82'),
+  new THREE.Color('#b8e870'),
   new THREE.Color('#ffe080'),
   new THREE.Color('#d080ff'),
   new THREE.Color('#ccc5b8'),
 ] as const
 const STATE_GROUND_TINT = [
-  new THREE.Color('#7cb85e'),
+  new THREE.Color('#6aaa48'),
   new THREE.Color('#9a7d44'),
   new THREE.Color('#55316d'),
   new THREE.Color('#8a8175'),
 ] as const
 const STATE_GROUND_BASE = [
-  new THREE.Color('#6fa854'),
+  new THREE.Color('#5a9840'),
   new THREE.Color('#8b6f31'),
   new THREE.Color('#6b3f84'),
   new THREE.Color('#93897b'),
 ] as const
 const STATE_GROUND_DARK = [
-  new THREE.Color('#4a6a38'),
+  new THREE.Color('#3d6630'),
   new THREE.Color('#5f4623'),
   new THREE.Color('#412154'),
   new THREE.Color('#645d54'),
 ] as const
 const SEASON_BLADE_TINT = {
-  spring: new THREE.Color('#a0e060'),
-  summer: new THREE.Color('#4a7a28'),
+  spring: new THREE.Color('#a8e858'),
+  summer: new THREE.Color('#4e8228'),
   autumn: new THREE.Color('#d09030'),
   winter: new THREE.Color('#e8eef0'),
 } as const
 const SEASON_GROUND_TINT = {
-  spring: new THREE.Color('#8ec470'),
-  summer: new THREE.Color('#5f8048'),
+  spring: new THREE.Color('#88c860'),
+  summer: new THREE.Color('#578845'),
   autumn: new THREE.Color('#9b7046'),
   winter: new THREE.Color('#bdc5c9'),
 } as const
 const SEASON_GROUND_BASE = {
-  spring: new THREE.Color('#90ad73'),
-  summer: new THREE.Color('#67794e'),
+  spring: new THREE.Color('#8ab868'),
+  summer: new THREE.Color('#5e7a44'),
   autumn: new THREE.Color('#a57b55'),
   winter: new THREE.Color('#d5dadc'),
 } as const
 const SEASON_GROUND_DARK = {
-  spring: new THREE.Color('#62744e'),
-  summer: new THREE.Color('#48553a'),
+  spring: new THREE.Color('#5a7040'),
+  summer: new THREE.Color('#425c32'),
   autumn: new THREE.Color('#74563e'),
   winter: new THREE.Color('#99a1a5'),
 } as const
@@ -175,6 +175,9 @@ const STATE_DISTURBANCE_LIFT = [1, 0.9, 1.05, 0.75] as const
 type Disturbance = {
   x: number
   z: number
+  /** Target position the rendered x/z interpolates toward each frame. */
+  targetX: number
+  targetZ: number
   radius: number
   strength: number
   deformGround: boolean
@@ -515,10 +518,9 @@ function glyphScatter(code: number, lineSeed: number, index: number): number {
 
 const grassOrganicWorldField = createWorldField(271, {
   scale: 6.2,
-  octaves: 4,
+  octaves: 2,
   roughness: 0.58,
-  warpAmplitude: 1.7,
-  warpScale: 5.4,
+  warpAmplitude: 0,
   contrast: 1.18,
 })
 
@@ -762,11 +764,11 @@ ${BURN_NEON_RIM_COLOR_FRAGMENT}`,
       for (const disturbance of this.disturbances) {
         if (disturbance.deformGround !== deformGround) continue
         if ((disturbance.recoveryRate ?? null) !== (recoveryRate ?? null)) continue
-        const dx = disturbance.x - x
-        const dz = disturbance.z - z
+        const dx = disturbance.targetX - x
+        const dz = disturbance.targetZ - z
         if (dx * dx + dz * dz > mergeRadiusSq) continue
-        disturbance.x = THREE.MathUtils.lerp(disturbance.x, x, 0.35)
-        disturbance.z = THREE.MathUtils.lerp(disturbance.z, z, 0.35)
+        disturbance.targetX = x
+        disturbance.targetZ = z
         disturbance.radius = Math.max(disturbance.radius, radius)
         disturbance.strength = Math.max(disturbance.strength, strength)
         return
@@ -776,6 +778,8 @@ ${BURN_NEON_RIM_COLOR_FRAGMENT}`,
     this.disturbances.unshift({
       x,
       z,
+      targetX: x,
+      targetZ: z,
       radius,
       strength,
       deformGround,
@@ -1001,8 +1005,13 @@ ${BURN_NEON_RIM_COLOR_FRAGMENT}`,
 
   private updateDisturbances(delta: number): void {
     if (delta <= 0 || this.disturbances.length === 0) return
+    // How quickly the rendered position chases the target — higher = snappier.
+    const followSpeed = 6.5
+    const t = 1 - Math.exp(-followSpeed * delta)
     for (let i = this.disturbances.length - 1; i >= 0; i--) {
       const d = this.disturbances[i]!
+      d.x = THREE.MathUtils.lerp(d.x, d.targetX, t)
+      d.z = THREE.MathUtils.lerp(d.z, d.targetZ, t)
       const rate = d.recoveryRate ?? this.params.recoveryRate
       d.strength = decayRecoveringStrength(d.strength, rate, delta)
       if (d.strength <= 0.015) this.disturbances.splice(i, 1)

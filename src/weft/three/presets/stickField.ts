@@ -12,7 +12,6 @@ import {
   type StickTokenId,
   type StickTokenMeta,
 } from './stickFieldSource'
-import { type PresetLayoutViewCull } from './presetLayoutCull'
 
 export type StickFieldParams = {
   layoutDensity: number
@@ -141,10 +140,9 @@ function stickMotionKeyPrefix(slot: SurfaceLayoutSlot, tokenLineKey: string): st
 
 const stickOrganicWorldField = createWorldField(1289, {
   scale: 6.8,
-  octaves: 4,
+  octaves: 2,
   roughness: 0.58,
-  warpAmplitude: 1.4,
-  warpScale: 5.8,
+  warpAmplitude: 0,
   ridge: 0.08,
   contrast: 1.04,
 })
@@ -264,7 +262,6 @@ export class StickFieldEffect {
   update(
     elapsedTime: number,
     getGroundHeight: (x: number, z: number) => number,
-    viewCull?: PresetLayoutViewCull | null,
   ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
@@ -294,7 +291,6 @@ export class StickFieldEffect {
           instanceIndex,
           delta,
           visitedKeys,
-          viewCull,
         )
       },
     })
@@ -421,8 +417,9 @@ export class StickFieldEffect {
     getGroundHeight: (x: number, z: number) => number,
   ): { dirX: number; dirZ: number; slope: number } {
     const sample = STICK_SLOPE_SAMPLE_DISTANCE
-    const gradX = (getGroundHeight(x + sample, z) - getGroundHeight(x - sample, z)) / (sample * 2)
-    const gradZ = (getGroundHeight(x, z + sample) - getGroundHeight(x, z - sample)) / (sample * 2)
+    const h0 = getGroundHeight(x, z)
+    const gradX = (getGroundHeight(x + sample, z) - h0) / sample
+    const gradZ = (getGroundHeight(x, z + sample) - h0) / sample
     const slope = Math.hypot(gradX, gradZ)
     if (slope <= 1e-6) {
       return { dirX: 0, dirZ: 0, slope: 0 }
@@ -440,8 +437,9 @@ export class StickFieldEffect {
     getGroundHeight: (x: number, z: number) => number,
   ): THREE.Vector3 {
     const sample = STICK_SLOPE_SAMPLE_DISTANCE
-    const gradX = (getGroundHeight(x + sample, z) - getGroundHeight(x - sample, z)) / (sample * 2)
-    const gradZ = (getGroundHeight(x, z + sample) - getGroundHeight(x, z - sample)) / (sample * 2)
+    const h0 = getGroundHeight(x, z)
+    const gradX = (getGroundHeight(x + sample, z) - h0) / sample
+    const gradZ = (getGroundHeight(x, z + sample) - h0) / sample
     return tmpStickNormal.set(-gradX, 1, -gradZ).normalize()
   }
 
@@ -472,7 +470,7 @@ export class StickFieldEffect {
 
     let supportY =
       getGroundHeight(centerX + tmpStickRadialOffset.x, centerZ + tmpStickRadialOffset.z) - tmpStickRadialOffset.y
-    const axisSteps = [-1, -0.66, -0.33, 0, 0.33, 0.66, 1]
+    const axisSteps = [-1, 0, 1]
     for (const step of axisSteps) {
       const axisOffset = halfLength * step
       const sampleX = centerX + tmpStickRadialOffset.x + tmpStickBasisY.x * axisOffset
@@ -499,8 +497,8 @@ export class StickFieldEffect {
   ): number {
     const lr = STICK_CYLINDER_LOCAL_RADIUS
     let y = centerY
-    const seg = 10
-    for (const ly of [-0.5, -0.25, 0, 0.25, 0.5] as const) {
+    const seg = 6
+    for (const ly of [-0.5, 0.5] as const) {
       for (let i = 0; i < seg; i++) {
         const ang = (i / seg) * Math.PI * 2
         const c = Math.cos(ang)
@@ -536,7 +534,6 @@ export class StickFieldEffect {
     instanceIndex: number,
     delta: number,
     visitedKeys: Set<string>,
-    viewCull?: PresetLayoutViewCull | null,
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
@@ -613,21 +610,6 @@ export class StickFieldEffect {
           }
         }
         if (!this.placementMask.includeAtXZ(x, z)) continue
-
-        // Per-instance disc cull: skip expensive ground-fitting for off-screen sticks.
-        // Always increment instanceIndex so InstancedMesh.count stays stable (no pop).
-        if (viewCull) {
-          const cx = x - viewCull.cameraWorld.x
-          const cz = z - viewCull.cameraWorld.z
-          const cullR = viewCull.radius + (viewCull.padding ?? 0)
-          if (cx * cx + cz * cz > cullR * cullR) {
-            dummy.scale.set(0, 0, 0)
-            dummy.updateMatrix()
-            this.stickMesh.setMatrixAt(instanceIndex, dummy.matrix)
-            instanceIndex++
-            continue
-          }
-        }
 
         const radius = Math.max(
           0.012,
