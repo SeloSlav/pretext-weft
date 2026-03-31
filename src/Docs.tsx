@@ -16,6 +16,19 @@ const API_GROUPS = [
     ],
   },
   {
+    title: 'Core world fields',
+    description: 'Build deterministic scalar fields for placement masks, coverage, and authored world signals.',
+    items: [
+      'createWorldField()',
+      'createFbmField()',
+      'createValueNoiseField()',
+      'domainWarpField()',
+      'ridgeField()',
+      'remapField()',
+      'thresholdField()',
+    ],
+  },
+  {
     title: 'Layouts and behaviors',
     description: 'Describe how a surface is traversed and how it reacts over time.',
     items: [
@@ -28,8 +41,12 @@ const API_GROUPS = [
   },
   {
     title: 'Runtime helpers',
-    description: 'Persistent sampled state for recovery, motion, and other field-driven runtime layers.',
+    description: 'Reusable recovery, state, and sampled motion helpers for runtime layers built on top of layout.',
     items: [
+      'createSemanticStateSet()',
+      'createSurfaceStateField()',
+      'decayRecoveringStrength()',
+      'updateRecoveringImpacts()',
       'createSurfaceMotionField()',
     ],
   },
@@ -39,13 +56,19 @@ const API_GROUPS = [
     items: [
       'createBandFieldEffect()',
       'createLeafPileBandEffect()',
+      'createFungusSeamEffect()',
       'createGrassEffect()',
-      'createShellSurfaceEffect()',
       'createRockFieldEffect()',
+      'createLogFieldEffect()',
+      'createStickFieldEffect()',
+      'createNeedleLitterFieldEffect()',
       'createShrubFieldEffect()',
       'createTreeFieldEffect()',
+      'createShellSurfaceEffect()',
+      'createFishScaleEffect()',
       'createFireWallEffect()',
       'createStarSkyEffect()',
+      'createBookPageEffect()',
     ],
   },
   {
@@ -54,13 +77,19 @@ const API_GROUPS = [
     items: [
       'DEFAULT_BAND_FIELD_PARAMS',
       'DEFAULT_LEAF_PILE_BAND_PARAMS',
+      'DEFAULT_FUNGUS_SEAM_PARAMS',
       'DEFAULT_GRASS_FIELD_PARAMS',
-      'DEFAULT_SHELL_SURFACE_PARAMS',
       'DEFAULT_ROCK_FIELD_PARAMS',
+      'DEFAULT_LOG_FIELD_PARAMS',
+      'DEFAULT_STICK_FIELD_PARAMS',
+      'DEFAULT_NEEDLE_LITTER_FIELD_PARAMS',
       'DEFAULT_SHRUB_FIELD_PARAMS',
       'DEFAULT_TREE_FIELD_PARAMS',
+      'DEFAULT_SHELL_SURFACE_PARAMS',
+      'DEFAULT_FISH_SCALE_PARAMS',
       'DEFAULT_FIRE_WALL_PARAMS',
       'DEFAULT_STAR_SKY_PARAMS',
+      'DEFAULT_BOOK_PAGE_PARAMS',
     ],
   },
   {
@@ -68,16 +97,35 @@ const API_GROUPS = [
     description: 'Preset-owned source builders for ready-made surface vocabularies.',
     items: [
       'getPreparedBandSurface()',
-      'buildLeafPileSeasonSurface()',
+      'getPreparedFungusBandSurface()',
       'getPreparedLeafPileSurface()',
-      'buildGrassStateSurface()',
       'getPreparedGrassSurface()',
-      'getPreparedShellSurface()',
       'getPreparedRockSurface()',
+      'getPreparedLogSurface()',
+      'getPreparedStickSurface()',
+      'getPreparedNeedleLitterSurface()',
       'getPreparedShrubSurface()',
       'getPreparedTreeSurface()',
+      'getPreparedShellSurface()',
+      'getPreparedFishSurface()',
+      'getPreparedGlassSurface()',
+      'getPreparedIvySurface()',
       'getPreparedFireSurface()',
       'getPreparedStarSurface()',
+      'createBookPageSurface()',
+    ],
+  },
+  {
+    title: 'State and season builders',
+    description: 'Helpers for swapping visual/state vocabularies without inventing a second placement system.',
+    items: [
+      'buildGrassStateSurface()',
+      'buildLeafPileSeasonSurface()',
+      'LEAF_PILE_SEASONS',
+      'buildShrubSeasonSurface()',
+      'SHRUB_FOLIAGE_SEASONS',
+      'buildTreeSeasonSurface()',
+      'TREE_FOLIAGE_SEASONS',
     ],
   },
 ] as const
@@ -94,22 +142,22 @@ const PRESET_GUIDES = [
     name: 'Leaf pile band',
     factory: 'createLeafPileBandEffect()',
     builders: ['buildLeafPileSeasonSurface()', 'getPreparedLeafPileSurface()'],
-    useCase: 'A flatter band-style preset for verge piles, gutter clutter, hedgerow drift, and other season-aware leaf accumulations.',
+    useCase: 'A flatter band-style preset for verge piles, gutter clutter, hedgerow drift, and other leaf accumulations with season-driven visual states.',
     params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness', 'season'],
+  },
+  {
+    name: 'Fungus seam',
+    factory: 'createFungusSeamEffect()',
+    builders: ['getPreparedFungusBandSurface()'],
+    useCase: 'A narrow reactive seam preset for roots, glowing cracks, fungal growth, and other edge-following clutter that can burn and recover.',
+    params: ['layoutDensity', 'sizeScale', 'bandWidth', 'edgeSoftness'],
   },
   {
     name: 'Grass field',
     factory: 'createGrassEffect()',
     builders: ['buildGrassStateSurface()', 'getPreparedGrassSurface()'],
     useCase: 'Reactive ground cover that can be disturbed, healed, and swapped between healthy, dry, corrupted, and dead states.',
-    params: ['disturbanceRadius', 'disturbanceStrength', 'trampleDepth', 'wind', 'recoveryRate', 'state', 'layoutDensity'],
-  },
-  {
-    name: 'Shell surface',
-    factory: 'createShellSurfaceEffect()',
-    builders: ['getPreparedShellSurface()', "appearance: 'fish' | 'shutter' | 'ivy' | 'glass' | 'glassBulb'"],
-    useCase: 'A layered shell-surface family for fish, shutter, ivy, and glass variants with persistent wounds, deformation, and subtype-specific reads.',
-    params: ['woundRadius', 'woundNarrow', 'woundDepth', 'scaleLift', 'surfaceFlex', 'recoveryRate'],
+    params: ['disturbanceRadius', 'disturbanceStrength', 'trampleDepth', 'wind', 'recoveryRate', 'state', 'colorSeason', 'layoutDensity'],
   },
   {
     name: 'Rock field',
@@ -119,18 +167,53 @@ const PRESET_GUIDES = [
     params: ['layoutDensity', 'sizeScale'],
   },
   {
+    name: 'Log field',
+    factory: 'createLogFieldEffect()',
+    builders: ['getPreparedLogSurface()'],
+    useCase: 'Persistent laid-out logs that can be shoved and rolled using per-slot motion state instead of separate rigid bodies.',
+    params: ['layoutDensity', 'sizeScale', 'lengthScale'],
+  },
+  {
+    name: 'Stick field',
+    factory: 'createStickFieldEffect()',
+    builders: ['getPreparedStickSurface()'],
+    useCase: 'Spawn-in-clumps, react-as-individual-twigs debris for understory clutter, footsteps, and shots.',
+    params: ['layoutDensity', 'sizeScale', 'lengthScale'],
+  },
+  {
+    name: 'Needle litter',
+    factory: 'createNeedleLitterFieldEffect()',
+    builders: ['getPreparedNeedleLitterSurface()'],
+    useCase: 'Cheap conifer-style ground litter that works well under trees and other forest-biased world-field masks.',
+    params: ['layoutDensity', 'sizeScale'],
+  },
+  {
     name: 'Shrub field',
     factory: 'createShrubFieldEffect()',
-    builders: ['getPreparedShrubSurface()'],
-    useCase: 'Static clustered understory that fills the mid-layer between ground litter and taller trees.',
+    builders: ['buildShrubSeasonSurface()', 'getPreparedShrubSurface()'],
+    useCase: 'Static clustered understory that fills the mid-layer between ground litter and taller trees, with season-aware foliage appearance.',
     params: ['layoutDensity', 'sizeScale', 'heightScale'],
   },
   {
     name: 'Tree field',
     factory: 'createTreeFieldEffect()',
-    builders: ['getPreparedTreeSurface()'],
+    builders: ['buildTreeSeasonSurface()', 'getPreparedTreeSurface()'],
     useCase: 'Sparse deterministic trunks and canopies for forest silhouettes without adding a new core placement primitive.',
     params: ['layoutDensity', 'sizeScale', 'heightScale', 'crownScale'],
+  },
+  {
+    name: 'Shell surface',
+    factory: 'createShellSurfaceEffect()',
+    builders: ['getPreparedShellSurface()', 'getPreparedGlassSurface()', 'getPreparedIvySurface()'],
+    useCase: 'A layered shell-surface family for shutters, ivy, fish-like walling, and glass variants with persistent wounds and deformation.',
+    params: ['woundRadius', 'woundNarrow', 'woundDepth', 'scaleLift', 'surfaceFlex', 'recoveryRate'],
+  },
+  {
+    name: 'Fish scale surface',
+    factory: 'createFishScaleEffect()',
+    builders: ['getPreparedFishSurface()'],
+    useCase: 'A dedicated fish-scale flavored shell preset when you want the fish read directly instead of a generic shell appearance.',
+    params: ['woundRadius', 'woundNarrow', 'woundDepth', 'scaleLift', 'surfaceFlex', 'recoveryRate'],
   },
   {
     name: 'Fire wall',
@@ -145,6 +228,13 @@ const PRESET_GUIDES = [
     builders: ['getPreparedStarSurface()'],
     useCase: 'A sky dome layout that supports density tuning and recoverable wounds in the sky.',
     params: ['layoutDensity', 'recoveryRate'],
+  },
+  {
+    name: 'Book page',
+    factory: 'createBookPageEffect()',
+    builders: ['createBookPageSurface()'],
+    useCase: 'A stylized page/text preset for readable or decorative book-like surfaces that still follow Weft layout rules.',
+    params: ['activationDepth', 'influenceRadius', 'pushStrength', 'coreClearRadius'],
   },
 ] as const
 
@@ -226,35 +316,32 @@ scene.add(grass.group)`,
   {
     title: 'World field mask setup',
     code: `import {
-  DEFAULT_GRASS_FIELD_PARAMS,
-  createGrassEffect,
-  createSurfaceSource,
+  DEFAULT_TREE_FIELD_PARAMS,
+  createTreeFieldEffect,
+  getPreparedTreeSurface,
 } from 'weft-sdk/three'
 import { createWorldField, seedCursor } from 'weft-sdk/core'
 
-const surface = createSurfaceSource({
-  cacheKey: 'field-shell',
-  units: ['⟋', '⟍', '❘', '❙'],
-  repeat: 28,
+const placementSignal = createWorldField(17, {
+  scale: 30,
+  roughness: 0.58,
+  warpAmplitude: 10,
 })
 
-const fertility = createWorldField(17, {
-  scale: 24,
-  roughness: 0.56,
-  warpAmplitude: 8,
-})
-
-const grass = createGrassEffect({
+const effect = createTreeFieldEffect({
   seedCursor,
-  surface,
-  initialParams: DEFAULT_GRASS_FIELD_PARAMS,
+  surface: getPreparedTreeSurface(),
+  initialParams: {
+    ...DEFAULT_TREE_FIELD_PARAMS,
+    layoutDensity: 0.85,
+  },
   placementMask: {
     bounds: { minX: -48, maxX: 48, minZ: -48, maxZ: 48 },
-    coverageMultiplierAtXZ: (x, z) => 0.25 + fertility(x, z) * 0.75,
+    includeAtXZ: (x, z) => placementSignal(x, z) > 0.6,
   },
 })
 
-scene.add(grass.group)`,
+scene.add(effect.group)`,
   },
   {
     title: 'Persistent motion field',
