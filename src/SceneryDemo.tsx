@@ -18,6 +18,7 @@ import {
 } from "./playground/playgroundSceneryWorld";
 import {
   DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT,
+  DEMO_GRASS_DISTURBANCE_RADIUS_MAX,
   DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
   DEMO_GRASS_LAYOUT_DENSITY_MAX,
 } from "./playground/playgroundQuality";
@@ -750,7 +751,7 @@ export function SceneryDemo() {
                     <input
                       type="range"
                       min={0}
-                      max={DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT}
+                      max={DEMO_GRASS_DISTURBANCE_RADIUS_MAX}
                       step={0.02}
                       value={disturbanceRadius}
                       onChange={(e) =>

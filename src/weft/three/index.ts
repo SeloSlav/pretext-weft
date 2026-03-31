@@ -144,6 +144,7 @@ export type {
   ShrubFieldBounds,
   ShrubFieldPlacementMask,
   ShrubFieldParams,
+  ShrubFoliageBurnOptions,
 } from './presets/shrubField.ts'
 export { buildShrubSeasonSurface, getPreparedShrubSurface, SHRUB_FOLIAGE_SEASONS } from './presets/shrubFieldSource.ts'
 
@@ -154,6 +155,7 @@ export {
 } from './presets/treeField.ts'
 export type {
   CreateTreeFieldEffectOptions,
+  TreeCrownBurnOptions,
   TreeFieldBounds,
   TreeFieldPlacementMask,
   TreeFieldParams,

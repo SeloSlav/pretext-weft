@@ -71,6 +71,7 @@ import {
   applyPlaygroundAtmosphere,
   addPlaygroundLighting,
   applySkyMode,
+  type PlaygroundAtmosphere,
   type PlaygroundLighting,
   type SkyMode,
 } from './playgroundEnvironment'
@@ -164,7 +165,7 @@ type SceneryMotionResponseParams = {
 }
 
 type ReticleHit = THREE.Intersection & {
-  targetKind: 'shutter' | 'ivy' | 'grass' | 'neon' | 'lamp' | 'glass' | 'rock' | 'tree'
+  targetKind: 'shutter' | 'ivy' | 'grass' | 'neon' | 'lamp' | 'glass' | 'rock' | 'tree' | 'tree-crown' | 'shrub'
 }
 
 /** Rolling CPU/FPS averages over wall-clock window (see `PlaygroundRuntime` long-window buffer). */
@@ -428,7 +429,7 @@ export class PlaygroundRuntime {
   private disposed = false
   private lastElapsed = 0
   private sceneryPointerLocked = false
-  private readonly skybox: THREE.Mesh
+  private readonly skybox: PlaygroundAtmosphere
   private lighting!: PlaygroundLighting
   private walkStampDistance = 0
   private pendingShoot = false
@@ -1083,12 +1084,20 @@ export class PlaygroundRuntime {
     this.windowGlassEffects = windowGlassEffects
 
     const raycastList: THREE.Object3D[] = this.sceneryMode
-      ? [this.grassEffect.interactionMesh, this.rockFieldEffect.interactionMesh, this.treeFieldEffect.trunkInteractionMesh]
+      ? [
+          this.grassEffect.interactionMesh,
+          this.rockFieldEffect.interactionMesh,
+          this.shrubFieldEffect.foliageInteractionMesh,
+          this.treeFieldEffect.crownInteractionMesh,
+          this.treeFieldEffect.trunkInteractionMesh,
+        ]
       : [
           this.shutterEffect.interactionMesh,
           this.ivyEffect.interactionMesh,
           this.grassEffect.interactionMesh,
           this.rockFieldEffect.interactionMesh,
+          this.shrubFieldEffect.foliageInteractionMesh,
+          this.treeFieldEffect.crownInteractionMesh,
           this.treeFieldEffect.trunkInteractionMesh,
         ]
     if (!this.sceneryMode) {
@@ -1523,6 +1532,16 @@ export class PlaygroundRuntime {
     this.treeFieldDirty = true
   }
 
+  clearShrubBurns(): void {
+    this.shrubFieldEffect.clearBurns()
+    this.shrubFieldDirty = true
+  }
+
+  clearTreeCrownBurns(): void {
+    this.treeFieldEffect.clearCrownBurns()
+    this.treeFieldDirty = true
+  }
+
   clearLeafPileDisturbances(): void {
     this.leafPileEffect.clearDisturbances()
     this.leafPileDirty = true
@@ -1564,6 +1583,8 @@ export class PlaygroundRuntime {
     this.clearGrassDisturbances()
     this.clearGrassBurns()
     this.clearTreeTrunkBurns()
+    this.clearShrubBurns()
+    this.clearTreeCrownBurns()
     this.clearLeafPileDisturbances()
     this.clearLeafPileBurns()
     this.clearStickFieldDisturbances()
@@ -2642,6 +2663,31 @@ export class PlaygroundRuntime {
     this.leafPileDirty = true
   }
 
+  private stampFoliageBurn(hit: ReticleHit): void {
+    const point = hit.point
+    if (isInsideBuildingInterior(point.x, point.z)) return
+    if (hit.instanceId == null || hit.instanceId < 0) return
+    if (hit.targetKind === 'shrub') {
+      this.shrubFieldEffect.addBurnFromWorldPoint(point, {
+        instanceId: hit.instanceId,
+        radiusScale: 0.9,
+        maxRadiusScale: 1.1,
+        strength: 0.88,
+      })
+      this.shrubFieldDirty = true
+      return
+    }
+    if (hit.targetKind === 'tree-crown') {
+      this.treeFieldEffect.addCrownBurnFromWorldPoint(point, {
+        instanceId: hit.instanceId,
+        radiusScale: 1.1,
+        maxRadiusScale: 1.3,
+        strength: 0.82,
+      })
+      this.treeFieldDirty = true
+    }
+  }
+
   private stampTreeTrunkBurn(hit: ReticleHit, direction: THREE.Vector3): void {
     const opts = this.sceneryMode
       ? {
@@ -2765,6 +2811,8 @@ export class PlaygroundRuntime {
     else if (this.lampEffects.some((e) => e.interactionMesh === hit.object)) targetKind = 'lamp'
     else if (this.windowGlassEffects.some((e) => e.interactionMesh === hit.object)) targetKind = 'glass'
     else if (hit.object === this.rockFieldEffect.interactionMesh) targetKind = 'rock'
+    else if (hit.object === this.shrubFieldEffect.foliageInteractionMesh) targetKind = 'shrub'
+    else if (hit.object === this.treeFieldEffect.crownInteractionMesh) targetKind = 'tree-crown'
     else if (hit.object === this.treeFieldEffect.trunkInteractionMesh) targetKind = 'tree'
     else targetKind = 'grass'
 
@@ -2863,6 +2911,11 @@ export class PlaygroundRuntime {
 
     if (hit?.targetKind === 'tree') {
       this.stampTreeTrunkBurn(hit, this.raycaster.ray.direction)
+      return
+    }
+
+    if (hit?.targetKind === 'tree-crown' || hit?.targetKind === 'shrub') {
+      this.stampFoliageBurn(hit)
       return
     }
 
@@ -3221,12 +3274,19 @@ export class PlaygroundRuntime {
       ranRock = true
     }
     rockCpuMs = now() - tRock0
-    if (this.shrubFieldDirty) {
-      this.shrubFieldEffect.update(this.getGroundHeightAtWorld)
-      this.shrubFieldDirty = false
+    const shrubHasBurns = this.shrubFieldEffect.hasBurns()
+    const shrubCadence = shrubHasBurns || this.shrubFieldDirty ? 2 : this.idleCadenceFor('tree')
+    if (
+      (shrubHasBurns || this.shrubFieldDirty) &&
+      this.shouldRunCadencedUpdate(shrubCadence, 0)
+    ) {
+      this.shrubFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
+      this.shrubFieldDirty = this.shrubFieldEffect.hasBurns()
     }
-    const treeHasBurns = this.treeFieldEffect.hasTrunkBurns()
-    const treeCadence = treeHasBurns ? this.cadenceFor('tree') : this.idleCadenceFor('tree')
+    const treeHasTrunkBurns = this.treeFieldEffect.hasTrunkBurns()
+    const treeHasCrownBurns = this.treeFieldEffect.hasCrownBurns()
+    const treeHasBurns = treeHasTrunkBurns || treeHasCrownBurns
+    const treeCadence = treeHasCrownBurns || this.treeFieldDirty ? 2 : treeHasTrunkBurns ? this.cadenceFor('tree') : this.idleCadenceFor('tree')
     if (
       this.treeFieldDirty ||
       (treeHasBurns && this.shouldRunCadencedUpdate(treeCadence, treeHasBurns ? 0 : 2))
@@ -3292,7 +3352,7 @@ export class PlaygroundRuntime {
     if (this.collisionDebugVisible) {
       this.updateCollisionDebugOverlay()
     }
-    this.skybox.position.copy(this.camera.position)
+    this.skybox.group.position.copy(this.camera.position)
     this.starSkyEffect.group.position.copy(this.camera.position)
     const effectsCpuMs = now() - tEffects0
     this.effectUpdateMs = effectsCpuMs

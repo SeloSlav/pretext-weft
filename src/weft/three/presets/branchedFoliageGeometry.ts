@@ -8,13 +8,11 @@ const _bA = new THREE.Vector3()
 const _bB = new THREE.Vector3()
 const _bMid = new THREE.Vector3()
 const _bDir = new THREE.Vector3()
-const _bAxis = new THREE.Vector3()
 const _bQuat = new THREE.Quaternion()
 const _bY = new THREE.Vector3(0, 1, 0)
 const _bScale = new THREE.Vector3(1, 1, 1)
 const _bMat = new THREE.Matrix4()
 const _bUp = new THREE.Vector3(0, 1, 0)
-const _forkAxis = new THREE.Vector3()
 const _leafTanU = new THREE.Vector3()
 const _leafTanV = new THREE.Vector3()
 
@@ -114,9 +112,9 @@ export type BranchedFoliageProfile = {
 
 const SHRUB_PROFILE: BranchedFoliageProfile = {
   includeTrunk: true,
-  trunkH: 0.2,
-  trunkR0: 0.084,
-  trunkR1: 0.055,
+  trunkH: 0.28,
+  trunkR0: 0.09,
+  trunkR1: 0.06,
   primaryN: 6,
   primaryLen: 0.36,
   primaryR0: 0.032,
@@ -160,6 +158,22 @@ export function makeBranchedFoliageGeometries(profile: BranchedFoliageProfile): 
   const trunkTop = profile.includeTrunk ? profile.trunkH * 0.92 : 0
   const primaryN = profile.primaryN
   const primaryLen = profile.primaryLen
+  const branchRootRise = profile.includeTrunk ? primaryLen * 0.03 : primaryLen * 0.06
+  // Leader must reach the highest branch root — compute that first
+  const maxRootY = trunkTop + branchRootRise + primaryLen * (profile.includeTrunk ? 0.12 : 0.2)
+  const leaderTopY = maxRootY + primaryLen * 0.04
+
+  pushCylinderBetween(
+    wood,
+    0,
+    trunkTop,
+    0,
+    0,
+    leaderTopY,
+    0,
+    profile.primaryR0 * 1.18,
+    profile.primaryR0 * 0.55,
+  )
 
   if (profile.includeTrunk) {
     for (let ring = 0; ring < 10; ring++) {
@@ -189,69 +203,32 @@ export function makeBranchedFoliageGeometries(profile: BranchedFoliageProfile): 
     const horiz = Math.cos(elev)
     _bDir.set(Math.cos(theta) * horiz, Math.sin(elev), Math.sin(theta) * horiz).normalize()
 
-    const sx = _bDir.x * primaryLen * 0.06
-    const sz = _bDir.z * primaryLen * 0.06
-    const bx = sx + _bDir.x * primaryLen
-    const by = trunkTop + _bDir.y * primaryLen
-    const bz = sz + _bDir.z * primaryLen
-    pushCylinderBetween(wood, sx, trunkTop, sz, bx, by, bz, profile.primaryR0, profile.primaryR1)
+    const rootLayerT = primaryN <= 1 ? 0.5 : i / (primaryN - 1)
+    const rootY = trunkTop + branchRootRise + rootLayerT * primaryLen * (profile.includeTrunk ? 0.12 : 0.2)
+    const sx = 0
+    const sz = 0
+    const bx = _bDir.x * primaryLen
+    const by = rootY + _bDir.y * primaryLen
+    const bz = _bDir.z * primaryLen
+    pushCylinderBetween(wood, sx, rootY, sz, bx, by, bz, profile.primaryR0, profile.primaryR1)
     primaryTips.push(new THREE.Vector3(bx, by, bz))
 
     for (const frac of [0.26, 0.42, 0.58, 0.74]) {
-      const px = sx + _bDir.x * primaryLen * frac
-      const py = trunkTop + _bDir.y * primaryLen * frac
-      const pz = sz + _bDir.z * primaryLen * frac
+      const px = _bDir.x * primaryLen * frac
+      const py = rootY + _bDir.y * primaryLen * frac
+      const pz = _bDir.z * primaryLen * frac
       const out = new THREE.Vector3(px, py, pz).normalize()
       pushLeafCluster(leaves, px, py, pz, out, (0.82 + frac * 0.12) * m)
     }
 
-    _forkAxis.crossVectors(_bDir, _bUp)
-    if (_forkAxis.lengthSq() < 1e-4) _forkAxis.set(1, 0, 0)
-    else _forkAxis.normalize()
-
-    for (let s = 0; s < 2; s++) {
-      const fork = s === 0 ? 0.52 : -0.48
-      const t = 0.58 + s * 0.12
-      const ox = sx + _bDir.x * primaryLen * t
-      const oy = trunkTop + _bDir.y * primaryLen * t
-      const oz = sz + _bDir.z * primaryLen * t
-
-      const subDir = _bDir.clone().applyAxisAngle(_forkAxis, fork + (s - 0.5) * 0.12).normalize()
-      const subLen = primaryLen * (0.48 + (s === 0 ? 0.06 : 0))
-      const ex = ox + subDir.x * subLen
-      const ey = oy + subDir.y * subLen
-      const ez = oz + subDir.z * subLen
-      pushCylinderBetween(wood, ox, oy, oz, ex, ey, ez, profile.subR0, profile.subR1)
-
-      const midx = (ox + ex) * 0.5
-      const midy = (oy + ey) * 0.5
-      const midz = (oz + ez) * 0.5
-      const outMid = new THREE.Vector3(midx, midy, midz).normalize()
-      pushLeafCluster(leaves, midx, midy, midz, outMid, 0.78 * m)
-
-      _bAxis.crossVectors(subDir, _bUp)
-      if (_bAxis.lengthSq() < 1e-5) _bAxis.set(1, 0, 0)
-      else _bAxis.normalize()
-      const twigDir = subDir.clone().applyAxisAngle(_bAxis, 0.35 + s * 0.1).normalize()
-      const twLen = subLen * 0.42
-      const tx = ex + twigDir.x * twLen * 0.35
-      const ty = ey + twigDir.y * twLen * 0.35
-      const tz = ez + twigDir.z * twLen * 0.35
-      pushCylinderBetween(wood, ex, ey, ez, tx, ty, tz, profile.subR1 * 0.9, profile.subR1 * 0.45)
-
-      const tip = new THREE.Vector3(tx, ty, tz)
-      const out = tip.clone().normalize()
-      pushLeafCluster(leaves, tip.x, tip.y, tip.z, out, (1.02 + s * 0.06) * m)
-
-      const micro = twigDir.clone().multiplyScalar(0.14)
-      pushLeafCluster(leaves, ex + micro.x * 0.5, ey + micro.y * 0.5, ez + micro.z * 0.5, out, 0.88 * m)
+    // Dense leaf clusters along the primary branch — no sub-branch cylinders that can appear detached
+    for (const frac of [0.72, 0.88]) {
+      const px = _bDir.x * primaryLen * frac
+      const py = rootY + _bDir.y * primaryLen * frac
+      const pz = _bDir.z * primaryLen * frac
+      const out = new THREE.Vector3(px, py, pz).normalize()
+      pushLeafCluster(leaves, px, py, pz, out, (0.94 + frac * 0.08) * m)
     }
-
-    const mid = new THREE.Vector3(sx, trunkTop, sz).add(
-      new THREE.Vector3(_bDir.x, _bDir.y, _bDir.z).multiplyScalar(primaryLen * 0.88),
-    )
-    const outEnd = mid.clone().normalize()
-    pushLeafCluster(leaves, mid.x, mid.y, mid.z, outEnd, 0.92 * m)
   }
 
   for (let i = 0; i < primaryN; i++) {

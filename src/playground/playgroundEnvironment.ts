@@ -2,6 +2,79 @@ import * as THREE from 'three'
 
 export type SkyMode = 'night' | 'day'
 
+const SKY_RADIUS = 400
+const BODY_RADIUS = SKY_RADIUS * 0.9
+
+function directionFromUv(u: number, v: number, radius = BODY_RADIUS): THREE.Vector3 {
+  const longitude = (u - 0.5) * Math.PI * 2
+  const latitude = (0.5 - v) * Math.PI
+  const cosLatitude = Math.cos(latitude)
+  return new THREE.Vector3(
+    Math.sin(longitude) * cosLatitude * radius,
+    Math.sin(latitude) * radius,
+    Math.cos(longitude) * cosLatitude * radius,
+  )
+}
+
+function createCelestialDiscTexture(
+  coreColor: string,
+  glowStops: Array<[number, string]>,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+
+  if (!ctx) {
+    return texture
+  }
+
+  const cx = canvas.width * 0.5
+  const cy = canvas.height * 0.5
+  const glow = ctx.createRadialGradient(cx, cy, 8, cx, cy, canvas.width * 0.5)
+  for (const [stop, color] of glowStops) {
+    glow.addColorStop(stop, color)
+  }
+  ctx.fillStyle = glow
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  ctx.fillStyle = coreColor
+  ctx.beginPath()
+  ctx.arc(cx, cy, canvas.width * 0.12, 0, Math.PI * 2)
+  ctx.fill()
+
+  texture.needsUpdate = true
+  return texture
+}
+
+function createCelestialDisc(
+  texture: THREE.Texture,
+  position: THREE.Vector3,
+  diameter: number,
+): THREE.Mesh {
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    fog: false,
+  })
+  const mesh = new THREE.Mesh(new THREE.CircleGeometry(diameter * 0.5, 48), material)
+  mesh.position.copy(position)
+  mesh.lookAt(0, 0, 0)
+  return mesh
+}
+
+export type PlaygroundAtmosphere = {
+  group: THREE.Group
+  skybox: THREE.Mesh
+  sun: THREE.Mesh
+  moon: THREE.Mesh
+}
+
 function createNightSkyTexture(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
   canvas.width = 2048
@@ -22,20 +95,6 @@ function createNightSkyTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, '#24446c')
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  const moonX = canvas.width * 0.18
-  const moonY = canvas.height * 0.2
-  const moonGlow = ctx.createRadialGradient(moonX, moonY, 6, moonX, moonY, canvas.width * 0.09)
-  moonGlow.addColorStop(0, 'rgba(225,240,255,0.95)')
-  moonGlow.addColorStop(0.18, 'rgba(190,220,255,0.5)')
-  moonGlow.addColorStop(1, 'rgba(120,170,255,0)')
-  ctx.fillStyle = moonGlow
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  ctx.fillStyle = '#dff0ff'
-  ctx.beginPath()
-  ctx.arc(moonX, moonY, canvas.width * 0.022, 0, Math.PI * 2)
-  ctx.fill()
 
   for (let i = 0; i < 10; i++) {
     const y = canvas.height * (0.55 + i * 0.03)
@@ -74,23 +133,6 @@ function createDaySkyTexture(): THREE.CanvasTexture {
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  // Sun disc
-  const sunX = canvas.width * 0.72
-  const sunY = canvas.height * 0.18
-  const sunGlow = ctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, canvas.width * 0.14)
-  sunGlow.addColorStop(0, 'rgba(255,255,220,1.0)')
-  sunGlow.addColorStop(0.06, 'rgba(255,240,160,0.85)')
-  sunGlow.addColorStop(0.22, 'rgba(255,220,80,0.35)')
-  sunGlow.addColorStop(0.55, 'rgba(255,200,60,0.08)')
-  sunGlow.addColorStop(1, 'rgba(255,180,40,0)')
-  ctx.fillStyle = sunGlow
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  ctx.fillStyle = '#fffde8'
-  ctx.beginPath()
-  ctx.arc(sunX, sunY, canvas.width * 0.028, 0, Math.PI * 2)
-  ctx.fill()
-
   // Soft horizon haze
   for (let i = 0; i < 8; i++) {
     const y = canvas.height * (0.62 + i * 0.025)
@@ -109,7 +151,7 @@ function createDaySkyTexture(): THREE.CanvasTexture {
 
 function createSkyboxMesh(mode: SkyMode): THREE.Mesh {
   const tex = mode === 'day' ? createDaySkyTexture() : createNightSkyTexture()
-  const geometry = new THREE.SphereGeometry(400, 24, 16)
+  const geometry = new THREE.SphereGeometry(SKY_RADIUS, 24, 16)
   const material = new THREE.MeshBasicMaterial({
     map: tex,
     side: THREE.BackSide,
@@ -122,11 +164,40 @@ function createSkyboxMesh(mode: SkyMode): THREE.Mesh {
   return mesh
 }
 
-export function applyPlaygroundAtmosphere(scene: THREE.Scene): THREE.Mesh {
+function createSunDisc(): THREE.Mesh {
+  const texture = createCelestialDiscTexture('#fffde8', [
+    [0, 'rgba(255,255,220,1)'],
+    [0.12, 'rgba(255,240,160,0.85)'],
+    [0.34, 'rgba(255,220,80,0.35)'],
+    [0.7, 'rgba(255,200,60,0.08)'],
+    [1, 'rgba(255,180,40,0)'],
+  ])
+  return createCelestialDisc(texture, directionFromUv(0.72, 0.18), 120)
+}
+
+function createMoonDisc(): THREE.Mesh {
+  const texture = createCelestialDiscTexture('#dff0ff', [
+    [0, 'rgba(225,240,255,0.95)'],
+    [0.18, 'rgba(190,220,255,0.5)'],
+    [1, 'rgba(120,170,255,0)'],
+  ])
+  return createCelestialDisc(texture, directionFromUv(0.18, 0.2), 90)
+}
+
+export function applyPlaygroundAtmosphere(scene: THREE.Scene): PlaygroundAtmosphere {
+  const group = new THREE.Group()
+  group.name = 'playground-atmosphere'
+  group.frustumCulled = false
+
   const skybox = createSkyboxMesh('night')
-  scene.add(skybox)
+  const sun = createSunDisc()
+  const moon = createMoonDisc()
+  sun.visible = false
+
+  group.add(skybox, sun, moon)
+  scene.add(group)
   scene.fog = new THREE.Fog('#0a1022', 28, 260)
-  return skybox
+  return { group, skybox, sun, moon }
 }
 
 export type PlaygroundLighting = {
@@ -156,10 +227,11 @@ export function addPlaygroundLighting(scene: THREE.Scene): PlaygroundLighting {
 
 export function applySkyMode(
   mode: SkyMode,
-  skybox: THREE.Mesh,
+  atmosphere: PlaygroundAtmosphere,
   scene: THREE.Scene,
   lighting: PlaygroundLighting,
 ): void {
+  const { skybox, sun, moon } = atmosphere
   const mat = skybox.material as THREE.MeshBasicMaterial
   const oldTex = mat.map
 
@@ -167,6 +239,8 @@ export function applySkyMode(
     const tex = createDaySkyTexture()
     mat.map = tex
     mat.needsUpdate = true
+    sun.visible = true
+    moon.visible = false
     // Don't use the sky texture as IBL — it washes out saturation
     scene.environment = null
     scene.fog = new THREE.Fog('#a8d4f0', 60, 340)
@@ -192,6 +266,8 @@ export function applySkyMode(
     const tex = createNightSkyTexture()
     mat.map = tex
     mat.needsUpdate = true
+    sun.visible = false
+    moon.visible = true
     scene.environment = null
     scene.fog = new THREE.Fog('#0a1022', 28, 260)
 

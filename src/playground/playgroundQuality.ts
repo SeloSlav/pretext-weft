@@ -9,5 +9,7 @@ export const PLAYGROUND_ROCK_LAYOUT_SCALE = 0.6
 /** Demo-facing default (balanced for ~60fps with scenery effects at DPR 1). */
 export const DEMO_GRASS_LAYOUT_DENSITY_DEFAULT = 16
 export const DEMO_GRASS_LAYOUT_DENSITY_MAX = 20
-/** Scenery demo grass disturbance radius (matches slider max). */
-export const DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT = 1.2
+/** Scenery demo grass disturbance radius default. */
+export const DEMO_GRASS_DISTURBANCE_RADIUS_DEFAULT = 1.5
+/** Scenery demo grass disturbance radius slider max. */
+export const DEMO_GRASS_DISTURBANCE_RADIUS_MAX = 2.4

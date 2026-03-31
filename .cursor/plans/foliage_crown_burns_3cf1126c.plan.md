@@ -4,28 +4,28 @@ overview: Add leaf-pile-style spreading burns with recovery to shrub leaf meshes
 todos:
   - id: shrub-burn-params
     content: Add burnRadius/burnSpreadSpeed/burnMaxRadius/recoveryRate to ShrubFieldParams and DEFAULT_SHRUB_FIELD_PARAMS in shrubField.ts
-    status: pending
+    status: completed
   - id: shrub-burn-state
     content: Add burns array, burnFieldAt, addBurnFromWorldPoint, clearBurns, hasBurns, burnRim attribute + shader patch, and DynamicDrawUsage to ShrubFieldEffect
-    status: pending
+    status: completed
   - id: shrub-burn-render
     content: Sample burnFieldAt per-instance in ShrubFieldEffect.projectLine and apply burn color + burnRim attribute
-    status: pending
+    status: completed
   - id: shrub-update-sig
     content: Update ShrubFieldEffect.update() signature to accept elapsedTime, add burn spread growth and updateRecoveringImpacts call
-    status: pending
+    status: completed
   - id: tree-crown-burn-params
     content: Add crown burn params (separate from existing trunkBurn* params) to TreeFieldParams and defaults in treeField.ts
-    status: pending
+    status: completed
   - id: tree-crown-burn-state
     content: Add burns array, burnFieldAt, addCrownBurnFromWorldPoint, clearCrownBurns, hasCrownBurns, burnRim attribute + shader patch, and DynamicDrawUsage to crownLeafMesh in TreeFieldEffect
-    status: pending
+    status: completed
   - id: tree-crown-burn-render
     content: Sample burnFieldAt per-instance in TreeFieldEffect.projectLine for crownLeafMesh and apply burn color + burnRim attribute
-    status: pending
+    status: completed
   - id: runtime-wire
     content: Add stampFoliageBurn, clearShrubBurns, clearTreeCrownBurns to PlaygroundRuntime; update shrub/tree update cadence blocks; call clearBurns from clearAllEffects
-    status: pending
+    status: completed
 isProject: false
 ---
 
