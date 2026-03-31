@@ -17,6 +17,13 @@ export { createInstancedMesh } from './helpers/instancing.ts'
 export type { ThreeInstancedMeshRendererConfig } from './helpers/instancing.ts'
 
 export {
+  createTerrainReliefField,
+  DEFAULT_TERRAIN_RELIEF_PARAMS,
+  TerrainReliefField,
+} from './terrainRelief.ts'
+export type { TerrainHeightSampler, TerrainReliefParams } from './terrainRelief.ts'
+
+export {
   createShellSurfaceEffect,
   DEFAULT_SHELL_SURFACE_PARAMS,
   ShellSurfaceEffect,

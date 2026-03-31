@@ -11,6 +11,7 @@ import {
   LEAF_PILE_SEASONS,
 } from "./weft/three";
 import {
+  DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS,
   DEFAULT_SCENERY_WORLD_FIELD_PARAMS,
   SCENERY_NEEDLE_LITTER_BURN_PARAMS,
 } from "./playground/playgroundSceneryWorld";
@@ -173,6 +174,24 @@ export function SceneryDemo() {
   const [worldFieldAffectsShrubs, setWorldFieldAffectsShrubs] = useState(
     DEFAULT_SCENERY_WORLD_FIELD_PARAMS.affectShrubs,
   );
+  const [terrainReliefSeed, setTerrainReliefSeed] = useState(
+    DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.seed,
+  );
+  const [terrainReliefScale, setTerrainReliefScale] = useState(
+    DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.scale,
+  );
+  const [terrainReliefAmount, setTerrainReliefAmount] = useState(
+    DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.relief,
+  );
+  const [terrainReliefWarp, setTerrainReliefWarp] = useState(
+    DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.warp,
+  );
+  const [terrainReliefRoughness, setTerrainReliefRoughness] = useState(
+    DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.roughness,
+  );
+  const [terrainReliefRidge, setTerrainReliefRidge] = useState(
+    DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS.ridge,
+  );
   const [starLayoutDensity, setStarLayoutDensity] = useState(
     DEFAULT_STAR_SKY_PARAMS.layoutDensity,
   );
@@ -278,6 +297,14 @@ export function SceneryDemo() {
           affectNeedles: worldFieldAffectsNeedles,
           affectTrees: worldFieldAffectsTrees,
           affectShrubs: worldFieldAffectsShrubs,
+        });
+        runtime.setSceneryTerrainReliefParams({
+          seed: terrainReliefSeed,
+          scale: terrainReliefScale,
+          relief: terrainReliefAmount,
+          warp: terrainReliefWarp,
+          roughness: terrainReliefRoughness,
+          ridge: terrainReliefRidge,
         });
         runtime.setStarSkyParams({
           layoutDensity: starLayoutDensity,
@@ -460,6 +487,24 @@ export function SceneryDemo() {
     worldFieldSeed,
     worldFieldStrength,
     worldFieldWarp,
+  ]);
+
+  useEffect(() => {
+    runtimeRef.current?.setSceneryTerrainReliefParams({
+      seed: terrainReliefSeed,
+      scale: terrainReliefScale,
+      relief: terrainReliefAmount,
+      warp: terrainReliefWarp,
+      roughness: terrainReliefRoughness,
+      ridge: terrainReliefRidge,
+    });
+  }, [
+    terrainReliefAmount,
+    terrainReliefRidge,
+    terrainReliefRoughness,
+    terrainReliefScale,
+    terrainReliefSeed,
+    terrainReliefWarp,
   ]);
 
   useEffect(() => {
@@ -824,6 +869,105 @@ export function SceneryDemo() {
                   <p className="control-hint">
                     This is not scatter noise. The field shapes placement masks
                     that the existing Weft surfaces already consume.
+                  </p>
+                </ControlSection>
+
+                <ControlSection
+                  title="Terrain relief"
+                  summary="Height variation for the ground surface, player footing, and camera clearance"
+                >
+                  <label className="control">
+                    <span>Relief seed ({terrainReliefSeed})</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={99}
+                      step={1}
+                      value={terrainReliefSeed}
+                      onChange={(e) =>
+                        setTerrainReliefSeed(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Relief span ({terrainReliefScale.toFixed(1)} world units)
+                    </span>
+                    <input
+                      type="range"
+                      min={10}
+                      max={72}
+                      step={0.5}
+                      value={terrainReliefScale}
+                      onChange={(e) =>
+                        setTerrainReliefScale(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Relief amount ({terrainReliefAmount.toFixed(2)} world units)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={2.5}
+                      step={0.02}
+                      value={terrainReliefAmount}
+                      onChange={(e) =>
+                        setTerrainReliefAmount(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Relief warp ({Math.round(terrainReliefWarp * 100)}%)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.02}
+                      value={terrainReliefWarp}
+                      onChange={(e) =>
+                        setTerrainReliefWarp(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Relief roughness ({terrainReliefRoughness.toFixed(2)})
+                    </span>
+                    <input
+                      type="range"
+                      min={0.2}
+                      max={0.85}
+                      step={0.01}
+                      value={terrainReliefRoughness}
+                      onChange={(e) =>
+                        setTerrainReliefRoughness(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="control">
+                    <span>
+                      Ridge lift ({Math.round(terrainReliefRidge * 100)}%)
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.02}
+                      value={terrainReliefRidge}
+                      onChange={(e) =>
+                        setTerrainReliefRidge(Number(e.target.value))
+                      }
+                    />
+                  </label>
+                  <p className="control-hint">
+                    This stays in the Weft field model: one seeded relief read
+                    drives the visible ground and the runtime&apos;s movement
+                    sampling.
                   </p>
                 </ControlSection>
 

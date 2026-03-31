@@ -1,4 +1,8 @@
 import { createWorldField } from '../weft/core'
+import {
+  DEFAULT_TERRAIN_RELIEF_PARAMS,
+  type TerrainReliefParams,
+} from '../weft/three'
 import type { MovementBounds } from './thirdPersonController'
 
 /**
@@ -49,6 +53,18 @@ export const DEFAULT_SCENERY_WORLD_FIELD_PARAMS: SceneryWorldFieldParams = {
   affectNeedles: true,
   affectTrees: true,
   affectShrubs: true,
+}
+
+export type SceneryTerrainReliefParams = TerrainReliefParams
+
+export const DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS: SceneryTerrainReliefParams = {
+  ...DEFAULT_TERRAIN_RELIEF_PARAMS,
+  seed: 29,
+  scale: 30,
+  relief: 1.35,
+  warp: 0.46,
+  roughness: 0.58,
+  ridge: 0.34,
 }
 
 /** Slower smoldering burn for leaf litter and needle field in the scenery demo. */

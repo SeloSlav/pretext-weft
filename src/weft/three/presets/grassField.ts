@@ -11,6 +11,7 @@ import {
   fieldLayout,
   recoverableDamage,
 } from '../api'
+import type { TerrainHeightSampler } from '../terrainRelief'
 import { smoothPulse } from './sharedMath'
 import {
   buildGrassStateSurface,
@@ -386,6 +387,7 @@ export class GrassFieldEffect {
   private layoutDriver: SurfaceLayoutDriver<GrassTokenId, GrassTokenMeta>
   private readonly disturbances: Disturbance[] = []
   private readonly cachedBlades: CachedBladeInstance[] = []
+  private terrainRelief: TerrainHeightSampler | null
   private lastElapsedTime = 0
   private bladeCacheDirty = true
   private baseBladeColorsDirty = true
@@ -396,9 +398,11 @@ export class GrassFieldEffect {
     seedCursor: SeedCursorFactory,
     initialParams: GrassFieldParams,
     placementMask: GrassFieldPlacementMask = {},
+    terrainRelief: TerrainHeightSampler | null = null,
   ) {
     this.params = { ...initialParams }
     this.seedCursor = seedCursor
+    this.terrainRelief = terrainRelief
     const bounds = placementMask.bounds ?? DEFAULT_GRASS_FIELD_BOUNDS
     this.fieldWidth = bounds.maxX - bounds.minX
     this.fieldDepth = bounds.maxZ - bounds.minZ
@@ -449,6 +453,11 @@ export class GrassFieldEffect {
   setSurface(surface: PreparedSurfaceSource<GrassTokenId, GrassTokenMeta>): void {
     this.layoutDriver = this.createLayoutDriver(surface)
     this.bladeCacheDirty = true
+  }
+
+  setTerrainRelief(terrainRelief: TerrainHeightSampler | null): void {
+    this.terrainRelief = terrainRelief
+    this.refreshTerrain()
   }
 
   clearDisturbances(): void {
@@ -586,7 +595,9 @@ export class GrassFieldEffect {
   }
 
   private baseGroundY(x: number, z: number): number {
-    return 0.12 * Math.sin(x * 0.22) * Math.cos(z * 0.18) + 0.03 * Math.sin((x + z) * 0.65)
+    const baseUndulation = 0.12 * Math.sin(x * 0.22) * Math.cos(z * 0.18) + 0.03 * Math.sin((x + z) * 0.65)
+    const relief = this.terrainRelief?.sampleHeightAtXZ(x, z) ?? 0
+    return baseUndulation + relief
   }
 
   private stateIndex(): number {
@@ -630,6 +641,13 @@ export class GrassFieldEffect {
       position.setXYZ(i, x, yPlane, h)
     }
     position.needsUpdate = true
+  }
+
+  private refreshTerrain(): void {
+    this.updateGround()
+    this.groundGeometry.computeBoundingBox()
+    this.groundGeometry.computeBoundingSphere()
+    this.bladeCacheDirty = true
   }
 
   private updateBlades(elapsedTime: number): void {
@@ -860,6 +878,7 @@ export type CreateGrassEffectOptions = {
   surface?: PreparedSurfaceSource<GrassTokenId, GrassTokenMeta>
   initialParams?: GrassFieldParams
   placementMask?: GrassFieldPlacementMask
+  terrainRelief?: TerrainHeightSampler | null
 }
 
 export function createGrassEffect({
@@ -867,6 +886,7 @@ export function createGrassEffect({
   surface = buildGrassStateSurface(DEFAULT_GRASS_FIELD_PARAMS.state),
   initialParams = DEFAULT_GRASS_FIELD_PARAMS,
   placementMask,
+  terrainRelief = null,
 }: CreateGrassEffectOptions): GrassFieldEffect {
   const effect = createSurfaceEffect({
     id: 'grass-field',
@@ -888,5 +908,5 @@ export function createGrassEffect({
     seedCursor,
   })
 
-  return new GrassFieldEffect(effect.source, seedCursor, initialParams, placementMask)
+  return new GrassFieldEffect(effect.source, seedCursor, initialParams, placementMask, terrainRelief)
 }

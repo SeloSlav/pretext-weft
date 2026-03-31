@@ -13,6 +13,7 @@ import {
   createLogFieldEffect,
   createNeedleLitterFieldEffect,
   createRockFieldEffect,
+  createTerrainReliefField,
   createShrubFieldEffect,
   createStarSkyEffect,
   createStickFieldEffect,
@@ -55,6 +56,7 @@ import {
   type LogFieldParams,
   type NeedleLitterFieldParams,
   type RockFieldParams,
+  type TerrainReliefParams,
   type ShrubFieldParams,
   type StarSkyParams,
   type StickFieldParams,
@@ -130,11 +132,13 @@ import {
 } from './playgroundWorld'
 import {
   createSceneryWorldAuthoring,
+  DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS,
   DEFAULT_SCENERY_WORLD_FIELD_PARAMS,
   SCENERY_BOUNDS,
   SCENERY_LEAF_PILE_BURN_PARAMS,
   SCENERY_NEEDLE_LITTER_BURN_PARAMS,
   SCENERY_SPAWN,
+  type SceneryTerrainReliefParams,
   type SceneryWorldAuthoring,
   type SceneryWorldFieldParams,
 } from './playgroundSceneryWorld'
@@ -315,6 +319,8 @@ export class PlaygroundRuntime {
   private readonly spawnConfig: { x: number; z: number; yaw: number; pitch: number }
   private sceneryWorldFieldParams: SceneryWorldFieldParams = { ...DEFAULT_SCENERY_WORLD_FIELD_PARAMS }
   private sceneryWorldAuthoring: SceneryWorldAuthoring = createSceneryWorldAuthoring(this.sceneryWorldFieldParams)
+  private sceneryTerrainReliefParams: SceneryTerrainReliefParams = { ...DEFAULT_SCENERY_TERRAIN_RELIEF_PARAMS }
+  private readonly sceneryTerrainRelief = createTerrainReliefField(this.sceneryTerrainReliefParams)
   private readonly grassEffect: ReturnType<typeof createGrassEffect>
   private readonly vergeBandEffect: ReturnType<typeof createBandFieldEffect>
   private readonly leafPileEffect: ReturnType<typeof createLeafPileBandEffect>
@@ -600,6 +606,7 @@ export class PlaygroundRuntime {
       surface: buildGrassStateSurface(DEFAULT_GRASS_FIELD_PARAMS.state),
       seedCursor,
       initialParams: DEFAULT_GRASS_FIELD_PARAMS,
+      terrainRelief: this.sceneryMode ? this.sceneryTerrainRelief : null,
       placementMask: this.sceneryMode
         ? {
             bounds: SCENERY_BOUNDS,
@@ -1200,6 +1207,23 @@ export class PlaygroundRuntime {
 
     // Rebuild cached grass placement so field-driven coverage changes take effect immediately.
     this.grassEffect.setSurface(buildGrassStateSurface(this.grassFieldParams.state))
+    this.markSceneryGroundDependentEffectsDirty()
+  }
+
+  setSceneryTerrainReliefParams(params: Partial<TerrainReliefParams>): void {
+    this.sceneryTerrainReliefParams = { ...this.sceneryTerrainReliefParams, ...params }
+    this.sceneryTerrainRelief.setParams(this.sceneryTerrainReliefParams)
+    if (!this.sceneryMode) return
+
+    this.grassEffect.setTerrainRelief(this.sceneryTerrainRelief)
+    this.markSceneryGroundDependentEffectsDirty()
+  }
+
+  setSceneryMotionResponse(params: Partial<SceneryMotionResponseParams>): void {
+    this.sceneryMotionResponse = { ...this.sceneryMotionResponse, ...params }
+  }
+
+  private markSceneryGroundDependentEffectsDirty(): void {
     this.vergeBandDirty = true
     this.leafPileDirty = true
     this.rockFieldDirty = true
@@ -1208,10 +1232,6 @@ export class PlaygroundRuntime {
     this.logFieldDirty = true
     this.stickFieldDirty = true
     this.needleLitterDirty = true
-  }
-
-  setSceneryMotionResponse(params: Partial<SceneryMotionResponseParams>): void {
-    this.sceneryMotionResponse = { ...this.sceneryMotionResponse, ...params }
   }
 
   setFireWallParams(params: Partial<FireWallParams>): void {
