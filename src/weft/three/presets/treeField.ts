@@ -67,15 +67,13 @@ const BURN_RECOVERY_DELAY = 0.42
 const tmpColor = new THREE.Color()
 const tmpPlacementQuat = new THREE.Quaternion()
 const tmpPlacementEuler = new THREE.Euler()
-const tmpPlacementBasisX = new THREE.Vector3()
 const tmpPlacementBasisY = new THREE.Vector3()
-const tmpPlacementBasisZ = new THREE.Vector3()
 const tmpCrownAttach = new THREE.Vector3()
+const tmpCrownLeafQuat = new THREE.Quaternion()
 const tmpAshColor = new THREE.Color()
 const tmpEmberColor = new THREE.Color()
 const tmpCrispOrange = new THREE.Color()
 const tmpBurnFieldA = { burn: 0, front: 0 }
-const ZERO_BURN_FIELD = { burn: 0, front: 0 }
 const dummy = new THREE.Object3D()
 
 const MAX_CROWN_BURNS = 18
@@ -121,15 +119,12 @@ function lineSignature(text: string): number {
 type TreePlacement = {
   key: string
   identity: number
-  warmth: number
   noise: number
-  center: THREE.Vector3
-  basisX: THREE.Vector3
-  basisY: THREE.Vector3
-  basisZ: THREE.Vector3
-  trunkHeight: number
-  radiusX: number
-  radiusZ: number
+  meta: TreeTokenMeta
+  crownLeafPosition: THREE.Vector3
+  crownLeafQuaternion: THREE.Quaternion
+  crownLeafScale: THREE.Vector3
+  crownLeafDropHash: number
 }
 
 const treeOrganicWorldField = createWorldField(1427, {
@@ -315,13 +310,18 @@ export class TreeFieldEffect {
 
     const needsTreeRebuild =
       rebuildPlacements ||
-      this.placementsDirty ||
-      this.crownBurns.length > 0 ||
-      (hadCrownBurnsBeforeRecovery && this.crownBurns.length === 0)
+      this.placementsDirty
 
     if (needsTreeRebuild) {
       this.updateTrees(getGroundHeight)
       this.placementsDirty = false
+      if (this.crownBurns.length > 0) {
+        this.refreshCrownBurnVisuals()
+      }
+      return
+    }
+    if (this.crownBurns.length > 0 || hadCrownBurnsBeforeRecovery) {
+      this.refreshCrownBurnVisuals()
     }
   }
 
@@ -471,6 +471,48 @@ export class TreeFieldEffect {
     }
   }
 
+  private refreshCrownBurnVisuals(): void {
+    const count = this.treePlacements.length
+    for (let instanceId = 0; instanceId < count; instanceId++) {
+      const placement = this.treePlacements[instanceId]
+      if (!placement) continue
+      const burnField = this.crownBurnFieldAt(instanceId, tmpBurnFieldA)
+      const leafRemaining = THREE.MathUtils.clamp(
+        Math.pow(1 - burnField.burn, 1.75) + burnField.front * 0.06,
+        0,
+        1,
+      )
+      const crownLeafVisible = placement.crownLeafDropHash <= leafRemaining
+      dummy.position.copy(placement.crownLeafPosition)
+      dummy.quaternion.copy(placement.crownLeafQuaternion)
+      dummy.scale.copy(placement.crownLeafScale)
+      if (!crownLeafVisible) {
+        dummy.scale.set(0, 0, 0)
+      }
+      dummy.updateMatrix()
+      this.crownLeafMesh.setMatrixAt(instanceId, dummy.matrix)
+      this.crownLeafMesh.setColorAt(
+        instanceId,
+        treeCrownBurnColor(
+          placement.identity,
+          placement.noise,
+          placement.meta,
+          burnField.burn,
+          burnField.front,
+        ),
+      )
+      this.crownLeafBurnRimAttr.setX(
+        instanceId,
+        THREE.MathUtils.clamp((crownLeafVisible ? burnField.burn * 0.9 : 0) + burnField.front * 0.45, 0, 1),
+      )
+    }
+    this.crownLeafMesh.instanceMatrix.needsUpdate = true
+    this.crownLeafBurnRimAttr.needsUpdate = true
+    if (this.crownLeafMesh.instanceColor) {
+      this.crownLeafMesh.instanceColor.needsUpdate = true
+    }
+  }
+
   private projectLine(
     slot: SurfaceLayoutSlot,
     resolvedGlyphs: readonly ResolvedSurfaceGlyph<TreeTokenId, TreeTokenMeta>[],
@@ -483,8 +525,6 @@ export class TreeFieldEffect {
     const lineSeed = lineSignature(tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.18
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.12
-    const hasCrownBurns = this.crownBurns.length > 0
-
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
 
@@ -516,7 +556,6 @@ export class TreeFieldEffect {
       if (hashKeep > keepChance) continue
 
       const groundY = getGroundHeight(x, z)
-      const burnField = hasCrownBurns ? this.crownBurnFieldAt(instanceIndex, tmpBurnFieldA) : ZERO_BURN_FIELD
       const trunkHeight = Math.max(
         1.4,
         (2.8 + noise * 2.4 + meta.trunkBias * 1.8 + hashForm * 0.9) * this.params.sizeScale * this.params.heightScale,
@@ -537,13 +576,7 @@ export class TreeFieldEffect {
           (0.48 + meta.crownBias * 0.12 + noise * 0.08) *
           this.params.crownScale,
       )
-      const leafRemaining = THREE.MathUtils.clamp(
-        Math.pow(1 - burnField.burn, 1.75) + burnField.front * 0.06,
-        0,
-        1,
-      )
       const crownDropHash = glyphHash(identity + 23, slot.row ^ slot.sector, k ^ 0x71)
-      const crownLeafVisible = crownDropHash <= leafRemaining
       const yaw = lineSeed * Math.PI * 2 + k * 1.11 + noise * 0.8
       const leanX = (noise - 0.5) * 0.08
       const leanZ = (hashForm - 0.5) * 0.1
@@ -555,35 +588,23 @@ export class TreeFieldEffect {
         ({
           key: '',
           identity: 0,
-          warmth: 0,
           noise: 0,
-          center: new THREE.Vector3(),
-          basisX: new THREE.Vector3(),
-          basisY: new THREE.Vector3(),
-          basisZ: new THREE.Vector3(),
-          trunkHeight: 0,
-          radiusX: 0,
-          radiusZ: 0,
+          meta,
+          crownLeafPosition: new THREE.Vector3(),
+          crownLeafQuaternion: new THREE.Quaternion(),
+          crownLeafScale: new THREE.Vector3(),
+          crownLeafDropHash: 0,
         } satisfies TreePlacement)
       this.treePlacements[instanceIndex] = placement
       placement.key = `${slot.row}:${slot.sector}:${tokenLineKey}:${k}`
       placement.identity = identity
-      placement.warmth = meta.warmth
       placement.noise = noise
-      placement.center.set(x, groundY + trunkHeight * 0.5, z)
+      placement.meta = meta
       tmpPlacementEuler.set(leanX, yaw, leanZ)
       tmpPlacementQuat.setFromEuler(tmpPlacementEuler)
-      tmpPlacementBasisX.set(1, 0, 0).applyQuaternion(tmpPlacementQuat)
       tmpPlacementBasisY.set(0, 1, 0).applyQuaternion(tmpPlacementQuat)
-      tmpPlacementBasisZ.set(0, 0, 1).applyQuaternion(tmpPlacementQuat)
-      placement.basisX.copy(tmpPlacementBasisX)
-      placement.basisY.copy(tmpPlacementBasisY)
-      placement.basisZ.copy(tmpPlacementBasisZ)
-      placement.trunkHeight = trunkHeight
-      placement.radiusX = trunkRadius
-      placement.radiusZ = rz
 
-      dummy.position.copy(placement.center)
+      dummy.position.set(x, groundY + trunkHeight * 0.5, z)
       dummy.quaternion.copy(tmpPlacementQuat)
       dummy.scale.set(trunkRadius, trunkHeight, rz)
       dummy.updateMatrix()
@@ -593,8 +614,8 @@ export class TreeFieldEffect {
 
       const ex = TREE_CROWN_LOCAL_EXTENT_Y
       const crownZ = crownWidth * (0.94 + noise * 0.14 + hashForm * 0.08)
-      tmpCrownAttach.copy(placement.center).addScaledVector(
-        placement.basisY,
+      tmpCrownAttach.set(x, groundY + trunkHeight * 0.5, z).addScaledVector(
+        tmpPlacementBasisY,
         trunkHeight * 0.5 - Math.min(trunkRadius * 0.16, crownHeight * 0.08),
       )
       dummy.position.copy(tmpCrownAttach)
@@ -605,23 +626,16 @@ export class TreeFieldEffect {
       this.crownWoodMesh.setColorAt(instanceIndex, warmBarkColor(identity, noise + 0.05, meta.warmth, tmpColor))
       dummy.position.copy(tmpCrownAttach)
       dummy.rotation.set(leanX * 0.45, crownYaw, leanZ * 0.4)
-      dummy.scale.set(
-        crownLeafVisible ? crownWidth / ex : 0,
-        crownLeafVisible ? crownHeight / ex : 0,
-        crownLeafVisible ? crownZ / ex : 0,
-      )
+      dummy.scale.set(crownWidth / ex, crownHeight / ex, crownZ / ex)
       dummy.updateMatrix()
       this.crownLeafMesh.setMatrixAt(instanceIndex, dummy.matrix)
-      this.crownLeafMesh.setColorAt(
-        instanceIndex,
-        treeCrownBurnColor(identity, noise, meta, burnField.burn, burnField.front),
-      )
-      const crownLeafBurnRim = THREE.MathUtils.clamp(
-        (crownLeafVisible ? burnField.burn * 0.9 : 0) + burnField.front * 0.45,
-        0,
-        1,
-      )
-      this.crownLeafBurnRimAttr.setX(instanceIndex, crownLeafBurnRim)
+      this.crownLeafMesh.setColorAt(instanceIndex, treeCrownColor(identity, noise, meta))
+      this.crownLeafBurnRimAttr.setX(instanceIndex, 0)
+      tmpCrownLeafQuat.setFromEuler(dummy.rotation)
+      placement.crownLeafPosition.copy(tmpCrownAttach)
+      placement.crownLeafQuaternion.copy(tmpCrownLeafQuat)
+      placement.crownLeafScale.set(crownWidth / ex, crownHeight / ex, crownZ / ex)
+      placement.crownLeafDropHash = crownDropHash
 
       instanceIndex++
     }

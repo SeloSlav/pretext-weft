@@ -74,6 +74,7 @@ const STICK_SLOPE_SAMPLE_DISTANCE = 0.42
 const STICK_SLOPE_THRESHOLD = 0.02
 const STICK_SLOPE_RESPONSE_MAX = 0.16
 const STICK_SLOPE_ACCEL = 2.6
+const STICK_SLOPE_DRIFT_DURATION = 0.9
 /** Must match `CylinderGeometry` radial argument in `makeStickGeometry` (world semi-axis = this × mesh scale). */
 const STICK_CYLINDER_LOCAL_RADIUS = 0.5
 const tmpLocalPoint = new THREE.Vector3()
@@ -99,6 +100,7 @@ type StickTwigState = {
   velocityZ: number
   twist: number
   twistVelocity: number
+  downhillTimeRemaining: number
 }
 
 type PendingStickImpulse = {
@@ -110,6 +112,20 @@ type PendingStickImpulse = {
   directionZ: number
   tangentialStrength: number
   spin: number
+}
+
+type StickPlacement = {
+  key: string
+  instanceIndex: number
+  x: number
+  z: number
+  radius: number
+  length: number
+  depthRadius: number
+  pieceAngle: number
+  pieceHash: number
+  noise: number
+  baseMatrix: THREE.Matrix4
 }
 
 function uhash(n: number): number {
@@ -174,6 +190,9 @@ export class StickFieldEffect {
   private readonly fieldCenterX: number
   private readonly fieldCenterZ: number
   private readonly layoutDriver: SurfaceLayoutDriver<StickTokenId, StickTokenMeta>
+  private placementsDirty = true
+  private readonly placements: StickPlacement[] = []
+  private readonly placementByKey = new Map<string, StickPlacement>()
   private readonly twigStates = new Map<string, StickTwigState>()
   private readonly pendingImpulses: PendingStickImpulse[] = []
   private params: StickFieldParams
@@ -212,11 +231,13 @@ export class StickFieldEffect {
 
   setParams(params: Partial<StickFieldParams>): void {
     this.params = { ...this.params, ...params }
+    this.placementsDirty = true
   }
 
   clearMotion(): void {
     this.twigStates.clear()
     this.pendingImpulses.length = 0
+    this.placementsDirty = true
   }
 
   hasMotion(): boolean {
@@ -265,7 +286,23 @@ export class StickFieldEffect {
   ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
+    if (this.placementsDirty) {
+      this.rebuildPlacements(getGroundHeight)
+      this.placementsDirty = false
+    }
+    if (this.pendingImpulses.length === 0 && this.twigStates.size === 0) {
+      return
+    }
+    this.activateMotionNearPendingImpulses()
+    this.updateActivePlacements(delta, getGroundHeight)
+    this.pendingImpulses.length = 0
+  }
+
+  private rebuildPlacements(getGroundHeight: (x: number, z: number) => number): void {
     if (this.params.layoutDensity <= 0 || this.params.sizeScale <= 0 || this.params.lengthScale <= 0) {
+      this.placements.length = 0
+      this.placementByKey.clear()
+      this.twigStates.clear()
       this.stickMesh.count = 0
       this.stickMesh.instanceMatrix.needsUpdate = true
       return
@@ -274,7 +311,8 @@ export class StickFieldEffect {
     const rowStep = this.fieldDepth / (ROWS + 1.05)
     const backZ = this.fieldDepth * 0.48
     let instanceIndex = 0
-    const visitedKeys = new Set<string>()
+    this.placements.length = 0
+    this.placementByKey.clear()
 
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
@@ -289,18 +327,11 @@ export class StickFieldEffect {
           rowStep,
           getGroundHeight,
           instanceIndex,
-          delta,
-          visitedKeys,
+          0,
+          undefined,
         )
       },
     })
-
-    for (const key of this.twigStates.keys()) {
-      if (!visitedKeys.has(key)) {
-        this.twigStates.delete(key)
-      }
-    }
-    this.pendingImpulses.length = 0
 
     this.stickMesh.count = instanceIndex
     this.stickMesh.instanceMatrix.needsUpdate = true
@@ -328,6 +359,7 @@ export class StickFieldEffect {
         velocityZ: 0,
         twist: 0,
         twistVelocity: 0,
+        downhillTimeRemaining: 0,
       }
       this.twigStates.set(key, state)
     }
@@ -377,6 +409,9 @@ export class StickFieldEffect {
     }
 
     if (delta <= 0) return
+    if (receivedImpulse) {
+      state.downhillTimeRemaining = STICK_SLOPE_DRIFT_DURATION
+    }
     const wasActive =
       Math.abs(state.offsetX) > 0.002 ||
       Math.abs(state.offsetZ) > 0.002 ||
@@ -384,7 +419,12 @@ export class StickFieldEffect {
       Math.abs(state.velocityZ) > 0.002 ||
       Math.abs(state.twistVelocity) > 0.002
     const downhill = this.sampleDownhillVector(currentX, currentZ, getGroundHeight)
-    if ((receivedImpulse || wasActive) && downhill.slope > STICK_SLOPE_THRESHOLD && this.params.downhillDrift > 1e-6) {
+    if (
+      wasActive &&
+      state.downhillTimeRemaining > 0 &&
+      downhill.slope > STICK_SLOPE_THRESHOLD &&
+      this.params.downhillDrift > 1e-6
+    ) {
       const slope01 = THREE.MathUtils.clamp(
         (downhill.slope - STICK_SLOPE_THRESHOLD) / (STICK_SLOPE_RESPONSE_MAX - STICK_SLOPE_THRESHOLD),
         0,
@@ -395,6 +435,7 @@ export class StickFieldEffect {
       state.velocityZ += downhill.dirZ * carry
       state.twistVelocity += (pieceSign * 0.04 + downhill.dirX * 0.02 - downhill.dirZ * 0.02) * slope01
     }
+    state.downhillTimeRemaining = Math.max(0, state.downhillTimeRemaining - delta)
     const drag = Math.exp(-STICK_DRAG * delta)
     const twistDrag = Math.exp(-STICK_TWIST_DRAG * delta)
     const speed = Math.hypot(state.velocityX, state.velocityZ)
@@ -525,6 +566,89 @@ export class StickFieldEffect {
     )
   }
 
+  private activateMotionNearPendingImpulses(): void {
+    if (this.pendingImpulses.length === 0) return
+    for (const placement of this.placements) {
+      if (this.shouldActivateMotionAt(placement.x, placement.z)) {
+        this.getTwigState(placement.key)
+      }
+    }
+  }
+
+  private updateActivePlacements(
+    delta: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): void {
+    if (this.twigStates.size === 0) return
+    let touchedMatrix = false
+    for (const [twigKey, state] of this.twigStates) {
+      const placement = this.placementByKey.get(twigKey)
+      if (!placement) {
+        this.twigStates.delete(twigKey)
+        continue
+      }
+      const dt = delta
+      const nStep = dt > 0.001 ? Math.max(1, Math.min(3, Math.ceil(dt / 0.017))) : 1
+      const h = dt / nStep
+      for (let si = 0; si < nStep; si++) {
+        this.applyTwigState(state, placement.x, placement.z, h, placement.pieceHash - 0.5, getGroundHeight, si === 0)
+      }
+      touchedMatrix = true
+      if (this.twigInactive(state)) {
+        this.twigStates.delete(twigKey)
+        this.stickMesh.setMatrixAt(placement.instanceIndex, placement.baseMatrix)
+        continue
+      }
+      const x = placement.x + state.offsetX
+      const z = placement.z + state.offsetZ
+      const speed = Math.hypot(state.velocityX, state.velocityZ)
+      const yaw = placement.pieceAngle + state.twist * (0.18 + placement.pieceHash * 0.36)
+      const roll = (placement.pieceHash - 0.5) * 0.24 + state.twist * (0.08 + placement.pieceHash * 0.16)
+      this.sampleGroundNormal(x, z, getGroundHeight)
+      tmpStickAxis.set(Math.cos(yaw), 0, Math.sin(yaw))
+      tmpStickAxis.addScaledVector(tmpStickNormal, -tmpStickAxis.dot(tmpStickNormal))
+      if (tmpStickAxis.lengthSq() <= 1e-6) {
+        tmpStickAxis.set(Math.cos(yaw), 0, Math.sin(yaw))
+      }
+      tmpStickAxis.normalize()
+      tmpStickQuat.setFromUnitVectors(worldUp, tmpStickAxis)
+      tmpStickSpinQuat.setFromAxisAngle(
+        tmpStickAxis,
+        roll + (placement.noise - 0.5) * 0.16 + speed * (0.04 + placement.pieceHash * 0.06),
+      )
+      dummy.quaternion.copy(tmpStickQuat).multiply(tmpStickSpinQuat)
+      const worldSemiX = placement.radius * STICK_CYLINDER_LOCAL_RADIUS
+      const worldSemiZ = placement.depthRadius * STICK_CYLINDER_LOCAL_RADIUS
+      const worldHalfLen = placement.length * STICK_CYLINDER_LOCAL_RADIUS
+      let centerY = this.computeSupportedCenterY(
+        x,
+        z,
+        dummy.quaternion,
+        worldSemiX,
+        worldHalfLen,
+        worldSemiZ,
+        getGroundHeight,
+      )
+      centerY = this.refineStickCenterYAgainstTerrain(
+        x,
+        z,
+        centerY,
+        dummy.quaternion,
+        placement.radius,
+        placement.length,
+        placement.depthRadius,
+        getGroundHeight,
+      )
+      dummy.position.set(x, centerY, z)
+      dummy.scale.set(placement.radius, placement.length, placement.depthRadius)
+      dummy.updateMatrix()
+      this.stickMesh.setMatrixAt(placement.instanceIndex, dummy.matrix)
+    }
+    if (touchedMatrix) {
+      this.stickMesh.instanceMatrix.needsUpdate = true
+    }
+  }
+
   private projectLine(
     slot: SurfaceLayoutSlot,
     resolvedGlyphs: readonly ResolvedSurfaceGlyph<StickTokenId, StickTokenMeta>[],
@@ -533,7 +657,7 @@ export class StickFieldEffect {
     getGroundHeight: (x: number, z: number) => number,
     instanceIndex: number,
     delta: number,
-    visitedKeys: Set<string>,
+    visitedKeys?: Set<string>,
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
@@ -600,7 +724,7 @@ export class StickFieldEffect {
           if (this.twigInactive(ensuredState)) {
             this.twigStates.delete(twigKey)
           } else {
-            visitedKeys.add(twigKey)
+            visitedKeys?.add(twigKey)
             twigMotionActive = true
             x = basePieceX + ensuredState.offsetX
             z = basePieceZ + ensuredState.offsetZ
@@ -664,6 +788,34 @@ export class StickFieldEffect {
         dummy.updateMatrix()
         this.stickMesh.setMatrixAt(instanceIndex, dummy.matrix)
         this.stickMesh.setColorAt(instanceIndex, stickColor(identity + j * 17, noise, meta))
+        const placement =
+          this.placements[instanceIndex] ??
+          ({
+            key: '',
+            instanceIndex: 0,
+            x: 0,
+            z: 0,
+            radius: 0,
+            length: 0,
+            depthRadius: 0,
+            pieceAngle: 0,
+            pieceHash: 0,
+            noise: 0,
+            baseMatrix: new THREE.Matrix4(),
+          } satisfies StickPlacement)
+        placement.key = twigKey
+        placement.instanceIndex = instanceIndex
+        placement.x = basePieceX
+        placement.z = basePieceZ
+        placement.radius = radius
+        placement.length = length
+        placement.depthRadius = depthRadius
+        placement.pieceAngle = pieceAngle
+        placement.pieceHash = pieceHash
+        placement.noise = noise
+        placement.baseMatrix.copy(dummy.matrix)
+        this.placements[instanceIndex] = placement
+        this.placementByKey.set(twigKey, placement)
         instanceIndex++
       }
     }

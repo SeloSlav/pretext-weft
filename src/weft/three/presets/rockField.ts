@@ -198,6 +198,7 @@ export class RockFieldEffect {
   private readonly instanceRockKeyAtIndex: string[] = new Array(MAX_INSTANCES)
   private params: RockFieldParams
   private lastElapsed = 0
+  private rocksDirty = true
 
   constructor(
     surface: PreparedSurfaceSource<RockTokenId, RockTokenMeta>,
@@ -236,12 +237,14 @@ export class RockFieldEffect {
 
   setParams(params: Partial<RockFieldParams>): void {
     this.params = { ...this.params, ...params }
+    this.rocksDirty = true
   }
 
   clearDestruction(): void {
     this.destroyedRockKeys.clear()
     this.shardParticles.length = 0
     this.shardMesh.count = 0
+    this.rocksDirty = true
   }
 
   hasActiveShards(): boolean {
@@ -280,6 +283,7 @@ export class RockFieldEffect {
     }
 
     this.destroyedRockKeys.add(key)
+    this.rocksDirty = true
     this.spawnVoronoiShards(
       tmpMatRock,
       intersection.point,
@@ -294,7 +298,10 @@ export class RockFieldEffect {
   update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
-    this.updateRocks(getGroundHeight)
+    if (this.rocksDirty) {
+      this.updateRocks(getGroundHeight)
+      this.rocksDirty = false
+    }
     this.integrateShards(delta, getGroundHeight)
   }
 

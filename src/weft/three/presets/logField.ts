@@ -69,6 +69,7 @@ const LOG_SLOPE_SAMPLE_DISTANCE = 0.72
 const LOG_SLOPE_THRESHOLD = 0.018
 const LOG_SLOPE_RESPONSE_MAX = 0.14
 const LOG_SLOPE_ACCEL = 5.4
+const LOG_SLOPE_DRIFT_DURATION = 1.15
 const tmpLongAxis = new THREE.Vector3()
 const tmpGroundNormal = new THREE.Vector3()
 const tmpBasisX = new THREE.Vector3()
@@ -93,6 +94,7 @@ type LogMotionState = {
   yawVelocity: number
   roll: number
   rollVelocity: number
+  downhillTimeRemaining: number
 }
 
 type PendingLogImpulse = {
@@ -104,6 +106,19 @@ type PendingLogImpulse = {
   directionZ: number
   tangentialStrength: number
   spin: number
+}
+
+type LogPlacement = {
+  key: string
+  instanceIndex: number
+  x: number
+  z: number
+  radius: number
+  length: number
+  depthScale: number
+  yaw: number
+  baseRoll: number
+  baseMatrix: THREE.Matrix4
 }
 
 function uhash(n: number): number {
@@ -174,6 +189,9 @@ export class LogFieldEffect {
   private readonly fieldCenterX: number
   private readonly fieldCenterZ: number
   private layoutDriver: SurfaceLayoutDriver<LogTokenId, LogTokenMeta>
+  private placementsDirty = true
+  private readonly placements: LogPlacement[] = []
+  private readonly placementByKey = new Map<string, LogPlacement>()
   private readonly motionStates = new Map<string, LogMotionState>()
   private readonly pendingImpulses: PendingLogImpulse[] = []
   private params: LogFieldParams
@@ -204,15 +222,18 @@ export class LogFieldEffect {
 
   setParams(params: Partial<LogFieldParams>): void {
     this.params = { ...this.params, ...params }
+    this.placementsDirty = true
   }
 
   setSurface(surface: PreparedSurfaceSource<LogTokenId, LogTokenMeta>, seedCursor: SeedCursorFactory): void {
     this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
+    this.placementsDirty = true
   }
 
   clearMotion(): void {
     this.motionStates.clear()
     this.pendingImpulses.length = 0
+    this.placementsDirty = true
   }
 
   hasMotion(): boolean {
@@ -255,10 +276,32 @@ export class LogFieldEffect {
   ): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
+    if (this.placementsDirty) {
+      this.rebuildPlacements(getGroundHeight)
+      this.placementsDirty = false
+    }
+    if (this.pendingImpulses.length === 0 && this.motionStates.size === 0) {
+      return
+    }
+    this.activateMotionNearPendingImpulses()
+    this.updateActivePlacements(delta, getGroundHeight)
+    this.pendingImpulses.length = 0
+  }
+
+  private rebuildPlacements(getGroundHeight: (x: number, z: number) => number): void {
+    if (this.params.layoutDensity <= 0 || this.params.sizeScale <= 0 || this.params.lengthScale <= 0) {
+      this.placements.length = 0
+      this.placementByKey.clear()
+      this.motionStates.clear()
+      this.logMesh.count = 0
+      this.logMesh.instanceMatrix.needsUpdate = true
+      return
+    }
     const rowStep = this.fieldDepth / (ROWS + 1)
     const backZ = this.fieldDepth * 0.48
     let instanceIndex = 0
-    const visitedKeys = new Set<string>()
+    this.placements.length = 0
+    this.placementByKey.clear()
 
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
@@ -273,18 +316,12 @@ export class LogFieldEffect {
           rowStep,
           getGroundHeight,
           instanceIndex,
-          delta,
-          visitedKeys,
+          0,
+          undefined,
         )
       },
     })
 
-    for (const key of this.motionStates.keys()) {
-      if (!visitedKeys.has(key)) {
-        this.motionStates.delete(key)
-      }
-    }
-    this.pendingImpulses.length = 0
     this.logMesh.count = instanceIndex
     this.logMesh.instanceMatrix.needsUpdate = true
     if (this.logMesh.instanceColor) {
@@ -329,6 +366,7 @@ export class LogFieldEffect {
         yawVelocity: 0,
         roll: 0,
         rollVelocity: 0,
+        downhillTimeRemaining: 0,
       }
       this.motionStates.set(key, state)
     }
@@ -375,6 +413,9 @@ export class LogFieldEffect {
     }
 
     if (delta <= 0) return
+    if (receivedImpulse) {
+      state.downhillTimeRemaining = LOG_SLOPE_DRIFT_DURATION
+    }
     const wasActive =
       Math.abs(state.offsetX) > 0.002 ||
       Math.abs(state.offsetZ) > 0.002 ||
@@ -383,7 +424,12 @@ export class LogFieldEffect {
       Math.abs(state.rollVelocity) > 0.002 ||
       Math.abs(state.yawVelocity) > 0.002
     const downhill = this.sampleDownhillVector(currentX, currentZ, getGroundHeight)
-    if ((receivedImpulse || wasActive) && downhill.slope > LOG_SLOPE_THRESHOLD && this.params.downhillDrift > 1e-6) {
+    if (
+      wasActive &&
+      state.downhillTimeRemaining > 0 &&
+      downhill.slope > LOG_SLOPE_THRESHOLD &&
+      this.params.downhillDrift > 1e-6
+    ) {
       const slope01 = THREE.MathUtils.clamp(
         (downhill.slope - LOG_SLOPE_THRESHOLD) / (LOG_SLOPE_RESPONSE_MAX - LOG_SLOPE_THRESHOLD),
         0,
@@ -394,6 +440,7 @@ export class LogFieldEffect {
       state.velocityZ += downhill.dirZ * carry
       state.rollVelocity += downhill.dirX * 0.08 * slope01 + downhill.dirZ * 0.06 * slope01
     }
+    state.downhillTimeRemaining = Math.max(0, state.downhillTimeRemaining - delta)
     const drag = Math.exp(-LOG_DRAG * delta)
     const spinDrag = Math.exp(-LOG_SPIN_DRAG * delta)
     const speed = Math.hypot(state.velocityX, state.velocityZ)
@@ -522,6 +569,85 @@ export class LogFieldEffect {
     )
   }
 
+  private activateMotionNearPendingImpulses(): void {
+    if (this.pendingImpulses.length === 0) return
+    for (const placement of this.placements) {
+      if (this.shouldActivateMotionAt(placement.x, placement.z)) {
+        this.getMotionState(placement.key)
+      }
+    }
+  }
+
+  private updateActivePlacements(
+    delta: number,
+    getGroundHeight: (x: number, z: number) => number,
+  ): void {
+    if (this.motionStates.size === 0) return
+    let touchedMatrix = false
+    for (const [motionKey, state] of this.motionStates) {
+      const placement = this.placementByKey.get(motionKey)
+      if (!placement) {
+        this.motionStates.delete(motionKey)
+        continue
+      }
+      const dt = delta
+      const nStep = dt > 0.001 ? Math.max(1, Math.min(3, Math.ceil(dt / 0.017))) : 1
+      const h = dt / nStep
+      for (let si = 0; si < nStep; si++) {
+        this.applyMotionState(state, placement.x, placement.z, h, getGroundHeight, si === 0)
+      }
+      touchedMatrix = true
+      if (this.motionInactive(state)) {
+        this.motionStates.delete(motionKey)
+        this.logMesh.setMatrixAt(placement.instanceIndex, placement.baseMatrix)
+        continue
+      }
+      let movedX = placement.x + state.offsetX
+      let movedZ = placement.z + state.offsetZ
+      const planarSpeed = Math.hypot(state.velocityX, state.velocityZ)
+      const roll = placement.baseRoll + state.roll
+      const supportNormal = this.sampleGroundNormal(movedX, movedZ, getGroundHeight)
+      tmpLongAxis.set(Math.cos(placement.yaw + state.yaw), 0, Math.sin(placement.yaw + state.yaw))
+      tmpLongAxis.addScaledVector(supportNormal, -tmpLongAxis.dot(supportNormal))
+      if (tmpLongAxis.lengthSq() <= 1e-6) {
+        tmpLongAxis.set(Math.cos(placement.yaw + state.yaw), 0, Math.sin(placement.yaw + state.yaw))
+      }
+      tmpLongAxis.normalize()
+      tmpBaseQuat.setFromUnitVectors(worldUp, tmpLongAxis)
+      tmpSpinQuat.setFromAxisAngle(tmpLongAxis, roll + planarSpeed * 0.015)
+      dummy.quaternion.copy(tmpBaseQuat).multiply(tmpSpinQuat)
+      const worldSemiX = placement.radius * LOG_CYLINDER_LOCAL_RADIUS_MAX
+      const worldSemiZ = placement.depthScale * LOG_CYLINDER_LOCAL_RADIUS_MAX
+      const worldHalfLen = placement.length * LOG_CYLINDER_HALF_HEIGHT
+      let centerY = this.computeSupportedCenterY(
+        movedX,
+        movedZ,
+        dummy.quaternion,
+        worldSemiX,
+        worldHalfLen,
+        worldSemiZ,
+        getGroundHeight,
+      )
+      centerY = this.refineLogCenterYAgainstTerrain(
+        movedX,
+        movedZ,
+        centerY,
+        dummy.quaternion,
+        placement.radius,
+        placement.length,
+        placement.depthScale,
+        getGroundHeight,
+      )
+      dummy.position.set(movedX, centerY, movedZ)
+      dummy.scale.set(placement.radius, placement.length, placement.depthScale)
+      dummy.updateMatrix()
+      this.logMesh.setMatrixAt(placement.instanceIndex, dummy.matrix)
+    }
+    if (touchedMatrix) {
+      this.logMesh.instanceMatrix.needsUpdate = true
+    }
+  }
+
   private projectLine(
     slot: SurfaceLayoutSlot,
     resolvedGlyphs: readonly ResolvedSurfaceGlyph<LogTokenId, LogTokenMeta>[],
@@ -530,7 +656,7 @@ export class LogFieldEffect {
     getGroundHeight: (x: number, z: number) => number,
     instanceIndex: number,
     delta: number,
-    visitedKeys: Set<string>,
+    visitedKeys?: Set<string>,
   ): number {
     const n = resolvedGlyphs.length
     const lineSeed = lineSignature(tokenLineKey)
@@ -586,7 +712,7 @@ export class LogFieldEffect {
         if (this.motionInactive(ensuredState)) {
           this.motionStates.delete(motionKey)
         } else {
-          visitedKeys.add(motionKey)
+          visitedKeys?.add(motionKey)
           movedX = x + ensuredState.offsetX
           movedZ = z + ensuredState.offsetZ
           motionVelocityX = ensuredState.velocityX
@@ -653,6 +779,32 @@ export class LogFieldEffect {
       this.logMesh.setMatrixAt(instanceIndex, dummy.matrix)
       warmBarkColor(identity, noise, meta.warmth, tmpLogColor)
       this.logMesh.setColorAt(instanceIndex, tmpLogColor)
+      const placement =
+        this.placements[instanceIndex] ??
+        ({
+          key: '',
+          instanceIndex: 0,
+          x: 0,
+          z: 0,
+          radius: 0,
+          length: 0,
+          depthScale: 0,
+          yaw: 0,
+          baseRoll: 0,
+          baseMatrix: new THREE.Matrix4(),
+        } satisfies LogPlacement)
+      placement.key = motionKey
+      placement.instanceIndex = instanceIndex
+      placement.x = x
+      placement.z = z
+      placement.radius = radius
+      placement.length = length
+      placement.depthScale = depthScale
+      placement.yaw = yaw
+      placement.baseRoll = (hashDep - 0.5) * 0.04
+      placement.baseMatrix.copy(dummy.matrix)
+      this.placements[instanceIndex] = placement
+      this.placementByKey.set(motionKey, placement)
       instanceIndex++
     }
 

@@ -69,7 +69,7 @@ const tmpAshColor = new THREE.Color()
 const tmpEmberColor = new THREE.Color()
 const tmpCrispOrange = new THREE.Color()
 const tmpBurnFieldA = { burn: 0, front: 0 }
-const ZERO_BURN_FIELD = { burn: 0, front: 0 }
+const tmpShrubQuat = new THREE.Quaternion()
 const dummy = new THREE.Object3D()
 type ShrubFoliageBurn = {
   instanceId: number
@@ -77,6 +77,15 @@ type ShrubFoliageBurn = {
   maxRadius: number
   strength: number
   age: number
+}
+type ShrubPlacement = {
+  position: THREE.Vector3
+  quaternion: THREE.Quaternion
+  leafScale: THREE.Vector3
+  identity: number
+  noise: number
+  meta: ShrubTokenMeta
+  leafDropHash: number
 }
 
 export type ShrubFoliageBurnOptions = {
@@ -204,7 +213,9 @@ export class ShrubFieldEffect {
   private readonly fieldCenterX: number
   private readonly fieldCenterZ: number
   private layoutDriver: SurfaceLayoutDriver<ShrubTokenId, ShrubTokenMeta>
+  private placementsDirty = true
   private params: ShrubFieldParams
+  private readonly placements: ShrubPlacement[] = []
   private readonly burns: ShrubFoliageBurn[] = []
   private lastElapsed = 0
 
@@ -243,15 +254,18 @@ export class ShrubFieldEffect {
     for (const burn of this.burns) {
       burn.maxRadius = this.params.burnMaxRadius
     }
+    this.placementsDirty = true
   }
 
   setSurface(surface: PreparedSurfaceSource<ShrubTokenId, ShrubTokenMeta>, seedCursor: SeedCursorFactory): void {
     this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
+    this.placementsDirty = true
   }
 
   update(elapsedTime: number, getGroundHeight: (x: number, z: number) => number): void {
     const delta = this.lastElapsed === 0 ? 0 : Math.min(0.05, Math.max(0, elapsedTime - this.lastElapsed))
     this.lastElapsed = elapsedTime
+    const hadBurnsBeforeRecovery = this.burns.length > 0
     if (delta > 0) {
       for (let i = this.burns.length - 1; i >= 0; i--) {
         const burn = this.burns[i]!
@@ -267,7 +281,17 @@ export class ShrubFieldEffect {
         }
       }
     }
-    this.updateShrubs(getGroundHeight)
+    if (this.placementsDirty) {
+      this.rebuildShrubs(getGroundHeight)
+      this.placementsDirty = false
+      if (this.burns.length > 0) {
+        this.refreshShrubBurnVisuals()
+      }
+      return
+    }
+    if (this.burns.length > 0 || hadBurnsBeforeRecovery) {
+      this.refreshShrubBurnVisuals()
+    }
   }
 
   addBurnFromWorldPoint(worldPoint: THREE.Vector3, options: ShrubFoliageBurnOptions = {}): void {
@@ -354,18 +378,20 @@ export class ShrubFieldEffect {
     return target
   }
 
-  private updateShrubs(getGroundHeight: (x: number, z: number) => number): void {
+  private rebuildShrubs(getGroundHeight: (x: number, z: number) => number): void {
     if (this.params.layoutDensity <= 0 || this.params.sizeScale <= 0 || this.params.heightScale <= 0) {
       this.woodMesh.count = 0
       this.leafMesh.count = 0
       this.woodMesh.instanceMatrix.needsUpdate = true
       this.leafMesh.instanceMatrix.needsUpdate = true
+      this.placements.length = 0
       return
     }
 
     const rowStep = this.fieldDepth / (ROWS + 1.1)
     const backZ = this.fieldDepth * 0.48
     let instanceIndex = 0
+    this.placements.length = 0
 
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
@@ -390,6 +416,48 @@ export class ShrubFieldEffect {
     }
   }
 
+  private refreshShrubBurnVisuals(): void {
+    const count = this.placements.length
+    for (let instanceId = 0; instanceId < count; instanceId++) {
+      const placement = this.placements[instanceId]
+      if (!placement) continue
+      const burnField = this.burnFieldAt(instanceId, tmpBurnFieldA)
+      const leafRemaining = THREE.MathUtils.clamp(
+        Math.pow(1 - burnField.burn, 1.75) + burnField.front * 0.06,
+        0,
+        1,
+      )
+      const leafVisible = placement.leafDropHash <= leafRemaining
+      dummy.position.copy(placement.position)
+      dummy.quaternion.copy(placement.quaternion)
+      dummy.scale.copy(placement.leafScale)
+      if (!leafVisible) {
+        dummy.scale.set(0, 0, 0)
+      }
+      dummy.updateMatrix()
+      this.leafMesh.setMatrixAt(instanceId, dummy.matrix)
+      this.leafMesh.setColorAt(
+        instanceId,
+        shrubFoliageBurnColor(
+          placement.identity,
+          placement.noise,
+          placement.meta,
+          burnField.burn,
+          burnField.front,
+        ),
+      )
+      this.leafBurnRimAttr.setX(
+        instanceId,
+        THREE.MathUtils.clamp((leafVisible ? burnField.burn * 0.9 : 0) + burnField.front * 0.45, 0, 1),
+      )
+    }
+    this.leafMesh.instanceMatrix.needsUpdate = true
+    this.leafBurnRimAttr.needsUpdate = true
+    if (this.leafMesh.instanceColor) {
+      this.leafMesh.instanceColor.needsUpdate = true
+    }
+  }
+
   private projectLine(
     slot: SurfaceLayoutSlot,
     resolvedGlyphs: readonly ResolvedSurfaceGlyph<ShrubTokenId, ShrubTokenMeta>[],
@@ -402,8 +470,6 @@ export class ShrubFieldEffect {
     const lineSeed = lineSignature(tokenLineKey)
     const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.24
     const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.16
-    const hasBurns = this.burns.length > 0
-
     for (let k = 0; k < n; k++) {
       if (instanceIndex >= MAX_INSTANCES) break
 
@@ -436,7 +502,6 @@ export class ShrubFieldEffect {
       if (hashKeep > keepChance) continue
 
       const groundY = getGroundHeight(x, z)
-      const burnField = hasBurns ? this.burnFieldAt(instanceIndex, tmpBurnFieldA) : ZERO_BURN_FIELD
       /** Per-instance scale (~0.36–1) so `sizeScale` reads as a max; keeps readable small/large mix. */
       const sizeVariety = 0.36 + hashVariety * 0.64
       const baseSize =
@@ -450,13 +515,7 @@ export class ShrubFieldEffect {
         baseSize * (0.82 + meta.heightBias * 0.36 + noise * 0.3) * this.params.heightScale,
       )
       const canopyDepth = canopyWidth * (0.92 + noise * 0.2 + hashShape * 0.08)
-      const leafRemaining = THREE.MathUtils.clamp(
-        Math.pow(1 - burnField.burn, 1.75) + burnField.front * 0.06,
-        0,
-        1,
-      )
       const leafDropHash = glyphHash(identity + 19, slot.row ^ slot.sector, k ^ 0x6d)
-      const leafVisible = leafDropHash <= leafRemaining
       const yaw = lineSeed * Math.PI * 2 + k * 0.97 + noise * 1.15
       const leanX = (noise - 0.5) * 0.1
       const leanZ = (hashShape - 0.5) * 0.12
@@ -471,24 +530,33 @@ export class ShrubFieldEffect {
       dummy.updateMatrix()
       this.woodMesh.setMatrixAt(instanceIndex, dummy.matrix)
       this.woodMesh.setColorAt(instanceIndex, warmBarkColor(identity, noise, meta.warmth, tmpStemColor))
+      tmpShrubQuat.setFromEuler(dummy.rotation)
+      const placement =
+        this.placements[instanceIndex] ??
+        ({
+          position: new THREE.Vector3(),
+          quaternion: new THREE.Quaternion(),
+          leafScale: new THREE.Vector3(),
+          identity: 0,
+          noise: 0,
+          meta,
+          leafDropHash: 0,
+        } satisfies ShrubPlacement)
+      this.placements[instanceIndex] = placement
+      placement.position.set(x, groundY, z)
+      placement.quaternion.copy(tmpShrubQuat)
+      placement.leafScale.set(canopyWidth, canopyHeight, canopyDepth)
+      placement.identity = identity
+      placement.noise = noise
+      placement.meta = meta
+      placement.leafDropHash = leafDropHash
 
-      dummy.scale.set(
-        leafVisible ? canopyWidth : 0,
-        leafVisible ? canopyHeight : 0,
-        leafVisible ? canopyDepth : 0,
-      )
+      dummy.quaternion.copy(tmpShrubQuat)
+      dummy.scale.copy(placement.leafScale)
       dummy.updateMatrix()
       this.leafMesh.setMatrixAt(instanceIndex, dummy.matrix)
-      this.leafMesh.setColorAt(
-        instanceIndex,
-        shrubFoliageBurnColor(identity, noise, meta, burnField.burn, burnField.front),
-      )
-      const leafBurnRim = THREE.MathUtils.clamp(
-        (leafVisible ? burnField.burn * 0.9 : 0) + burnField.front * 0.45,
-        0,
-        1,
-      )
-      this.leafBurnRimAttr.setX(instanceIndex, leafBurnRim)
+      this.leafMesh.setColorAt(instanceIndex, shrubLeafColor(identity, noise, meta))
+      this.leafBurnRimAttr.setX(instanceIndex, 0)
 
       instanceIndex++
     }
