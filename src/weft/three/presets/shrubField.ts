@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import type {
   PreparedSurfaceSource,
   ResolvedSurfaceGlyph,
@@ -53,6 +54,176 @@ const tmpColor = new THREE.Color()
 const tmpStemColor = new THREE.Color()
 const dummy = new THREE.Object3D()
 
+const _bA = new THREE.Vector3()
+const _bB = new THREE.Vector3()
+const _bMid = new THREE.Vector3()
+const _bDir = new THREE.Vector3()
+const _bAxis = new THREE.Vector3()
+const _bQuat = new THREE.Quaternion()
+const _bY = new THREE.Vector3(0, 1, 0)
+const _bScale = new THREE.Vector3(1, 1, 1)
+const _bMat = new THREE.Matrix4()
+const _bUp = new THREE.Vector3(0, 1, 0)
+const _forkAxis = new THREE.Vector3()
+
+function disposeGeometryList(geoms: THREE.BufferGeometry[]): void {
+  for (const g of geoms) g.dispose()
+}
+
+function pushCylinderBetween(
+  out: THREE.BufferGeometry[],
+  ax: number,
+  ay: number,
+  az: number,
+  bx: number,
+  by: number,
+  bz: number,
+  r0: number,
+  r1: number,
+): void {
+  _bA.set(ax, ay, az)
+  _bB.set(bx, by, bz)
+  _bMid.addVectors(_bA, _bB).multiplyScalar(0.5)
+  const len = _bA.distanceTo(_bB)
+  if (len < 1e-5) return
+  const cyl = new THREE.CylinderGeometry(r0, r1, len, 5, 1)
+  _bDir.subVectors(_bB, _bA).normalize()
+  _bQuat.setFromUnitVectors(_bY, _bDir)
+  _bMat.compose(_bMid, _bQuat, _bScale)
+  cyl.applyMatrix4(_bMat)
+  out.push(cyl)
+}
+
+function pushLeafPair(
+  out: THREE.BufferGeometry[],
+  cx: number,
+  cy: number,
+  cz: number,
+  outward: THREE.Vector3,
+  spread: number,
+): void {
+  const n = outward.clone().normalize()
+  const base = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), n)
+  const w = 0.11 * spread
+  const h = 0.15 * spread
+  for (let i = 0; i < 2; i++) {
+    const plane = new THREE.PlaneGeometry(w, h)
+    const q = base.clone().multiply(
+      new THREE.Quaternion().setFromAxisAngle(n, i * Math.PI * 0.5 + 0.18),
+    )
+    const m = new THREE.Matrix4().compose(new THREE.Vector3(cx, cy, cz), q, new THREE.Vector3(1, 1, 1))
+    plane.applyMatrix4(m)
+    out.push(plane)
+  }
+}
+
+/**
+ * Procedural shrub silhouette: tapered trunk, radial primary branches, sub-branches, and crossed leaf quads at tips.
+ * Local space: Y up, ground at y = 0, total extent ~1 unit tall for consistent scaling in the field.
+ */
+function makeShrubBranchedGeometries(): { wood: THREE.BufferGeometry; leaves: THREE.BufferGeometry } {
+  const wood: THREE.BufferGeometry[] = []
+  const leaves: THREE.BufferGeometry[] = []
+
+  const trunkH = 0.2
+  const trunkR0 = 0.11
+  const trunkR1 = 0.072
+  pushCylinderBetween(wood, 0, 0, 0, 0, trunkH, 0, trunkR0, trunkR1)
+
+  const trunkTop = trunkH * 0.92
+  const primaryN = 6
+  const primaryLen = 0.36
+  const primaryR0 = 0.048
+  const primaryR1 = 0.028
+
+  const primaryTips: THREE.Vector3[] = []
+
+  for (let i = 0; i < primaryN; i++) {
+    const theta = (i / primaryN) * Math.PI * 2 + 0.41
+    const elev = 0.38 + Math.sin(i * 1.7 + 0.3) * 0.08
+    const horiz = Math.cos(elev)
+    _bDir.set(Math.cos(theta) * horiz, Math.sin(elev), Math.sin(theta) * horiz).normalize()
+
+    const sx = _bDir.x * primaryLen * 0.06
+    const sz = _bDir.z * primaryLen * 0.06
+    const bx = sx + _bDir.x * primaryLen
+    const by = trunkTop + _bDir.y * primaryLen
+    const bz = sz + _bDir.z * primaryLen
+    pushCylinderBetween(wood, sx, trunkTop, sz, bx, by, bz, primaryR0, primaryR1)
+    primaryTips.push(new THREE.Vector3(bx, by, bz))
+
+    _forkAxis.crossVectors(_bDir, _bUp)
+    if (_forkAxis.lengthSq() < 1e-4) _forkAxis.set(1, 0, 0)
+    else _forkAxis.normalize()
+
+    for (let s = 0; s < 2; s++) {
+      const fork = s === 0 ? 0.52 : -0.48
+      const t = 0.58 + s * 0.12
+      const ox = sx + _bDir.x * primaryLen * t
+      const oy = trunkTop + _bDir.y * primaryLen * t
+      const oz = sz + _bDir.z * primaryLen * t
+
+      const subDir = _bDir.clone().applyAxisAngle(_forkAxis, fork + (s - 0.5) * 0.12).normalize()
+      const subLen = primaryLen * (0.48 + (s === 0 ? 0.06 : 0))
+      const subR0 = 0.026
+      const subR1 = 0.014
+      const ex = ox + subDir.x * subLen
+      const ey = oy + subDir.y * subLen
+      const ez = oz + subDir.z * subLen
+      pushCylinderBetween(wood, ox, oy, oz, ex, ey, ez, subR0, subR1)
+
+      _bAxis.crossVectors(subDir, _bUp)
+      if (_bAxis.lengthSq() < 1e-5) _bAxis.set(1, 0, 0)
+      else _bAxis.normalize()
+      const twigDir = subDir.clone().applyAxisAngle(_bAxis, 0.35 + s * 0.1).normalize()
+      const twLen = subLen * 0.42
+      const tx = ex + twigDir.x * twLen * 0.35
+      const ty = ey + twigDir.y * twLen * 0.35
+      const tz = ez + twigDir.z * twLen * 0.35
+      pushCylinderBetween(wood, ex, ey, ez, tx, ty, tz, subR1 * 0.9, subR1 * 0.45)
+
+      const tip = new THREE.Vector3(tx, ty, tz)
+      const out = tip.clone().normalize()
+      pushLeafPair(leaves, tip.x, tip.y, tip.z, out, 0.95 + s * 0.08)
+
+      const micro = twigDir.clone().multiplyScalar(0.14)
+      pushLeafPair(leaves, ex + micro.x * 0.5, ey + micro.y * 0.5, ez + micro.z * 0.5, out, 0.72)
+    }
+
+    if (i % 2 === 0) {
+      const mid = new THREE.Vector3(sx, trunkTop, sz).add(
+        new THREE.Vector3(_bDir.x, _bDir.y, _bDir.z).multiplyScalar(primaryLen * 0.88),
+      )
+      const out = mid.clone().normalize()
+      pushLeafPair(leaves, mid.x, mid.y, mid.z, out, 0.78)
+    }
+  }
+
+  for (let i = 0; i < primaryN; i += 2) {
+    const tip = primaryTips[i]!
+    const out = tip.clone().normalize()
+    pushLeafPair(leaves, tip.x, tip.y, tip.z, out, 0.88)
+  }
+
+  const mergedWood = mergeGeometries(wood)
+  const mergedLeaves = mergeGeometries(leaves)
+  disposeGeometryList(wood)
+  disposeGeometryList(leaves)
+
+  if (!mergedWood || !mergedLeaves) {
+    mergedWood?.dispose()
+    mergedLeaves?.dispose()
+    return {
+      wood: new THREE.CylinderGeometry(0.1, 0.12, 0.25, 5, 1),
+      leaves: new THREE.PlaneGeometry(0.12, 0.12),
+    }
+  }
+
+  mergedWood.computeVertexNormals()
+  mergedLeaves.computeVertexNormals()
+  return { wood: mergedWood, leaves: mergedLeaves }
+}
+
 function uhash(n: number): number {
   n = (n ^ 61) ^ (n >>> 16)
   n = Math.imul(n, 0x45d9f3b)
@@ -84,14 +255,6 @@ const shrubOrganicWorldField = createWorldField(1099, {
   contrast: 1.1,
 })
 
-function makeShrubStemGeometry(): THREE.BufferGeometry {
-  return new THREE.CylinderGeometry(0.22, 0.34, 1, 6, 1)
-}
-
-function makeShrubCanopyGeometry(): THREE.BufferGeometry {
-  return new THREE.SphereGeometry(0.5, 6, 5)
-}
-
 function shrubLeafColor(identity: number, noise: number, meta: ShrubTokenMeta): THREE.Color {
   const t = uhash(identity * 2654435761)
   // Ghibli shrub foliage: bright warm greens, some variety into blue-green
@@ -109,15 +272,21 @@ function shrubStemColor(identity: number, noise: number): THREE.Color {
   return tmpStemColor.setHSL(0.09 + t * 0.02, 0.34 + noise * 0.1, 0.40 + t * 0.12)
 }
 
+const SHRUB_BRANCH_GEOMS = makeShrubBranchedGeometries()
+
 export class ShrubFieldEffect {
   readonly group = new THREE.Group()
 
-  private readonly stemGeometry = makeShrubStemGeometry()
-  private readonly canopyGeometry = makeShrubCanopyGeometry()
-  private readonly stemMaterial = new THREE.MeshLambertMaterial({ emissive: '#4a2e0e', emissiveIntensity: 0.24 })
-  private readonly canopyMaterial = new THREE.MeshLambertMaterial({ emissive: '#2a5a10', emissiveIntensity: 0.34 })
-  private readonly stemMesh = new THREE.InstancedMesh(this.stemGeometry, this.stemMaterial, MAX_INSTANCES)
-  private readonly canopyMesh = new THREE.InstancedMesh(this.canopyGeometry, this.canopyMaterial, MAX_INSTANCES)
+  private readonly woodGeometry = SHRUB_BRANCH_GEOMS.wood
+  private readonly leafGeometry = SHRUB_BRANCH_GEOMS.leaves
+  private readonly woodMaterial = new THREE.MeshLambertMaterial({ emissive: '#4a2e0e', emissiveIntensity: 0.24 })
+  private readonly leafMaterial = new THREE.MeshLambertMaterial({
+    emissive: '#2a5a10',
+    emissiveIntensity: 0.34,
+    side: THREE.DoubleSide,
+  })
+  private readonly woodMesh = new THREE.InstancedMesh(this.woodGeometry, this.woodMaterial, MAX_INSTANCES)
+  private readonly leafMesh = new THREE.InstancedMesh(this.leafGeometry, this.leafMaterial, MAX_INSTANCES)
   private readonly placementMask: Required<ShrubFieldPlacementMask>
   private readonly fieldWidth: number
   private readonly fieldDepth: number
@@ -144,12 +313,12 @@ export class ShrubFieldEffect {
     }
     this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
 
-    this.stemMesh.frustumCulled = false
-    this.canopyMesh.frustumCulled = false
-    this.stemMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
-    this.canopyMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
-    this.group.add(this.stemMesh)
-    this.group.add(this.canopyMesh)
+    this.woodMesh.frustumCulled = false
+    this.leafMesh.frustumCulled = false
+    this.woodMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
+    this.leafMesh.instanceMatrix.setUsage(THREE.StaticDrawUsage)
+    this.group.add(this.woodMesh)
+    this.group.add(this.leafMesh)
   }
 
   setParams(params: Partial<ShrubFieldParams>): void {
@@ -165,10 +334,8 @@ export class ShrubFieldEffect {
   }
 
   dispose(): void {
-    this.stemGeometry.dispose()
-    this.canopyGeometry.dispose()
-    this.stemMaterial.dispose()
-    this.canopyMaterial.dispose()
+    this.woodMaterial.dispose()
+    this.leafMaterial.dispose()
   }
 
   private getSlotMaxWidth(slot: SurfaceLayoutSlot): number {
@@ -192,10 +359,10 @@ export class ShrubFieldEffect {
 
   private updateShrubs(getGroundHeight: (x: number, z: number) => number): void {
     if (this.params.layoutDensity <= 0 || this.params.sizeScale <= 0 || this.params.heightScale <= 0) {
-      this.stemMesh.count = 0
-      this.canopyMesh.count = 0
-      this.stemMesh.instanceMatrix.needsUpdate = true
-      this.canopyMesh.instanceMatrix.needsUpdate = true
+      this.woodMesh.count = 0
+      this.leafMesh.count = 0
+      this.woodMesh.instanceMatrix.needsUpdate = true
+      this.leafMesh.instanceMatrix.needsUpdate = true
       return
     }
 
@@ -213,15 +380,15 @@ export class ShrubFieldEffect {
       },
     })
 
-    this.stemMesh.count = instanceIndex
-    this.canopyMesh.count = instanceIndex
-    this.stemMesh.instanceMatrix.needsUpdate = true
-    this.canopyMesh.instanceMatrix.needsUpdate = true
-    if (this.stemMesh.instanceColor) {
-      this.stemMesh.instanceColor.needsUpdate = true
+    this.woodMesh.count = instanceIndex
+    this.leafMesh.count = instanceIndex
+    this.woodMesh.instanceMatrix.needsUpdate = true
+    this.leafMesh.instanceMatrix.needsUpdate = true
+    if (this.woodMesh.instanceColor) {
+      this.woodMesh.instanceColor.needsUpdate = true
     }
-    if (this.canopyMesh.instanceColor) {
-      this.canopyMesh.instanceColor.needsUpdate = true
+    if (this.leafMesh.instanceColor) {
+      this.leafMesh.instanceColor.needsUpdate = true
     }
   }
 
@@ -275,25 +442,23 @@ export class ShrubFieldEffect {
         0.28,
         baseSize * (0.82 + meta.heightBias * 0.36 + noise * 0.3) * this.params.heightScale,
       )
-      const stemHeight = Math.max(0.08, canopyHeight * (0.18 + hashShape * 0.1))
-      const stemWidth = Math.max(0.045, canopyWidth * 0.18)
       const yaw = lineSeed * Math.PI * 2 + k * 0.97 + noise * 1.15
       const leanX = (noise - 0.5) * 0.1
       const leanZ = (hashShape - 0.5) * 0.12
 
-      dummy.position.set(x, groundY + stemHeight * 0.5, z)
+      dummy.position.set(x, groundY, z)
       dummy.rotation.set(leanX, yaw, leanZ)
-      dummy.scale.set(stemWidth, stemHeight, stemWidth * (0.82 + hashShape * 0.22))
+      dummy.scale.set(
+        canopyWidth,
+        canopyHeight,
+        canopyWidth * (0.92 + noise * 0.2 + hashShape * 0.08),
+      )
       dummy.updateMatrix()
-      this.stemMesh.setMatrixAt(instanceIndex, dummy.matrix)
-      this.stemMesh.setColorAt(instanceIndex, shrubStemColor(identity, noise))
+      this.woodMesh.setMatrixAt(instanceIndex, dummy.matrix)
+      this.woodMesh.setColorAt(instanceIndex, shrubStemColor(identity, noise))
 
-      dummy.position.set(x, groundY + stemHeight * 0.7 + canopyHeight * 0.08, z)
-      dummy.rotation.set(leanX * 0.6, yaw + (hashShape - 0.5) * 0.18, leanZ * 0.5)
-      dummy.scale.set(canopyWidth, canopyHeight, canopyWidth * (0.92 + noise * 0.2 + hashShape * 0.08))
-      dummy.updateMatrix()
-      this.canopyMesh.setMatrixAt(instanceIndex, dummy.matrix)
-      this.canopyMesh.setColorAt(instanceIndex, shrubLeafColor(identity, noise, meta))
+      this.leafMesh.setMatrixAt(instanceIndex, dummy.matrix)
+      this.leafMesh.setColorAt(instanceIndex, shrubLeafColor(identity, noise, meta))
 
       instanceIndex++
     }

@@ -85,6 +85,8 @@ export type SceneryWorldAuthoring = {
   getUnderstoryDistanceAtXZ: (x: number, z: number) => number
   isInsideLeafLitterZone: (x: number, z: number) => boolean
   getLeafLitterDistanceAtXZ: (x: number, z: number) => number
+  isInsideFungusSeamZone: (x: number, z: number) => boolean
+  getFungusSeamDistanceAtXZ: (x: number, z: number) => number
   isInsideRockZone: (x: number, z: number) => boolean
   isInsideLogZone: (x: number, z: number) => boolean
   isInsideStickZone: (x: number, z: number) => boolean
@@ -192,6 +194,7 @@ export function createSceneryWorldAuthoring(
   const grassField = createLayerField(params.seed, params, 0, 1)
   const understoryField = createLayerField(params.seed, params, 137, 0.84)
   const litterField = createLayerField(params.seed, params, 271, 0.62)
+  const fungusField = createLayerField(params.seed, params, 331, 0.58)
   const rockField = createLayerField(params.seed, params, 389, 0.56)
   const logField = createLayerField(params.seed, params, 521, 0.94)
   const stickField = createLayerField(params.seed, params, 613, 0.74)
@@ -208,6 +211,58 @@ export function createSceneryWorldAuthoring(
   const treeStrength = params.affectTrees ? strength : 0
   const shrubStrength = params.affectShrubs ? strength : 0
   const terrainAt = (x: number, z: number) => sampleSceneryTerrainAuthoringRead(x, z, terrainHeight, terrainParams)
+  /**
+   * Same model as leaf-litter bands: `fieldDistance` on a slow 0–1 blend so
+   * `smoothBandCoverage(|d|, halfWidth, edge)` yields **wide** ribbons (town-like),
+   * not sparse points where an arbitrary sum happened to be near zero.
+   */
+  const fungusSeamDistanceAt = (x: number, z: number) => {
+    if (floorStrength <= 1e-6) return 999
+    const terrain = terrainAt(x, z)
+    const a = fungusField(x * 0.24, z * 0.24)
+    const b = litterField(x * 0.28, z * 0.28)
+    const c = understoryField(x * 0.26, z * 0.26)
+    const d = logField(x * 0.2, z * 0.2)
+    const e = treeField(x * 0.18, z * 0.18)
+    const seamBlend = clamp01(
+      a * 0.38 +
+        b * 0.26 +
+        c * 0.16 +
+        d * 0.12 +
+        e * 0.08 +
+        terrain.midslope01 * 0.07 +
+        terrain.flat01 * 0.05 -
+        terrain.basin01 * 0.06 -
+        terrain.slope01 * 0.05 +
+        Math.sin(x * 0.0088 + z * 0.0076) * 0.045 +
+        Math.cos(x * 0.0054 - z * 0.0092) * 0.035,
+    )
+    const span = 11 + floorStrength * 8
+    let dist = fieldDistance(seamBlend, span)
+    const meander =
+      Math.sin(x * 0.0135 + z * 0.0118) * (3.2 + floorStrength * 2.4) +
+      Math.cos(x * 0.0078 - z * 0.0145) * (2.6 + floorStrength * 2) +
+      Math.sin((x + z) * 0.0105) * (1.9 + floorStrength * 1.5) +
+      Math.cos(x * 0.0042 + z * 0.0048) * (1.4 + floorStrength * 1.1)
+    dist += meander * 0.32
+    return dist
+  }
+  /**
+   * Must follow the **same** low-frequency seam as `fungusSeamDistanceAt`. The old mask used
+   * high-frequency `fungusField(x,z)` while the band distance used `fungusField(x*0.24, …)` —
+   * that mismatch made the seam look like scattered dots instead of continuous ribbons.
+   */
+  const isInsideFungusSeamAt = (x: number, z: number) => {
+    if (floorStrength <= 1e-6) return false
+    const absD = Math.abs(fungusSeamDistanceAt(x, z))
+    const span = 11 + floorStrength * 8
+    /** Superset of where `smoothBandCoverage` can be visible for typical band widths + edge + glyph jitter. */
+    const corridor = span * 0.42 + 7 + floorStrength * 5
+    if (absD > corridor) return false
+    const terrain = terrainAt(x, z)
+    if (terrain.slope01 > 0.92) return false
+    return true
+  }
 
   return {
     getGrassCoverageMultiplierAtXZ(x, z) {
@@ -267,6 +322,14 @@ export function createSceneryWorldAuthoring(
       const treeBias = remapSigned01(treeField(x * 0.92, z * 0.92)) * (0.9 + floorStrength * 1.5)
       const terrainBias = (terrain.ridge01 - terrain.basin01) * (0.5 + floorStrength * 0.7)
       return Math.abs(fieldDistance(signal, 2.1 + floorStrength * 1.4) + wobble - treeBias + terrainBias)
+    },
+
+    isInsideFungusSeamZone(x, z) {
+      return isInsideFungusSeamAt(x, z)
+    },
+
+    getFungusSeamDistanceAtXZ(x, z) {
+      return fungusSeamDistanceAt(x, z)
     },
 
     isInsideRockZone(x, z) {

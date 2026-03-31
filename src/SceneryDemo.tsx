@@ -17,8 +17,8 @@ import {
   SCENERY_NEEDLE_LITTER_BURN_PARAMS,
 } from "./playground/playgroundSceneryWorld";
 import {
-  PLAYGROUND_QUALITY_DEFAULT,
-  type PlaygroundQuality,
+  DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
+  DEMO_GRASS_LAYOUT_DENSITY_MAX,
 } from "./playground/playgroundQuality";
 import {
   formatPlaygroundPerfClipboardText,
@@ -90,7 +90,9 @@ export function SceneryDemo() {
     DEFAULT_GRASS_FIELD_PARAMS.recoveryRate,
   );
   const [grassState, setGrassState] = useState(DEFAULT_GRASS_FIELD_PARAMS.state);
-  const [grassLayoutDensity, setGrassLayoutDensity] = useState(4.5);
+  const [grassLayoutDensity, setGrassLayoutDensity] = useState(
+    DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
+  );
   const [grassBladeWidthScale, setGrassBladeWidthScale] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.bladeWidthScale,
   );
@@ -100,8 +102,8 @@ export function SceneryDemo() {
   const [bandLayoutDensity, setBandLayoutDensity] = useState(0.66);
   const [understoryWidth, setUnderstoryWidth] = useState(2.6);
   const [understorySizeScale, setUnderstorySizeScale] = useState(1.08);
-  const [leafPileWidth, setLeafPileWidth] = useState(1.7);
-  const [leafPileSizeScale, setLeafPileSizeScale] = useState(0.82);
+  const [leafPileWidth, setLeafPileWidth] = useState(2.45);
+  const [leafPileSizeScale, setLeafPileSizeScale] = useState(1.38);
   const [showUnderstory, setShowUnderstory] = useState(false);
   const [showLeafPiles, setShowLeafPiles] = useState(true);
   const [foliageSeasonOverride, setFoliageSeasonOverride] = useState<
@@ -125,10 +127,8 @@ export function SceneryDemo() {
   const [treeCrownScale, setTreeCrownScale] = useState(1.45);
   const [showTrees, setShowTrees] = useState(true);
   const [logLayoutDensity, setLogLayoutDensity] = useState(0.26);
-  const [logSizeScale, setLogSizeScale] = useState(1.08);
-  const [logLengthScale, setLogLengthScale] = useState(
-    DEFAULT_LOG_FIELD_PARAMS.lengthScale * 1.36,
-  );
+  const [logSizeScale, setLogSizeScale] = useState(2.2);
+  const [logLengthScale, setLogLengthScale] = useState(0.85);
   const [logPushScale, setLogPushScale] = useState(1.55);
   const [logDownhillDrift, setLogDownhillDrift] = useState(
     DEFAULT_LOG_FIELD_PARAMS.downhillDrift,
@@ -144,7 +144,7 @@ export function SceneryDemo() {
   const [showSticks, setShowSticks] = useState(true);
   const [needleLayoutDensity, setNeedleLayoutDensity] = useState(0.5);
   const [needleSizeScale, setNeedleSizeScale] = useState(1.3);
-  const [showNeedles, setShowNeedles] = useState(true);
+  const [showNeedles, setShowNeedles] = useState(false);
   const [worldFieldSeed, setWorldFieldSeed] = useState(
     DEFAULT_SCENERY_WORLD_FIELD_PARAMS.seed,
   );
@@ -209,7 +209,6 @@ export function SceneryDemo() {
   const [starRecoveryRate, setStarRecoveryRate] = useState(
     DEFAULT_STAR_SKY_PARAMS.recoveryRate,
   );
-  const [quality] = useState<PlaygroundQuality>(PLAYGROUND_QUALITY_DEFAULT);
   const [perfStats, setPerfStats] = useState<PlaygroundPerfStats | null>(null);
   const [perfHudMinimized, setPerfHudMinimized] = useState(true);
 
@@ -323,7 +322,6 @@ export function SceneryDemo() {
           recoveryRate: starRecoveryRate,
           reactive: false,
         });
-        runtime.setQuality(quality);
         setRuntimeState("ready");
       })
       .catch((error: unknown) => {
@@ -342,11 +340,6 @@ export function SceneryDemo() {
       runtime.dispose();
     };
   }, []);
-
-  useEffect(() => {
-    if (runtimeState !== "ready") return;
-    runtimeRef.current?.setQuality(quality);
-  }, [quality, runtimeState]);
 
   useEffect(() => {
     const tick = () => setPerfStats(runtimeRef.current?.perfStats ?? null);
@@ -552,7 +545,7 @@ export function SceneryDemo() {
           <>
             <header className="sidebar-header">
               <div className="sidebar-header__row">
-                <h1>Scenery demo</h1>
+                <h1>First person demo</h1>
                 <button
                   type="button"
                   className="sidebar-collapse"
@@ -564,7 +557,7 @@ export function SceneryDemo() {
                 </button>
               </div>
               <p className="tagline">
-                Same playground runtime and controls on a much larger surface,
+                Same runtime and controls on a much larger surface,
                 now with fully seeded grass thinning, patchy understory,
                 disturbable leaf litter, and clustered rocks layered over the
                 field.
@@ -634,14 +627,14 @@ export function SceneryDemo() {
                   </label>
                   <label className="control">
                     <span>
-                      Layout density ({grassLayoutDensity.toFixed(2)}x) — lower
-                      values help on this large field
+                      Layout density ({grassLayoutDensity.toFixed(2)}x) — reduce if
+                      the field is too heavy
                     </span>
                     <input
                       type="range"
                       min={0}
-                      max={12}
-                      step={0.05}
+                      max={DEMO_GRASS_LAYOUT_DENSITY_MAX}
+                      step={0.5}
                       value={grassLayoutDensity}
                       onChange={(e) =>
                         setGrassLayoutDensity(Number(e.target.value))
@@ -1093,6 +1086,11 @@ export function SceneryDemo() {
                       ))}
                     </select>
                   </label>
+                  <p className="control-hint">
+                    Understory and litter placement follow the same scenery world
+                    field model: the floor read picks where bands can sit near
+                    roots and relief instead of scattering a separate decal pass.
+                  </p>
                 </ControlSection>
 
                 <ControlSection
@@ -1468,7 +1466,7 @@ export function SceneryDemo() {
                   </label>
                   <p className="control-hint">
                     Needle litter stays passive under footsteps, but shots burn
-                    it outward the way fungus does.
+                    it outward in a spreading ring.
                   </p>
                 </ControlSection>
 
@@ -1617,6 +1615,12 @@ export function SceneryDemo() {
             )}
           </div>
         )}
+        {runtimeState === "ready" && (
+          <div className="viewport-hint" aria-hidden>
+            Click the first person view to capture the mouse. Press <code>Escape</code>{" "}
+            to release it.
+          </div>
+        )}
         {runtimeState !== "ready" && (
           <div className="viewport-status" role="status">
             <strong>
@@ -1626,7 +1630,7 @@ export function SceneryDemo() {
             </strong>
             <span>
               {runtimeState === "loading"
-                ? "Loading the scenery field."
+                ? "Loading the field."
                 : (runtimeError ??
                   "This demo requires a WebGPU-capable browser and adapter.")}
             </span>

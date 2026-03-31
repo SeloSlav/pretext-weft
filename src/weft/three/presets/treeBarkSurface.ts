@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { PreparedSurfaceSource, ResolvedSurfaceGlyph, SeedCursorFactory, SurfaceLayoutSlot } from '../../core'
 import { SurfaceLayoutDriver } from '../../core'
-import { updateRecoveringImpacts } from '../../runtime'
+import { decayRecoveringStrength } from '../../runtime'
 import { createSurfaceEffect, recoverableDamage, wallLayout } from '../api'
 import { createBarkGrainTexture, warmBarkColor } from './barkShared'
 import { smoothPulse } from './sharedMath'
@@ -11,14 +11,12 @@ import {
   type TreeBarkTokenMeta,
 } from './treeBarkSurfaceSource'
 
-const ROWS = 18
-const SECTORS = 24
-const MAX_BARK_INSTANCES = 36_000
-const MAX_SCORCH_INSTANCES = 128
+const ROWS = 16
+const SECTORS = 16
+const MAX_BARK_INSTANCES = 70_000
 const HOLE_THRESHOLD = 0.5
-const LAYOUT_PX_PER_WORLD = 30
-const BASE_LIFT = 0.012
-const MIN_ACTIVE_VISIBILITY = 0.02
+const LAYOUT_PX_PER_WORLD = 42
+const BASE_SURFACE_SINK = 0.008
 
 const tmpColor = new THREE.Color()
 const tmpCharcoal = new THREE.Color()
@@ -28,7 +26,6 @@ const tmpTangent = new THREE.Vector3()
 const tmpNormal = new THREE.Vector3()
 const tmpBitangent = new THREE.Vector3()
 const tmpQuatMat = new THREE.Matrix4()
-const scorchPlaneNormal = new THREE.Vector3(0, 0, 1)
 const dummy = new THREE.Object3D()
 
 export type TreeBarkPlacement = {
@@ -117,39 +114,6 @@ function makeBarkChipGeometry(): THREE.BufferGeometry {
   return geom
 }
 
-function createScorchTexture(): THREE.CanvasTexture {
-  const size = 256
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    const fallback = new THREE.CanvasTexture(canvas)
-    fallback.colorSpace = THREE.SRGBColorSpace
-    return fallback
-  }
-
-  const cx = size * 0.5
-  const cy = size * 0.5
-  const r = size * 0.48
-  const burn = ctx.createRadialGradient(cx, cy, r * 0.08, cx, cy, r)
-  burn.addColorStop(0, 'rgba(18,12,10,0.98)')
-  burn.addColorStop(0.38, 'rgba(34,22,18,0.86)')
-  burn.addColorStop(0.62, 'rgba(78,34,18,0.42)')
-  burn.addColorStop(0.8, 'rgba(235,112,34,0.58)')
-  burn.addColorStop(0.92, 'rgba(255,174,72,0.18)')
-  burn.addColorStop(1, 'rgba(0,0,0,0)')
-  ctx.fillStyle = burn
-  ctx.beginPath()
-  ctx.arc(cx, cy, r, 0, Math.PI * 2)
-  ctx.fill()
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.colorSpace = THREE.SRGBColorSpace
-  texture.needsUpdate = true
-  return texture
-}
-
 function ellipseCircumference(rx: number, rz: number): number {
   const a = Math.max(rx, rz)
   const b = Math.min(rx, rz)
@@ -172,15 +136,14 @@ type BarkFieldSample = {
   damage: number
   hole: number
   offset: number
-  scorch: number
   rim: number
 }
 
 export class TreeBarkSurfaceEffect {
   readonly group = new THREE.Group()
+  readonly interactionMesh: THREE.InstancedMesh
 
   private readonly barkTexture = createBarkGrainTexture()
-  private readonly scorchTexture = createScorchTexture()
   private readonly barkGeometry = makeBarkChipGeometry()
   private readonly barkMaterial = new THREE.MeshLambertMaterial({
     map: this.barkTexture,
@@ -189,35 +152,31 @@ export class TreeBarkSurfaceEffect {
     side: THREE.DoubleSide,
   })
   private readonly barkMesh = new THREE.InstancedMesh(this.barkGeometry, this.barkMaterial, MAX_BARK_INSTANCES)
-  private readonly scorchGeometry = new THREE.PlaneGeometry(1, 1)
-  private readonly scorchMaterial = new THREE.MeshBasicMaterial({
-    map: this.scorchTexture,
-    transparent: true,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-  })
-  private readonly scorchMesh = new THREE.InstancedMesh(this.scorchGeometry, this.scorchMaterial, MAX_SCORCH_INSTANCES)
   private layoutDriver: SurfaceLayoutDriver<TreeBarkTokenId, TreeBarkTokenMeta>
   private params: TreeBarkSurfaceParams
+  private readonly showBarkMesh: boolean
   private readonly woundsByTree = new Map<string, BarkWound[]>()
   private readonly placements = new Map<string, TreeBarkPlacement>()
+  private readonly barkInstanceTreeKeys: string[] = []
+  private readonly barkInstanceUs: number[] = []
+  private readonly barkInstanceVs: number[] = []
   private lastElapsedTime = 0
+  private needsSurfaceRefresh = true
 
   constructor(
     surface: PreparedSurfaceSource<TreeBarkTokenId, TreeBarkTokenMeta>,
     seedCursor: SeedCursorFactory,
     initialParams: TreeBarkSurfaceParams,
+    showBarkMesh: boolean,
   ) {
     this.layoutDriver = this.createLayoutDriver(surface, seedCursor)
     this.params = { ...initialParams }
+    this.showBarkMesh = showBarkMesh
+    this.interactionMesh = this.barkMesh
     this.barkMesh.frustumCulled = false
+    this.barkMesh.visible = showBarkMesh
     this.barkMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    this.scorchMesh.frustumCulled = false
-    this.scorchMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
-    this.scorchMesh.renderOrder = 7
     this.group.add(this.barkMesh)
-    this.group.add(this.scorchMesh)
   }
 
   setPlacements(placements: readonly TreeBarkPlacement[]): void {
@@ -225,6 +184,12 @@ export class TreeBarkSurfaceEffect {
     for (const placement of placements) {
       this.placements.set(placement.key, placement)
     }
+    for (const key of Array.from(this.woundsByTree.keys())) {
+      if (!this.placements.has(key)) {
+        this.woundsByTree.delete(key)
+      }
+    }
+    this.needsSurfaceRefresh = true
   }
 
   setSurface(surface: PreparedSurfaceSource<TreeBarkTokenId, TreeBarkTokenMeta>, seedCursor: SeedCursorFactory): void {
@@ -244,10 +209,27 @@ export class TreeBarkSurfaceEffect {
 
   clearWounds(): void {
     this.woundsByTree.clear()
-    this.barkMesh.count = 0
-    this.scorchMesh.count = 0
-    this.barkMesh.instanceMatrix.needsUpdate = true
-    this.scorchMesh.instanceMatrix.needsUpdate = true
+    this.needsSurfaceRefresh = true
+  }
+
+  addWoundFromRaycastHit(
+    hit: THREE.Intersection<THREE.Object3D>,
+    worldDirection: THREE.Vector3,
+    options: TreeBarkWoundOptions = {},
+  ): boolean {
+    const instanceId = hit.instanceId
+    if (instanceId == null) return false
+    const treeKey = this.barkInstanceTreeKeys[instanceId]
+    const u = this.barkInstanceUs[instanceId]
+    const v = this.barkInstanceVs[instanceId]
+    if (treeKey == null || u == null || v == null) return false
+    this.addWound(treeKey, u, v, {
+      ...options,
+      directionX: worldDirection.x,
+      directionY: worldDirection.y,
+      directionZ: worldDirection.z,
+    })
+    return true
   }
 
   addWound(
@@ -312,23 +294,29 @@ export class TreeBarkSurfaceEffect {
       wounds.length = 12
     }
     this.woundsByTree.set(treeKey, wounds)
+    this.needsSurfaceRefresh = true
   }
 
   update(elapsedTime: number): void {
     const delta = this.lastElapsedTime === 0 ? 0 : Math.max(0, elapsedTime - this.lastElapsedTime)
     this.lastElapsedTime = elapsedTime
     this.updateWounds(delta)
-    this.updateBark()
-    this.updateScorchMarks()
+    // Tree field uses `showBarkMesh: false` (cylinder trunks + raycast). Wounds are still simulated for
+    // gameplay state, but rebuilding the hidden bark layout every frame while burns animate was pure CPU cost.
+    if (!this.showBarkMesh) {
+      return
+    }
+    const shouldRefreshBarkSurface = this.needsSurfaceRefresh || this.woundsByTree.size > 0
+    if (shouldRefreshBarkSurface) {
+      this.updateBark()
+      this.needsSurfaceRefresh = false
+    }
   }
 
   dispose(): void {
     this.barkTexture.dispose()
-    this.scorchTexture.dispose()
     this.barkGeometry.dispose()
-    this.scorchGeometry.dispose()
     this.barkMaterial.dispose()
-    this.scorchMaterial.dispose()
   }
 
   private createLayoutDriver(
@@ -341,23 +329,43 @@ export class TreeBarkSurfaceEffect {
       sectors: SECTORS,
       advanceForRow: (row) => row * 13 + 7,
       seedCursor,
-      staggerFactor: 0.5,
-      minSpanFactor: 0.35,
+      staggerFactor: 0.42,
+      minSpanFactor: 0.24,
     })
   }
 
   private updateWounds(delta: number): void {
     if (delta <= 0 || this.woundsByTree.size === 0) return
+    let changed = false
     for (const [key, wounds] of this.woundsByTree) {
       for (const wound of wounds) {
-        const spreadMul = THREE.MathUtils.lerp(0.18, 1, Math.pow(wound.strength, 0.82))
-        const growth = this.params.woundSpreadSpeed * delta * (0.25 + wound.strength * 0.35) * spreadMul
-        wound.radius = Math.min(wound.maxRadius, wound.radius + growth)
+        if (this.params.woundSpreadSpeed > 0) {
+          const prevRadius = wound.radius
+          const spreadMul = THREE.MathUtils.lerp(0.18, 1, Math.pow(wound.strength, 0.82))
+          const growth = this.params.woundSpreadSpeed * delta * (0.25 + wound.strength * 0.35) * spreadMul
+          wound.radius = Math.min(wound.maxRadius, wound.radius + growth)
+          if (Math.abs(wound.radius - prevRadius) > 1e-6) changed = true
+        }
       }
-      updateRecoveringImpacts(wounds, this.params.recoveryRate, delta, 0.018)
+      for (let i = wounds.length - 1; i >= 0; i--) {
+        const wound = wounds[i]!
+        const recoveryRate = wound.recoveryRate ?? this.params.recoveryRate
+        if (recoveryRate <= 0) continue
+        const prevStrength = wound.strength
+        wound.strength = decayRecoveringStrength(wound.strength, Math.max(0.001, recoveryRate), delta)
+        if (Math.abs(wound.strength - prevStrength) > 1e-6) changed = true
+        if (wound.strength <= 0.018) {
+          wounds.splice(i, 1)
+          changed = true
+        }
+      }
       if (wounds.length === 0) {
         this.woundsByTree.delete(key)
+        changed = true
       }
+    }
+    if (changed) {
+      this.needsSurfaceRefresh = true
     }
   }
 
@@ -371,7 +379,6 @@ export class TreeBarkSurfaceEffect {
     let damage = 0
     let hole = 0
     let offset = 0
-    let scorch = 0
     let rim = 0
     for (const wound of wounds) {
       const displayRadius = wound.radius * THREE.MathUtils.lerp(0.34, 1, Math.pow(Math.min(1, wound.strength), 0.5))
@@ -389,7 +396,6 @@ export class TreeBarkSurfaceEffect {
       offset += -crater * this.params.woundDepth * THREE.MathUtils.lerp(0.24, 0.42, intensity) * presence
       const ridgeT = THREE.MathUtils.clamp(1 - Math.abs(normalized - 0.92) / 0.22, 0, 1)
       offset += ridgeT * ridgeT * this.params.woundDepth * THREE.MathUtils.lerp(0.08, 0.14, intensity) * presence
-      scorch = Math.max(scorch, localDamage)
       const frontDistance = Math.abs(Math.sqrt(du * du + dv * dv) - displayRadius)
       const frontWidth = Math.max(0.065, displayRadius * 0.095)
       const localFront =
@@ -400,19 +406,20 @@ export class TreeBarkSurfaceEffect {
       damage: THREE.MathUtils.clamp(damage, 0, 1),
       hole: THREE.MathUtils.clamp(hole, 0, 1),
       offset,
-      scorch: THREE.MathUtils.clamp(scorch, 0, 1),
       rim: THREE.MathUtils.clamp(rim, 0, 1),
     }
   }
 
   private updateBark(): void {
     let instanceIndex = 0
-    for (const [key, wounds] of this.woundsByTree) {
-      const placement = this.placements.get(key)
-      if (!placement || wounds.length === 0) continue
+    this.barkInstanceTreeKeys.length = 0
+    this.barkInstanceUs.length = 0
+    this.barkInstanceVs.length = 0
+    for (const placement of this.placements.values()) {
+      const wounds = this.woundsByTree.get(placement.key) ?? []
       const circumference = ellipseCircumference(placement.radiusX, placement.radiusZ)
-      const rowStep = placement.trunkHeight / (ROWS + 1.8)
-      const topV = placement.trunkHeight * 0.5 - rowStep * 1.1
+      const rowStep = placement.trunkHeight / (ROWS + 0.8)
+      const topV = placement.trunkHeight * 0.5 - rowStep * 0.55
 
       this.layoutDriver.forEachLaidOutLine({
         spanMin: -circumference * 0.5,
@@ -449,10 +456,8 @@ export class TreeBarkSurfaceEffect {
       const u = slot.spanStart + t01 * slot.spanSize
       const v = slot.lineCoord
       const field = this.sampleField(placement, wounds, u, v)
-      const active = Math.max(field.damage, field.hole, field.scorch, field.rim)
-      if (active < MIN_ACTIVE_VISIBILITY) continue
       if (field.hole >= HOLE_THRESHOLD) continue
-      const localCoverage = THREE.MathUtils.lerp(1, this.params.woundNarrow, active)
+      const localCoverage = THREE.MathUtils.lerp(1, this.params.woundNarrow, Math.max(field.damage, field.hole))
       const hashPresence = glyphHash(identity, slot.row * 131 + slot.sector, k)
       if (hashPresence > localCoverage) continue
 
@@ -471,9 +476,9 @@ export class TreeBarkSurfaceEffect {
       tmpBitangent.copy(placement.basisY)
 
       const surfaceOffset = THREE.MathUtils.clamp(
-        field.offset - BASE_LIFT - field.damage * this.params.scaleLift * 0.04,
+        field.offset - BASE_SURFACE_SINK,
         -Math.min(radiusAtTheta * 0.22, 0.08),
-        0.004,
+        -0.001,
       )
       tmpPos
         .copy(placement.center)
@@ -486,20 +491,23 @@ export class TreeBarkSurfaceEffect {
       dummy.rotateX(0.04 + field.damage * 0.12)
       dummy.rotateZ((((identity % 17) / 17) - 0.5) * 0.08)
       dummy.scale.set(
-        (0.035 + meta.widthBias * 0.45 + (identity % 5) * 0.003) * (1 - field.damage * 0.12),
-        (0.11 + meta.heightBias * 0.5 + (identity % 7) * 0.007) * (1 - field.damage * 0.16),
-        0.14 + meta.depthBias * 0.04 + field.damage * 0.04,
+        (0.22 + meta.widthBias * 0.18 + (identity % 5) * 0.005) * (1 - field.damage * 0.14),
+        (0.42 + meta.heightBias * 0.18 + (identity % 7) * 0.012) * (1 - field.damage * 0.18),
+        0.05 + meta.depthBias * 0.018 + field.damage * 0.024,
       )
       dummy.updateMatrix()
       this.barkMesh.setMatrixAt(instanceIndex, dummy.matrix)
+      this.barkInstanceTreeKeys[instanceIndex] = placement.key
+      this.barkInstanceUs[instanceIndex] = u
+      this.barkInstanceVs[instanceIndex] = v
 
       warmBarkColor(identity, placement.noise, placement.warmth, tmpColor)
-      if (field.scorch > 0.002 || field.rim > 0.002) {
-        tmpCharcoal.setHSL(0.07, 0.12, 0.1 + field.scorch * 0.09)
+      if (field.damage > 0.002 || field.rim > 0.002) {
+        tmpCharcoal.setHSL(0.07, 0.12, 0.1 + field.damage * 0.09)
         tmpOrange.setHSL(0.052, 0.97, 0.52)
-        const charMix = THREE.MathUtils.smoothstep(field.scorch, 0.1, 0.94) * 0.88
+        const charMix = THREE.MathUtils.smoothstep(field.damage, 0.1, 0.94) * 0.88
         tmpColor.lerp(tmpCharcoal, charMix)
-        const ringBoost = Math.pow(field.rim, 0.34) * (0.82 + 0.18 * (1 - field.scorch))
+        const ringBoost = Math.pow(field.rim, 0.34) * (0.82 + 0.18 * (1 - field.damage))
         tmpColor.lerp(tmpOrange, ringBoost)
       }
       this.barkMesh.setColorAt(instanceIndex, tmpColor)
@@ -507,50 +515,20 @@ export class TreeBarkSurfaceEffect {
     }
     return instanceIndex
   }
-
-  private updateScorchMarks(): void {
-    let instanceIndex = 0
-    for (const [key, wounds] of this.woundsByTree) {
-      const placement = this.placements.get(key)
-      if (!placement) continue
-      const circumference = ellipseCircumference(placement.radiusX, placement.radiusZ)
-      for (const wound of wounds) {
-        if (instanceIndex >= MAX_SCORCH_INSTANCES) break
-        const theta = (wound.u / Math.max(circumference, 0.0001)) * Math.PI * 2
-        const radiusAtTheta = ellipseRadiusAt(theta, placement.radiusX, placement.radiusZ)
-        tmpNormal
-          .copy(placement.basisX)
-          .multiplyScalar(Math.cos(theta) / Math.max(placement.radiusX, 0.0001))
-          .addScaledVector(placement.basisZ, Math.sin(theta) / Math.max(placement.radiusZ, 0.0001))
-          .normalize()
-        const s = THREE.MathUtils.clamp(wound.strength, 0, 1)
-        const displayRadius = Math.max(0.06, wound.radius * THREE.MathUtils.lerp(0.34, 1, Math.pow(s, 0.5)))
-        dummy.position
-          .copy(placement.center)
-          .addScaledVector(placement.basisY, wound.v)
-          .addScaledVector(tmpNormal, Math.max(0.01, radiusAtTheta - 0.006))
-        dummy.quaternion.setFromUnitVectors(scorchPlaneNormal, tmpNormal)
-        dummy.scale.set(displayRadius * 0.95, displayRadius * 0.95, 1)
-        dummy.updateMatrix()
-        this.scorchMesh.setMatrixAt(instanceIndex, dummy.matrix)
-        instanceIndex++
-      }
-    }
-    this.scorchMesh.count = instanceIndex
-    this.scorchMesh.instanceMatrix.needsUpdate = true
-  }
 }
 
 export type CreateTreeBarkSurfaceEffectOptions = {
   seedCursor: SeedCursorFactory
   surface?: PreparedSurfaceSource<TreeBarkTokenId, TreeBarkTokenMeta>
   initialParams?: TreeBarkSurfaceParams
+  showBarkMesh?: boolean
 }
 
 export function createTreeBarkSurfaceEffect({
   seedCursor,
   surface = getPreparedTreeBarkSurface(),
   initialParams = DEFAULT_TREE_BARK_SURFACE_PARAMS,
+  showBarkMesh = true,
 }: CreateTreeBarkSurfaceEffectOptions): TreeBarkSurfaceEffect {
   const effect = createSurfaceEffect({
     id: 'tree-bark-surface',
@@ -572,5 +550,5 @@ export function createTreeBarkSurfaceEffect({
     seedCursor,
   })
 
-  return new TreeBarkSurfaceEffect(effect.source, seedCursor, initialParams)
+  return new TreeBarkSurfaceEffect(effect.source, seedCursor, initialParams, showBarkMesh)
 }

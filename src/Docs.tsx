@@ -540,7 +540,7 @@ export function Docs({ onEnterEditor }: DocsProps) {
 
         <div className="docs__actions">
           <button type="button" className="btn btn--primary" onClick={onEnterEditor}>
-            Open playground
+            Open third person demo
           </button>
           <a className="btn btn--secondary" href="#quick-start">
             Jump to quick start
@@ -786,11 +786,11 @@ scene.add(grass.group)`}</pre>
           </div>
           <div className="docs__actions docs__actions--final-cta">
             <p className="docs__text docs__text--final-cta">
-              Thanks for reading along. Open the playground to see the same ideas running under one surface
+              Thanks for reading along. Open the third person demo to see the same ideas running under one surface
               runtime.
             </p>
             <button type="button" className="btn btn--primary docs__final-cta-btn" onClick={onEnterEditor}>
-              Open playground and explore the SDK
+              Open third person demo and explore the SDK
             </button>
           </div>
         </section>

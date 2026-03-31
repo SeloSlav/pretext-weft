@@ -18,7 +18,12 @@ import {
   type GrassTokenId,
   type GrassTokenMeta,
 } from './grassFieldSource'
-import type { PresetLayoutViewCull } from './presetLayoutCull'
+import {
+  shouldVisitSlotForViewCull,
+  type PresetLayoutViewCull,
+  type PresetLayoutViewCullFrustumContext,
+} from './presetLayoutCull'
+import { BURN_NEON_RIM_COLOR_FRAGMENT, createBurnRimInstancedAttribute } from './burnNeonRim'
 
 export type GrassFieldParams = {
   disturbanceRadius: number
@@ -51,9 +56,12 @@ export const DEFAULT_GRASS_FIELD_PARAMS: GrassFieldParams = {
   burnRecoveryRate: 0.0042,
   state: 0,
   colorSeason: null,
-  layoutDensity: 13.5,
-  bladeWidthScale: 1.08,
-  bladeHeightScale: 2.9,
+  /** High default; playground quality still scales density. Editor slider max allows pushing further. */
+  layoutDensity: 200,
+  /** Wider billboards so clumps read as small leaf rosettes, not hair-thin blades. */
+  bladeWidthScale: 1.42,
+  /** ~⅓ of the previous default visual height (taller mesh was 1.08×2.9; shorter leaf mesh uses this scale). */
+  bladeHeightScale: 1.12,
 }
 
 export type GrassFieldBounds = {
@@ -78,24 +86,28 @@ const DEFAULT_GRASS_FIELD_BOUNDS: GrassFieldBounds = {
 
 const ROWS = 52
 const SECTORS = 68
-const BLADES_PER_SLOT = 2
-const MAX_INSTANCES = 72_000
+/** Multiple instanced ribbons per layout glyph, placed in a tight disk = leaf clumps. */
+const BLADES_PER_SLOT = 6
+const MAX_INSTANCES = 280_000
 /** World units; buckets blades for camera / effect–zone iteration when view culling is on. */
 const BLADE_CELL_SIZE = 5.75
 const LAYOUT_PX_PER_WORLD = 16
 const DISTURBANCE_RADIUS_MULTIPLIER = 2.35
 const MAX_ACTIVE_DISTURBANCES = 72
 const MAX_GRASS_BURNS = 22
+/** Depth bias for overlapping instanced blades (same plane / tight clumps). */
+const GRASS_BLADE_POLYGON_OFFSET_FACTOR = 2.5
+const GRASS_BLADE_POLYGON_OFFSET_UNITS = 2
 
 const tmpPos = new THREE.Vector3()
 const tmpColor = new THREE.Color()
 const tmpSeasonColorA = new THREE.Color()
 const tmpSeasonColorB = new THREE.Color()
 const tmpLocalPoint = new THREE.Vector3()
-const tmpGrassBurnField = { burn: 0, front: 0 }
+const tmpGrassBurnField = { burn: 0, front: 0, cull: 0 }
 const tmpCrispOrange = new THREE.Color()
 const tmpCharcoal = new THREE.Color()
-const ZERO_GRASS_BURN_FIELD = { burn: 0, front: 0 }
+const ZERO_GRASS_BURN_FIELD = { burn: 0, front: 0, cull: 0 }
 const dummy = new THREE.Object3D()
 
 const STATE_BLADE_BASE = [
@@ -200,7 +212,7 @@ export type GrassBurnOptions = {
   strength?: number
   mergeRadius?: number
   /**
-   * Strength decay rate for this scorch (same units as `burnRecoveryRate`). Lower = longer linger.
+   * Strength decay rate for this burn (same units as `burnRecoveryRate`). Lower = longer linger.
    * Laser shots should pass a small value; omit to use `GrassFieldParams.burnRecoveryRate`.
    */
   recoveryRate?: number
@@ -212,15 +224,15 @@ type GrassBurn = {
   radius: number
   maxRadius: number
   strength: number
-  /** When set, overrides `params.burnRecoveryRate` for this scorch only. */
+  /** When set, overrides `params.burnRecoveryRate` for this burn only. */
   recoveryRate?: number
 }
 
-/** Curved ribbon blade: still cheap enough for instancing, but reads much closer to dense natural grass. */
+/** Curved wide ribbon: short leaf-like silhouette (dense clumps use several per glyph). */
 function makeBladeGeometry(): THREE.BufferGeometry {
-  const bladeHeight = 1.08
-  const bladeWidth = 0.26
-  const baseY = -0.055
+  const bladeHeight = 0.92
+  const bladeWidth = 0.44
+  const baseY = -0.048
   const geometry = new THREE.PlaneGeometry(bladeWidth, bladeHeight, 1, 6)
   const position = geometry.attributes.position
   const halfH = bladeHeight * 0.5
@@ -230,10 +242,10 @@ function makeBladeGeometry(): THREE.BufferGeometry {
     const y = position.getY(i)
     const y01 = THREE.MathUtils.clamp((y + halfH) / bladeHeight, 0, 1)
     const edge = x / (bladeWidth * 0.5)
-    const taper = THREE.MathUtils.lerp(1, 0.04, Math.pow(y01, 1.28))
-    const ribbon = Math.sin(y01 * Math.PI * 1.08) * 0.024 * (1 - y01 * 0.7)
-    const curl = Math.pow(y01, 1.5) * 0.065
-    const lean = Math.pow(y01, 1.85) * 0.055
+    const taper = THREE.MathUtils.lerp(1, 0.06, Math.pow(y01, 1.05))
+    const ribbon = Math.sin(y01 * Math.PI * 1.02) * 0.028 * (1 - y01 * 0.65)
+    const curl = Math.pow(y01, 1.45) * 0.052
+    const lean = Math.pow(y01, 1.75) * 0.048
     position.setXYZ(
       i,
       x * taper + ribbon,
@@ -253,8 +265,18 @@ function bladeCellKey(x: number, z: number): number {
   return ix * 100_042_069 + iz
 }
 
-function addGrassCellKeysInDisc(cx: number, cz: number, radius: number, out: Set<number>): void {
-  const r = Math.max(0.001, radius)
+function addGrassCellKeysInDisc(
+  cx: number,
+  cz: number,
+  radius: number,
+  padding: number,
+  out: Set<number>,
+  frustum: THREE.Frustum | null,
+  grassGroup: THREE.Group,
+  tmpBox: THREE.Box3,
+): void {
+  const cellPad = Math.max(0, padding) + BLADE_CELL_SIZE * 0.35
+  const r = Math.max(0.001, radius + cellPad)
   const minIx = Math.floor((cx - r) / BLADE_CELL_SIZE)
   const maxIx = Math.floor((cx + r) / BLADE_CELL_SIZE)
   const minIz = Math.floor((cz - r) / BLADE_CELL_SIZE)
@@ -270,9 +292,14 @@ function addGrassCellKeysInDisc(cx: number, cz: number, radius: number, out: Set
       const pz = THREE.MathUtils.clamp(cz, z0, z1)
       const dx = cx - px
       const dz = cz - pz
-      if (dx * dx + dz * dz <= rSq) {
-        out.add(ix * 100_042_069 + iz)
+      if (dx * dx + dz * dz > rSq) continue
+      if (frustum) {
+        tmpBox.min.set(x0 - cellPad, -2.5, z0 - cellPad)
+        tmpBox.max.set(x1 + cellPad, 16, z1 + cellPad)
+        tmpBox.applyMatrix4(grassGroup.matrixWorld)
+        if (!frustum.intersectsBox(tmpBox)) continue
       }
+      out.add(ix * 100_042_069 + iz)
     }
   }
 }
@@ -307,102 +334,137 @@ function createGroundTexture(): THREE.CanvasTexture {
     return fallback
   }
 
-  ctx.fillStyle = '#5c9444'
+  const width = canvas.width
+  const height = canvas.height
+  const rand = () => Math.random()
+  const randRange = (min: number, max: number) => min + rand() * (max - min)
+
+  ctx.fillStyle = '#8b9252'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 
-  for (let i = 0; i < 16000; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const radius = 1.2 + Math.random() * 7.5
-    const alpha = 0.05 + Math.random() * 0.12
-    const hue = 78 + Math.random() * 16
-    const sat = 28 + Math.random() * 28
-    const light = 24 + Math.random() * 12
+  for (let i = 0; i < 90; i++) {
+    const x = rand() * width
+    const y = rand() * height
+    const radius = randRange(120, 260)
+    const alpha = randRange(0.025, 0.05)
+    const patch = ctx.createRadialGradient(x, y, radius * 0.12, x, y, radius)
+    patch.addColorStop(0, `rgba(164, 170, 100, ${alpha})`)
+    patch.addColorStop(0.55, `rgba(132, 140, 76, ${alpha * 0.78})`)
+    patch.addColorStop(1, 'rgba(132, 140, 76, 0)')
+    ctx.fillStyle = patch
+    ctx.beginPath()
+    ctx.ellipse(x, y, radius, radius * randRange(0.45, 0.9), rand() * Math.PI, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  for (let i = 0; i < 4200; i++) {
+    const x = rand() * width
+    const y = rand() * height
+    const radius = randRange(6, 22)
+    const alpha = randRange(0.03, 0.075)
+    const patch = ctx.createRadialGradient(x, y, radius * 0.2, x, y, radius)
+    patch.addColorStop(0, `rgba(156, 164, 92, ${alpha})`)
+    patch.addColorStop(0.55, `rgba(116, 124, 66, ${alpha * 0.72})`)
+    patch.addColorStop(1, 'rgba(116, 124, 66, 0)')
+    ctx.fillStyle = patch
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  for (let i = 0; i < 26000; i++) {
+    const x = rand() * width
+    const y = rand() * height
+    const radius = randRange(0.6, 2.1)
+    const alpha = randRange(0.03, 0.08)
+    const hue = randRange(68, 82)
+    const sat = randRange(20, 30)
+    const light = randRange(32, 46)
     ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 5200; i++) {
-    ctx.strokeStyle = `hsla(${86 + Math.random() * 14}, ${24 + Math.random() * 18}%, ${20 + Math.random() * 10}%, ${0.06 + Math.random() * 0.1})`
-    ctx.lineWidth = 0.7 + Math.random() * 2.1
+  for (let i = 0; i < 20000; i++) {
+    ctx.strokeStyle = `hsla(${randRange(72, 86)}, ${randRange(18, 28)}%, ${randRange(34, 48)}%, ${randRange(0.035, 0.085)})`
+    ctx.lineWidth = randRange(0.45, 1.1)
     ctx.beginPath()
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
+    const x = rand() * width
+    const y = rand() * height
+    const length = randRange(3, 9)
+    const angle = rand() * Math.PI
     ctx.moveTo(x, y)
-    ctx.lineTo(x + (Math.random() - 0.5) * 56, y + (Math.random() - 0.5) * 80)
+    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length)
     ctx.stroke()
   }
 
-  for (let i = 0; i < 900; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const radius = 18 + Math.random() * 60
-    const alpha = 0.04 + Math.random() * 0.08
-    ctx.fillStyle = `hsla(${88 + Math.random() * 18}, ${18 + Math.random() * 16}%, ${32 + Math.random() * 10}%, ${alpha})`
+  for (let i = 0; i < 9000; i++) {
+    ctx.strokeStyle = `hsla(${randRange(60, 72)}, ${randRange(18, 26)}%, ${randRange(24, 34)}%, ${randRange(0.02, 0.05)})`
+    ctx.lineWidth = randRange(0.35, 0.9)
     ctx.beginPath()
-    ctx.ellipse(x, y, radius, radius * (0.45 + Math.random() * 0.5), Math.random() * Math.PI, 0, Math.PI * 2)
+    const x = rand() * width
+    const y = rand() * height
+    const length = randRange(4, 10)
+    const angle = rand() * Math.PI
+    ctx.moveTo(x, y)
+    ctx.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length * randRange(0.65, 1))
+    ctx.stroke()
+  }
+
+  for (let i = 0; i < 1600; i++) {
+    const x = rand() * width
+    const y = rand() * height
+    const radius = randRange(8, 24)
+    const alpha = randRange(0.02, 0.045)
+    ctx.fillStyle = `hsla(${randRange(70, 84)}, ${randRange(14, 22)}%, ${randRange(48, 58)}%, ${alpha})`
+    ctx.beginPath()
+    ctx.ellipse(x, y, radius, radius * randRange(0.45, 0.8), rand() * Math.PI, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 90; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const radius = 46 + Math.random() * 120
-    const alpha = 0.08 + Math.random() * 0.1
+  for (let i = 0; i < 120; i++) {
+    const x = rand() * width
+    const y = rand() * height
+    const radius = randRange(32, 110)
+    const alpha = randRange(0.018, 0.04)
     const broadPatch = ctx.createRadialGradient(x, y, radius * 0.1, x, y, radius)
-    broadPatch.addColorStop(0, `rgba(130, 175, 78, ${alpha})`)
-    broadPatch.addColorStop(0.55, `rgba(95, 135, 58, ${alpha * 0.82})`)
-    broadPatch.addColorStop(1, 'rgba(95, 135, 58, 0)')
+    broadPatch.addColorStop(0, `rgba(104, 112, 60, ${alpha})`)
+    broadPatch.addColorStop(0.62, `rgba(86, 94, 50, ${alpha * 0.72})`)
+    broadPatch.addColorStop(1, 'rgba(86, 94, 50, 0)')
     ctx.fillStyle = broadPatch
     ctx.beginPath()
-    ctx.ellipse(x, y, radius, radius * (0.5 + Math.random() * 0.28), Math.random() * Math.PI, 0, Math.PI * 2)
+    ctx.ellipse(x, y, radius, radius * randRange(0.46, 0.82), rand() * Math.PI, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 360; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const radius = 3 + Math.random() * 10
-    const alpha = 0.03 + Math.random() * 0.06
-    ctx.fillStyle = `hsla(${102 + Math.random() * 14}, 22%, ${58 + Math.random() * 8}%, ${alpha})`
+  for (let i = 0; i < 2400; i++) {
+    const x = rand() * width
+    const y = rand() * height
+    const radius = randRange(0.8, 2.8)
+    const alpha = randRange(0.02, 0.05)
+    ctx.fillStyle = `hsla(${randRange(58, 72)}, ${randRange(18, 24)}%, ${randRange(26, 34)}%, ${alpha})`
     ctx.beginPath()
     ctx.arc(x, y, radius, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  for (let i = 0; i < 110; i++) {
-    const x = Math.random() * canvas.width
-    const y = Math.random() * canvas.height
-    const radius = 56 + Math.random() * 90
-    const alpha = 0.05 + Math.random() * 0.08
-    const grassPatch = ctx.createRadialGradient(x, y, radius * 0.16, x, y, radius)
-    grassPatch.addColorStop(0, `rgba(98, 138, 58, ${alpha})`)
-    grassPatch.addColorStop(0.55, `rgba(128, 168, 82, ${alpha * 0.82})`)
-    grassPatch.addColorStop(1, 'rgba(128, 168, 82, 0)')
-    ctx.fillStyle = grassPatch
-    ctx.beginPath()
-    ctx.ellipse(x, y, radius, radius * (0.55 + Math.random() * 0.3), Math.random() * Math.PI, 0, Math.PI * 2)
-    ctx.fill()
-  }
-
-  for (let i = 0; i < 36; i++) {
-    const y = Math.random() * canvas.height
-    const thickness = 18 + Math.random() * 40
-    const alpha = 0.03 + Math.random() * 0.05
+  for (let i = 0; i < 18; i++) {
+    const y = rand() * height
+    const thickness = randRange(18, 42)
+    const alpha = randRange(0.012, 0.024)
     const band = ctx.createLinearGradient(0, y - thickness, 0, y + thickness)
     band.addColorStop(0, 'rgba(0,0,0,0)')
-    band.addColorStop(0.5, `rgba(72, 105, 48, ${alpha})`)
+    band.addColorStop(0.5, `rgba(118, 126, 70, ${alpha})`)
     band.addColorStop(1, 'rgba(0,0,0,0)')
     ctx.fillStyle = band
-    ctx.fillRect(0, y - thickness, canvas.width, thickness * 2)
+    ctx.fillRect(0, y - thickness, width, thickness * 2)
   }
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.wrapS = THREE.RepeatWrapping
   texture.wrapT = THREE.RepeatWrapping
-  texture.repeat.set(4.8, 4.8)
+  texture.repeat.set(7.2, 7.2)
   texture.needsUpdate = true
   texture.colorSpace = THREE.SRGBColorSpace
   return texture
@@ -455,8 +517,14 @@ export class GrassFieldEffect {
     emissive: '#35580f',
     emissiveIntensity: 0.22,
     side: THREE.DoubleSide,
-    roughness: 0.82,
+    /** Fully diffuse: avoids view-dependent IBL/specular shimmer on the sun-facing side. */
+    roughness: 1,
     metalness: 0,
+    /** Playground sets `scene.environment` (sky); grass billboards should not mirror it. */
+    envMapIntensity: 0,
+    polygonOffset: true,
+    polygonOffsetFactor: GRASS_BLADE_POLYGON_OFFSET_FACTOR,
+    polygonOffsetUnits: GRASS_BLADE_POLYGON_OFFSET_UNITS,
   })
   private readonly bladeMesh = new THREE.InstancedMesh(this.bladeGeometry, this.bladeMaterial, MAX_INSTANCES)
   private readonly groundTexture = createGroundTexture()
@@ -485,6 +553,7 @@ export class GrassFieldEffect {
   /** Blade indices per spatial cell (`bladeCellKey`); rebuilt with the blade cache. */
   private readonly bladeCellBuckets = new Map<number, number[]>()
   private bladeWindPhaseAttr!: THREE.InstancedBufferAttribute
+  private readonly bladeBurnRimAttr: THREE.InstancedBufferAttribute
   private readonly bladeShaderUniforms: Record<string, THREE.IUniform<number>> = {
     uGrassWindTime: { value: 0 },
     uGrassWindStrength: { value: 0 },
@@ -496,6 +565,7 @@ export class GrassFieldEffect {
   private baseBladeColorsDirty = true
   private frameLayoutViewCull: PresetLayoutViewCull | null = null
   private prevHadLayoutViewCull: boolean | null = null
+  private readonly tmpViewCullBox = new THREE.Box3()
   private params: GrassFieldParams
 
   constructor(
@@ -539,6 +609,8 @@ export class GrassFieldEffect {
     const windPhaseData = new Float32Array(MAX_INSTANCES * 2)
     this.bladeWindPhaseAttr = new THREE.InstancedBufferAttribute(windPhaseData, 2)
     this.bladeGeometry.setAttribute('windPhase', this.bladeWindPhaseAttr)
+    this.bladeBurnRimAttr = createBurnRimInstancedAttribute(MAX_INSTANCES)
+    this.bladeGeometry.setAttribute('burnRim', this.bladeBurnRimAttr)
     this.patchGrassBladeMaterial()
   }
 
@@ -550,25 +622,28 @@ export class GrassFieldEffect {
         '#include <common>',
         `#include <common>
 attribute vec2 windPhase;
+attribute float burnRim;
 varying float vGrassHeight;
 varying float vGrassEdge;
+varying float vBurnRim;
 `,
       )
 
       shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
+vBurnRim = burnRim;
 vGrassHeight = uv.y;
 vGrassEdge = abs( uv.x - 0.5 ) * 2.0;
 {
   float gGpu = uGrassGpuWind;
   vec2 wp = windPhase;
   float gust = sin( uGrassWindTime * 1.55 + wp.x ) + 0.55 * sin( uGrassWindTime * 2.8 + wp.y );
-  float hh = uv.y * uv.y;
   float tip = smoothstep( 0.14, 1.0, uv.y );
   float edgeSigned = uv.x - 0.5;
-  float sway = gust * uGrassWindStrength * 0.14 * hh * gGpu;
-  float bendAmt = ( 0.24 + abs( gust ) * 0.18 ) * uGrassWindStrength * hh * gGpu;
+  float windMask = pow( smoothstep( 0.0, 0.38, uv.y ), 2.85 );
+  float sway = gust * uGrassWindStrength * 0.15 * windMask * gGpu;
+  float bendAmt = ( 0.26 + abs( gust ) * 0.2 ) * uGrassWindStrength * windMask * gGpu;
   transformed.x += edgeSigned * tip * 0.035;
   transformed.z += tip * 0.04 + edgeSigned * edgeSigned * tip * 0.05;
   transformed.x += sway;
@@ -582,6 +657,7 @@ vGrassEdge = abs( uv.x - 0.5 ) * 2.0;
         `#include <common>
 varying float vGrassHeight;
 varying float vGrassEdge;
+varying float vBurnRim;
 `,
       )
 
@@ -601,10 +677,10 @@ varying float vGrassEdge;
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
 totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) );
-`,
+${BURN_NEON_RIM_COLOR_FRAGMENT}`,
       )
     }
-    this.bladeMaterial.customProgramCacheKey = () => 'grass-blade-wind-ao-v4'
+    this.bladeMaterial.customProgramCacheKey = () => 'grass-blade-wind-ao-v8-burn-neon-no-env'
     this.bladeMaterial.needsUpdate = true
   }
 
@@ -821,16 +897,22 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
     }
   }
 
-  /** Scorched body + narrow crisp orange ring at the expanding radius. */
-  private burnFieldAt(x: number, z: number, target: { burn: number; front: number }): { burn: number; front: number } {
+  /** Charred body + crisp front + presence cull in one pass over active burns. */
+  private burnFieldAt(
+    x: number,
+    z: number,
+    target: { burn: number; front: number; cull: number },
+  ): { burn: number; front: number; cull: number } {
     if (this.burns.length === 0) {
       target.burn = 0
       target.front = 0
+      target.cull = 0
       return target
     }
 
     let burn = 0
     let front = 0
+    let cull = 0
     for (const impact of this.burns) {
       const physicalR = Math.max(0.001, impact.radius)
       const s = THREE.MathUtils.clamp(impact.strength, 0, 1)
@@ -848,10 +930,16 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
       const localFront =
         impact.strength * Math.pow(1 - THREE.MathUtils.smoothstep(frontDistance, 0, frontWidth), 2.75)
       front = Math.max(front, localFront)
-    }
 
+      const coreFalloff = 1 - THREE.MathUtils.smoothstep(distance, 0, displayRadius)
+      const coreCull = impact.strength * Math.pow(Math.max(0, coreFalloff), 0.28)
+      const frontCull = localFront * 0.98
+
+      cull = Math.max(cull, Math.max(coreCull, frontCull))
+    }
     target.burn = THREE.MathUtils.clamp(burn, 0, 1)
     target.front = THREE.MathUtils.clamp(front, 0, 1)
+    target.cull = THREE.MathUtils.clamp(cull, 0, 1)
     return target
   }
 
@@ -863,6 +951,12 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
     color.lerp(tmpCharcoal, charMix)
     const ringBoost = edge * (0.88 + 0.12 * (1 - burn))
     color.lerp(tmpCrispOrange, ringBoost)
+    /** WebGPURenderer does not run `onBeforeCompile`; keep neon in base color so burns read everywhere. */
+    const neon = THREE.MathUtils.clamp(burn * 0.5 + front * 0.92, 0, 1)
+    if (neon > 0.03) {
+      tmpCrispOrange.setRGB(1, 0.36, 0.02)
+      color.lerp(tmpCrispOrange, neon * 0.42)
+    }
   }
 
   private updateBurns(delta: number): void {
@@ -963,10 +1057,10 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
     const hasDisturbances = this.disturbances.length > 0
     const hasBurns = this.burns.length > 0
     const needsDynamicBladeColor = hasDisturbances || hasBurns
-    const useGpuWind = !hasDisturbances && !hasBurns
     this.bladeShaderUniforms.uGrassWindTime.value = elapsedTime
     this.bladeShaderUniforms.uGrassWindStrength.value = this.params.wind
-    this.bladeShaderUniforms.uGrassGpuWind.value = useGpuWind ? 1 : 0
+    /** Wind sway is vertex-only (anchored base); CPU no longer rotates the whole blade for wind. */
+    this.bladeShaderUniforms.uGrassGpuWind.value = 1
 
     const stateIndex = this.stateIndex()
     const statePresence = STATE_PRESENCE[stateIndex]!
@@ -979,11 +1073,11 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
     const disturbanceBounds = hasDisturbances ? this.activeDisturbanceBounds() : null
     const burnBounds = hasBurns ? this.activeBurnBounds() : null
     const effectBounds = GrassFieldEffect.mergeXZBounds(disturbanceBounds, burnBounds)
-    const gustTimeA = elapsedTime * 1.55
-    const gustTimeB = elapsedTime * 2.8
-
     const cull = this.frameLayoutViewCull
-    const cullRsq = cull ? cull.radius * cull.radius : 0
+    /** Must match `addGrassCellKeysInDisc` (radius + padding + cell pad). Raw `cull.radius` caused edge pop. */
+    const grassCullPad = cull ? (cull.padding ?? 0) + BLADE_CELL_SIZE * 0.35 : 0
+    const effectiveCullR = cull ? cull.radius + grassCullPad : 0
+    const cullRsq = cull ? effectiveCullR * effectiveCullR : 0
     let camLX = 0
     let camLZ = 0
     if (cull) {
@@ -995,8 +1089,22 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
 
     let activeCellKeys: Set<number> | null = null
     if (cull && this.bladeCellBuckets.size > 0) {
+      /**
+       * Per-frame buckets: disc only. Frustum tests on coarse cells toggle when the camera
+       * nudges (AABB vs frustum), which reads as distant grass flicker.
+       * Layout-slot culling during cache rebuild still uses frustum for CPU savings.
+       */
       activeCellKeys = new Set<number>()
-      addGrassCellKeysInDisc(camLX, camLZ, cull.radius, activeCellKeys)
+      addGrassCellKeysInDisc(
+        camLX,
+        camLZ,
+        cull.radius,
+        cull.padding ?? 0,
+        activeCellKeys,
+        null,
+        this.group,
+        this.tmpViewCullBox,
+      )
       if (effectBounds) {
         addGrassCellKeysInAabb(
           effectBounds.minX,
@@ -1050,7 +1158,18 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
 
       const burnField = hasBurns ? this.burnFieldAt(blade.x, blade.z, tmpGrassBurnField) : ZERO_GRASS_BURN_FIELD
 
-      /** Scorched blades keep most of their height: laser trample + burn shrink stacked invisibly. */
+      /** Presence gate (stronger than visual burn): bare patch matches shot footprint, then regrows as strength fades. */
+      if (hasBurns) {
+        /** Game shots cap strength below 1; boost so the bare patch still clears almost all blades. */
+        const burnCullStrength = THREE.MathUtils.clamp(0.05 + burnField.cull * 1.06, 0, 1)
+        if (burnCullStrength > 0.004) {
+          const burnPresenceLimit =
+            THREE.MathUtils.lerp(statePresence, 0, burnCullStrength) * blade.coverageMultiplier
+          if (blade.hashPresence > burnPresenceLimit) return
+        }
+      }
+
+      /** Charred blades keep most of their height: laser trample + burn shrink stacked invisibly. */
       const burnTrampleShield = THREE.MathUtils.clamp(
         burnField.burn * 0.62 + burnField.front * 1.4,
         0,
@@ -1059,15 +1178,11 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
       const visDisturbance =
         localDisturbance * THREE.MathUtils.lerp(1, 0.14, burnTrampleShield)
 
-      const gust =
-        Math.sin(gustTimeA + blade.windPhaseA) +
-        0.55 * Math.sin(gustTimeB + blade.windPhaseB)
-      const windYaw = useGpuWind ? 0 : gust * this.params.wind * 0.14
-      const windBend = useGpuWind ? 0 : (0.24 + Math.abs(gust) * 0.18) * this.params.wind
       const trampleBend = visDisturbance * 1.15 * disturbanceLift
 
       const burnWidthMul = 1 - burnField.burn * 0.38 + burnField.front * 0.1
-      const burnHeightMul = Math.max(0.36, 1 - burnField.burn * 0.5 + burnField.front * 0.34)
+      /** Strong burn can nearly flatten blades; floor keeps a stub so instances stay valid. */
+      const burnHeightMul = Math.max(0.06, 1 - burnField.burn * 0.62 + burnField.front * 0.34)
 
       tmpPos.set(
         blade.x + awayX * visDisturbance * 0.22,
@@ -1075,9 +1190,9 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
         blade.z + awayZ * visDisturbance * 0.22,
       )
       dummy.position.copy(tmpPos)
-      dummy.rotation.set(0, Math.atan2(awayX, awayZ) + blade.baseBendDirection + windYaw, 0)
+      dummy.rotation.set(0, Math.atan2(awayX, awayZ) + blade.baseBendDirection, 0)
       dummy.rotateX(blade.baseRotateX)
-      dummy.rotateZ(((windBend + trampleBend) * Math.sign(awayX || 1) + stateLean) * stateBend)
+      dummy.rotateZ((trampleBend * Math.sign(awayX || 1) + stateLean) * stateBend)
       dummy.scale.set(
         blade.baseWidth * bladeWidthScale * (1 - visDisturbance * 0.42) * burnWidthMul,
         Math.max(blade.baseHeight * bladeHeightScale * (1 - visDisturbance * 0.88), 0.18 * bladeHeightScale) *
@@ -1089,6 +1204,11 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
 
       windArr[instanceIndex * 2] = blade.windPhaseA
       windArr[instanceIndex * 2 + 1] = blade.windPhaseB
+
+      const burnRim01 = hasBurns
+        ? THREE.MathUtils.clamp(burnField.burn * 0.92 + burnField.front * 0.42, 0, 1)
+        : 0
+      this.bladeBurnRimAttr.setX(instanceIndex, burnRim01)
 
       if (needsDynamicBladeColor) {
         tmpColor.setRGB(blade.baseColorR, blade.baseColorG, blade.baseColorB)
@@ -1126,6 +1246,7 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
     this.bladeMesh.count = instanceIndex
     this.bladeMesh.instanceMatrix.needsUpdate = true
     this.bladeWindPhaseAttr.needsUpdate = true
+    this.bladeBurnRimAttr.needsUpdate = true
     if (needsDynamicBladeColor && this.bladeMesh.instanceColor) {
       this.bladeMesh.instanceColor.needsUpdate = true
       this.baseBladeColorsDirty = true
@@ -1212,65 +1333,86 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
     const bladeBaseColor = this.tintColor(STATE_BLADE_BASE[stateIndex]!, SEASON_BLADE_TINT, 0.22, tmpSeasonColorA)
     const bladeTipColor = this.tintColor(STATE_BLADE_TIP[stateIndex]!, SEASON_BLADE_TINT, 0.44, tmpSeasonColorB)
 
+    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = this.frameLayoutViewCull
+      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
+      : undefined
+
+    if (this.frameLayoutViewCull?.frustum) {
+      this.group.updateMatrixWorld(true)
+    }
+
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
       shouldVisitSlot: this.frameLayoutViewCull
-        ? (slot) => {
-            tmpLocalPoint.copy(this.frameLayoutViewCull!.cameraWorld)
-            this.group.worldToLocal(tmpLocalPoint)
-            const r = this.frameLayoutViewCull!.radius
-            const dx = slot.spanCenter - tmpLocalPoint.x
-            const dz = slot.lineCoord - tmpLocalPoint.z
-            return dx * dx + dz * dz <= r * r
-          }
+        ? (slot) => shouldVisitSlotForViewCull(slot, 0, 0, this.frameLayoutViewCull!, frustumCtx)
         : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         const n = resolvedGlyphs.length
         const lineSeed = lineSignature(tokenLineKey)
         const lineLateralShift = (lineSeed - 0.5) * slot.sectorStep * 0.28
         const lineDepthShift = (lineSeed - 0.5) * rowStep * 0.18
-        const lineClusterStrength = 0.035 + lineSeed * 0.05
+        const lineClusterStrength = 0.014 + lineSeed * 0.022
 
         for (let k = 0; k < n; k++) {
           if (this.cachedBlades.length >= MAX_INSTANCES) break
           const token = resolvedGlyphs[k]!
           const identity = token.ordinal + 1
           const { meta } = token
+
+          const weftScatter = glyphScatter(identity, lineSeed, k)
+          const hashLat0 = glyphHash(identity, slot.row, k, 0)
+          const hashDep0 = glyphHash(identity + 1, slot.sector, k, 0)
+          const hashPresenceGlyph = glyphHash(identity + 3, slot.row * 131 + slot.sector, k, 41)
+
+          const t01 = THREE.MathUtils.clamp(
+            (k + hashLat0 * 0.9 + 0.05) / (n + 0.1) + weftScatter * lineClusterStrength,
+            0.02,
+            0.98,
+          )
+          const clumpX =
+            slot.spanStart +
+            t01 * slot.spanSize +
+            lineLateralShift +
+            (hashLat0 - 0.5) * slot.sectorStep * 0.38 +
+            weftScatter * slot.sectorStep * 0.11
+          const clumpZ =
+            slot.lineCoord +
+            lineDepthShift +
+            (hashDep0 - 0.5) * rowStep * 0.52 +
+            weftScatter * rowStep * 0.12
+
+          const coverageMultiplier = this.placementMask.coverageMultiplierAtXZ(clumpX, clumpZ)
+          if (hashPresenceGlyph > statePresence * coverageMultiplier) continue
+          if (this.placementMask.excludeAtXZ(clumpX, clumpZ)) continue
+
+          const clumpRBase = slot.sectorStep * (0.1 + hashLat0 * 0.07) + rowStep * 0.04
+
           for (let blade = 0; blade < BLADES_PER_SLOT; blade++) {
             if (this.cachedBlades.length >= MAX_INSTANCES) break
 
-            const weftScatter = glyphScatter(identity, lineSeed, k * BLADES_PER_SLOT + blade)
-            const hashLat = glyphHash(identity, slot.row, k, blade)
+            const hashLat = glyphHash(identity, slot.row, k, blade + 1)
             const hashDep = glyphHash(identity + 1, slot.sector, k, blade ^ 0xff)
             const hashOrganic = glyphHash(identity + 2, slot.row ^ slot.sector, k + blade * 31)
-            const hashPresence = glyphHash(identity + 3, slot.row * 131 + slot.sector, k, blade * 17 + 7)
 
-            const t01 = THREE.MathUtils.clamp(
-              (k + hashLat * 0.9 + 0.05) / (n + 0.1) + weftScatter * lineClusterStrength,
-              0.02,
-              0.98,
-            )
-            const x =
-              slot.spanStart +
-              t01 * slot.spanSize +
-              lineLateralShift +
-              (hashLat - 0.5) * slot.sectorStep * 0.38 +
-              weftScatter * slot.sectorStep * 0.11
-            const localZ =
-              slot.lineCoord +
-              lineDepthShift +
-              (hashDep - 0.5) * rowStep * 0.52 +
-              weftScatter * rowStep * 0.12
+            const disk = Math.sqrt(hashDep)
+            const angle =
+              (blade / BLADES_PER_SLOT) * Math.PI * 2 +
+              hashLat * 1.55 +
+              glyphHash(identity + 5, k, blade, slot.sector) * 0.85
+            const rad = disk * clumpRBase * (0.55 + hashOrganic * 0.45)
+            const x = clumpX + Math.cos(angle) * rad
+            const localZ = clumpZ + Math.sin(angle) * rad
+
             if (this.placementMask.excludeAtXZ(x, localZ)) continue
 
-            const coverageMultiplier = this.placementMask.coverageMultiplierAtXZ(x, localZ)
-            if (hashPresence > statePresence * coverageMultiplier) continue
+            const coverageMul = this.placementMask.coverageMultiplierAtXZ(x, localZ)
+            if (hashPresenceGlyph > statePresence * coverageMul) continue
 
             const organicNoise = grassOrganicWorldField(x + hashOrganic * 0.4, localZ + hashOrganic * 0.3)
-            const tipFade = blade * 0.12
+            const tipFade = blade * 0.07
             const stateBrightness = THREE.MathUtils.clamp(
               0.06 + organicNoise * 0.78 + meta.lightShift + tipFade,
               0,
@@ -1283,17 +1425,18 @@ totalEmissiveRadiance *= mix( 0.34, 1.0, smoothstep( 0.0, 0.48, vGrassHeight ) )
               x,
               z: localZ,
               baseY: this.baseGroundY(x, localZ),
-              baseWidth: (0.056 + meta.widthBias + (identity % 5) * 0.006 + organicNoise * 0.012 + blade * 0.004) * stateWidth,
+              baseWidth: (0.062 + meta.widthBias + (identity % 5) * 0.006 + organicNoise * 0.014 + blade * 0.003) * stateWidth,
               baseHeight:
-                (0.88 + meta.heightBias + (identity % 7) * 0.08 + organicNoise * 0.14 + blade * 0.07) *
-                0.62 *
+                (0.82 + meta.heightBias + (identity % 7) * 0.07 + organicNoise * 0.12 + blade * 0.04) *
+                0.58 *
                 stateHeight,
-              baseRotateX: (organicNoise - 0.5) * 0.12 * stateBend,
-              baseBendDirection: (organicNoise - 0.5) * 0.35,
+              baseRotateX: (organicNoise - 0.5) * 0.14 * stateBend + (blade - BLADES_PER_SLOT * 0.5) * 0.018,
+              baseBendDirection:
+                (organicNoise - 0.5) * 0.38 + angle * 0.12 + (hashLat - 0.5) * 0.45,
               windPhaseA: x * 0.52 + localZ * 0.34,
               windPhaseB: x * 1.1 - localZ * 0.62,
-              coverageMultiplier,
-              hashPresence,
+              coverageMultiplier: coverageMul,
+              hashPresence: hashPresenceGlyph,
               baseColorR: tmpColor.r,
               baseColorG: tmpColor.g,
               baseColorB: tmpColor.b,

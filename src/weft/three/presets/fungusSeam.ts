@@ -13,6 +13,7 @@ import {
   type BandTokenId,
   type BandTokenMeta,
 } from './bandFieldSource'
+import { createBurnRimInstancedAttribute, patchMeshStandardBurnNeonRim } from './burnNeonRim'
 
 export type FungusSeamParams = {
   layoutDensity: number
@@ -141,6 +142,12 @@ function fungusColor(
     tmpEmberColor.setHSL(0.045, 0.98, 0.56)
     tmpColor.lerp(tmpEmberColor, front * 0.9)
   }
+  /** WebGPU: rim shader may not run — saturate orange on burn. */
+  const neon = THREE.MathUtils.clamp(burn * 0.55 + front * 0.88, 0, 1)
+  if (neon > 0.03) {
+    tmpEmberColor.setRGB(1, 0.35, 0.03)
+    tmpColor.lerp(tmpEmberColor, neon * 0.4)
+  }
   return tmpColor
 }
 
@@ -154,6 +161,7 @@ export class FungusSeamEffect {
     side: THREE.DoubleSide,
   })
   private readonly fungusMesh = new THREE.InstancedMesh(this.fungusGeometry, this.fungusMaterial, MAX_INSTANCES)
+  private readonly fungusBurnRimAttr: THREE.InstancedBufferAttribute
   private readonly placementMask: Required<FungusSeamPlacementMask>
   private readonly fieldWidth: number
   private readonly fieldDepth: number
@@ -193,6 +201,9 @@ export class FungusSeamEffect {
 
     this.fungusMesh.frustumCulled = false
     this.fungusMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.fungusBurnRimAttr = createBurnRimInstancedAttribute(MAX_INSTANCES)
+    this.fungusGeometry.setAttribute('burnRim', this.fungusBurnRimAttr)
+    patchMeshStandardBurnNeonRim(this.fungusMaterial, 'fungus-seam')
     this.group.add(this.fungusMesh)
   }
 
@@ -337,6 +348,7 @@ export class FungusSeamEffect {
 
     this.fungusMesh.count = instanceIndex
     this.fungusMesh.instanceMatrix.needsUpdate = true
+    this.fungusBurnRimAttr.needsUpdate = true
     if (this.fungusMesh.instanceColor) {
       this.fungusMesh.instanceColor.needsUpdate = true
     }
@@ -389,7 +401,9 @@ export class FungusSeamEffect {
       const burnField = this.burnFieldAt(x, z)
       const remainingCoverage = coverage * (1 - burnField.burn * 0.995)
       if (remainingCoverage <= 0.09) continue
-      if (glyphHash(identity + 5, slot.row, k ^ 0x55) > remainingCoverage) continue
+      /** Slight bias so wide bands stay visually dense at mid-coverage (forest seams). */
+      const presenceGate = Math.min(1, remainingCoverage + 0.11)
+      if (glyphHash(identity + 5, slot.row, k ^ 0x55) > presenceGate) continue
 
       const groundY = getGroundHeight(x, z)
       const yaw = hashYaw * Math.PI * 2
@@ -406,7 +420,7 @@ export class FungusSeamEffect {
           (1 - burnField.burn * 0.93 + burnField.front * 0.12),
       )
       const shrivel = burnField.burn * 0.62
-      dummy.position.set(x, groundY + 0.012 + depth * (0.015 - shrivel * 0.024 + burnField.front * 0.012), z)
+      dummy.position.set(x, groundY + 0.028 + depth * (0.015 - shrivel * 0.024 + burnField.front * 0.012), z)
       dummy.rotation.set(
         -Math.PI / 2 + (hashDep - 0.5) * 0.14 + burnField.burn * 0.62 - burnField.front * 0.12,
         yaw,
@@ -419,6 +433,12 @@ export class FungusSeamEffect {
         instanceIndex,
         fungusColor(identity, coverage, meta, burnField.burn, burnField.front),
       )
+      const fungusBurnRim = THREE.MathUtils.clamp(
+        burnField.burn * 0.9 + burnField.front * 0.5,
+        0,
+        1,
+      )
+      this.fungusBurnRimAttr.setX(instanceIndex, fungusBurnRim)
       instanceIndex++
     }
 

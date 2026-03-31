@@ -204,7 +204,8 @@ export const FUNGUS_SEAM_ZONE = {
 export const PLAYGROUND_BAND_LAYOUT_DENSITY = 1.1
 export const PLAYGROUND_BAND_SIZE_SCALE = 0.94
 export const PLAYGROUND_VERGE_BAND_WIDTH = 10.8
-export const PLAYGROUND_FUNGUS_SEAM_WIDTH = 1.95
+/** Wide enough that the seam reads clearly in the rubble lot (narrow bands looked empty). */
+export const PLAYGROUND_FUNGUS_SEAM_WIDTH = 3.85
 export const PLAYGROUND_BAND_EDGE_SOFTNESS = 1.05
 
 export function isInsideRubbleZone(x: number, z: number): boolean {

@@ -23,8 +23,8 @@ import {
   PLAYGROUND_VERGE_BAND_WIDTH,
 } from "./playground/playgroundWorld";
 import {
-  PLAYGROUND_QUALITY_DEFAULT,
-  type PlaygroundQuality,
+  DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
+  DEMO_GRASS_LAYOUT_DENSITY_MAX,
 } from "./playground/playgroundQuality";
 import {
   formatPlaygroundPerfClipboardText,
@@ -103,7 +103,7 @@ export function Editor() {
   );
   const [grassState, setGrassState] = useState(DEFAULT_GRASS_FIELD_PARAMS.state);
   const [grassLayoutDensity, setGrassLayoutDensity] = useState(
-    DEFAULT_GRASS_FIELD_PARAMS.layoutDensity,
+    DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
   );
   const [grassBladeWidthScale, setGrassBladeWidthScale] = useState(
     DEFAULT_GRASS_FIELD_PARAMS.bladeWidthScale,
@@ -124,7 +124,7 @@ export function Editor() {
     PLAYGROUND_BAND_SIZE_SCALE,
   );
   const [leafPileGlyphSize, setLeafPileGlyphSize] = useState(
-    PLAYGROUND_BAND_SIZE_SCALE * 1.08,
+    PLAYGROUND_BAND_SIZE_SCALE * 1.72,
   );
   const [fungusGlyphSize, setFungusGlyphSize] = useState(
     PLAYGROUND_BAND_SIZE_SCALE * 0.92,
@@ -142,7 +142,7 @@ export function Editor() {
   const [vergeBandWidth, setVergeBandWidth] = useState(
     PLAYGROUND_VERGE_BAND_WIDTH,
   );
-  const [leafPileBandWidth, setLeafPileBandWidth] = useState(1.15);
+  const [leafPileBandWidth, setLeafPileBandWidth] = useState(1.85);
   const [fungusBandWidth, setFungusBandWidth] = useState(
     PLAYGROUND_FUNGUS_SEAM_WIDTH,
   );
@@ -163,9 +163,6 @@ export function Editor() {
   );
   const [starRecoveryRate, setStarRecoveryRate] = useState(
     DEFAULT_STAR_SKY_PARAMS.recoveryRate,
-  );
-  const [quality, setQuality] = useState<PlaygroundQuality>(
-    PLAYGROUND_QUALITY_DEFAULT,
   );
   const [perfStats, setPerfStats] = useState<PlaygroundPerfStats | null>(null);
   const [perfHudMinimized, setPerfHudMinimized] = useState(true);
@@ -252,11 +249,6 @@ export function Editor() {
       runtime.dispose();
     };
   }, []);
-
-  useEffect(() => {
-    if (runtimeState !== "ready") return;
-    runtimeRef.current?.setQuality(quality);
-  }, [quality, runtimeState]);
 
   useEffect(() => {
     const tick = () => setPerfStats(runtimeRef.current?.perfStats ?? null);
@@ -391,7 +383,7 @@ export function Editor() {
           <>
             <header className="sidebar-header">
               <div className="sidebar-header__row">
-                <h1>Playground</h1>
+                <h1>Third person demo</h1>
                 <button
                   type="button"
                   className="sidebar-collapse"
@@ -404,7 +396,7 @@ export function Editor() {
               </div>
               <p className="tagline">
                 Weft is a Three.js-first SDK for reactive surfaces. These
-                playground samples share the same layout core, while presets
+                samples share the same layout core, while presets
                 like grass and fire demonstrate the higher-level authoring API
                 built on top of it.
               </p>
@@ -414,21 +406,8 @@ export function Editor() {
               <div className="sample-controls">
                 <ControlSection
                   title="Performance"
-                  summary="DPR cap + layout density scaling"
+                  summary="DPR cap 1×; layout density scaled for smooth play"
                 >
-                  <label className="control">
-                    <span>Quality</span>
-                    <select
-                      value={quality}
-                      onChange={(e) =>
-                        setQuality(e.target.value as PlaygroundQuality)
-                      }
-                    >
-                      <option value="low">Low (game-style)</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High (showcase)</option>
-                    </select>
-                  </label>
                   <label className="control">
                     <span>Collision overlay</span>
                     <input
@@ -515,8 +494,8 @@ export function Editor() {
                     <input
                       type="range"
                       min={0}
-                      max={12}
-                      step={0.05}
+                      max={DEMO_GRASS_LAYOUT_DENSITY_MAX}
+                      step={0.5}
                       value={grassLayoutDensity}
                       onChange={(e) =>
                         setGrassLayoutDensity(Number(e.target.value))
@@ -1120,9 +1099,9 @@ export function Editor() {
             </strong>
             <span>
               {runtimeState === "loading"
-                ? "This playground runs on a plain TypeScript + Three.js WebGPU runtime."
+                ? "This demo runs on a plain TypeScript + Three.js WebGPU runtime."
                 : (runtimeError ??
-                  "This playground requires a WebGPU-capable browser and adapter.")}
+                  "This demo requires a WebGPU-capable browser and adapter.")}
             </span>
           </div>
         )}

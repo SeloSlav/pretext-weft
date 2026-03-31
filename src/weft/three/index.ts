@@ -1,4 +1,8 @@
-export type { PresetLayoutViewCull } from './presets/presetLayoutCull.ts'
+export type {
+  PresetLayoutViewCull,
+  PresetLayoutViewCullFrustumContext,
+} from './presets/presetLayoutCull.ts'
+export { slotIntersectsViewFrustum, shouldVisitSlotForViewCull } from './presets/presetLayoutCull.ts'
 
 export {
   createSurfaceEffect,

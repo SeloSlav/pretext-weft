@@ -10,28 +10,28 @@ const SURFACE_STATES = [
     id: 'healthy',
     label: 'Healthy',
     imageSrc: '/landing-state-healthy.png',
-    alt: 'Dense bright green field state in the playground.',
+    alt: 'Dense bright green field state in the third person demo.',
     description: 'Dense cover, full color, and the same placement rules pushing the surface toward a healthy state.',
   },
   {
     id: 'dry',
     label: 'Dry',
     imageSrc: '/landing-state-dry.png',
-    alt: 'Yellow dry field state in the playground.',
+    alt: 'Yellow dry field state in the third person demo.',
     description: 'The field keeps the same projection and layout logic while the palette and source weights shift toward a dry look.',
   },
   {
     id: 'corrupted',
     label: 'Corrupted',
     imageSrc: '/landing-state-corrupted.png',
-    alt: 'Purple corrupted field state in the playground.',
+    alt: 'Purple corrupted field state in the third person demo.',
     description: 'Corruption is just another semantic state: same terrain, same driver, visibly different output.',
   },
   {
     id: 'dead',
     label: 'Dead',
     imageSrc: '/landing-state-dead.png',
-    alt: 'Sparse dead field state in the playground.',
+    alt: 'Sparse dead field state in the third person demo.',
     description: 'When width and source weights collapse, the surface thins out instead of needing a separate destruction pipeline.',
   },
 ] as const
@@ -84,7 +84,7 @@ export function Landing({ onEnterEditor }: LandingProps) {
 
         <div className="landing__actions">
           <button type="button" className="btn btn--primary" onClick={onEnterEditor}>
-            Open engine playground
+            Open third person demo
           </button>
           <a className="btn btn--secondary" href={weftGuideUrl} target="_blank" rel="noreferrer">
             Open `weft.md` guide

@@ -14,7 +14,12 @@ import {
   type LeafPileTokenId,
   type LeafPileTokenMeta,
 } from './leafPileBandSource'
-import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
+import {
+  shouldVisitSlotForViewCull,
+  type PresetLayoutViewCull,
+  type PresetLayoutViewCullFrustumContext,
+} from './presetLayoutCull'
+import { createBurnRimInstancedAttribute, patchMeshStandardBurnNeonRim } from './burnNeonRim'
 
 export type LeafPileBandParams = {
   layoutDensity: number
@@ -32,9 +37,9 @@ export type LeafPileBandParams = {
 }
 
 export const DEFAULT_LEAF_PILE_BAND_PARAMS: LeafPileBandParams = {
-  layoutDensity: 1.15,
-  sizeScale: 1.24,
-  bandWidth: 3.35,
+  layoutDensity: 1.55,
+  sizeScale: 1.95,
+  bandWidth: 4.75,
   edgeSoftness: 1.35,
   season: 'autumn',
   disturbanceRadius: 1.45,
@@ -68,7 +73,7 @@ const DEFAULT_BOUNDS: LeafPileBandBounds = {
 
 const ROWS = 22
 const SECTORS = 30
-const MAX_INSTANCES = 5_500
+const MAX_INSTANCES = 11_000
 const BASE_LAYOUT_PX_PER_WORLD = 9
 const MAX_ACTIVE_DISTURBANCES = 40
 const MAX_BURNS = 18
@@ -82,6 +87,7 @@ const tmpLocalPoint = new THREE.Vector3()
 const tmpColor = new THREE.Color()
 const tmpAshColor = new THREE.Color()
 const tmpEmberColor = new THREE.Color()
+const tmpCrispOrange = new THREE.Color()
 const tmpBurnFieldA = { burn: 0, front: 0 }
 const ZERO_BURN_FIELD = { burn: 0, front: 0 }
 const dummy = new THREE.Object3D()
@@ -110,7 +116,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 5,
+    leavesPerClump: 9,
     spread: 1,
   },
   summer: {
@@ -122,7 +128,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 5,
+    leavesPerClump: 9,
     spread: 1,
   },
   autumn: {
@@ -134,7 +140,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 5,
+    leavesPerClump: 9,
     spread: 1,
   },
   winter: {
@@ -146,7 +152,7 @@ const SEASON_STYLE: Record<
     widthScale: 1,
     lengthScale: 1,
     lift: 1,
-    leavesPerClump: 5,
+    leavesPerClump: 9,
     spread: 1,
   },
 }
@@ -252,14 +258,22 @@ function leafColor(
     return tmpAshColor.setHSL(0.08 + front * 0.05, 0.06 + front * 0.14, 0.1 + front * 0.3)
   }
   if (front > 0.035) {
-    return tmpEmberColor.setHSL(0.052 + front * 0.022, 0.93, 0.16 + front * 0.3)
+    tmpEmberColor.setHSL(0.052 + front * 0.022, 0.93, 0.16 + front * 0.3)
+    /** WebGPU: no `onBeforeCompile` rim — push saturated orange so burns stay visible. */
+    tmpEmberColor.lerp(tmpCrispOrange.setRGB(1, 0.34, 0.03), THREE.MathUtils.clamp(front * 0.55 + burn * 0.25, 0, 0.75))
+    return tmpEmberColor
   }
   const seasonStyle = SEASON_STYLE[season]
   const t = uhash(identity * 2654435761)
   const hue = seasonStyle.baseHue + (t - 0.5) * 0.06 + meta.hueShift
   const sat = seasonStyle.saturation + coverage * 0.16 + t * 0.08
   const light = seasonStyle.lightness + coverage * 0.12 + meta.lightShift - burn * 0.28
-  return tmpColor.setHSL(hue, sat, light)
+  tmpColor.setHSL(hue, sat, light)
+  if (burn > 0.04) {
+    tmpCrispOrange.setRGB(1, 0.36, 0.02)
+    tmpColor.lerp(tmpCrispOrange, THREE.MathUtils.clamp(burn * 0.42 + front * 0.2, 0, 0.65))
+  }
+  return tmpColor
 }
 
 export class LeafPileBandEffect {
@@ -272,6 +286,7 @@ export class LeafPileBandEffect {
     side: THREE.DoubleSide,
   })
   private readonly leafMesh = new THREE.InstancedMesh(this.leafGeometry, this.leafMaterial, MAX_INSTANCES)
+  private readonly leafBurnRimAttr: THREE.InstancedBufferAttribute
   private readonly placementMask: Required<LeafPileBandPlacementMask>
   private readonly fieldWidth: number
   private readonly fieldDepth: number
@@ -284,6 +299,7 @@ export class LeafPileBandEffect {
   private readonly disturbances: Disturbance[] = []
   private readonly leafStates = new Map<number, LeafState>()
   private readonly burns: LeafPileBurn[] = []
+  private readonly tmpViewCullBox = new THREE.Box3()
   private lastElapsed = 0
   private updateGeneration = 0
 
@@ -311,6 +327,9 @@ export class LeafPileBandEffect {
 
     this.leafMesh.frustumCulled = false
     this.leafMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.leafBurnRimAttr = createBurnRimInstancedAttribute(MAX_INSTANCES)
+    this.leafGeometry.setAttribute('burnRim', this.leafBurnRimAttr)
+    patchMeshStandardBurnNeonRim(this.leafMaterial, 'leaf-pile')
     this.group.add(this.leafMesh)
   }
 
@@ -441,13 +460,21 @@ export class LeafPileBandEffect {
     let instanceIndex = 0
     const generation = ++this.updateGeneration
 
+    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
+      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
+      : undefined
+
+    if (viewCull?.frustum) {
+      this.group.updateMatrixWorld(true)
+    }
+
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
       shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
         : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
@@ -472,6 +499,7 @@ export class LeafPileBandEffect {
 
     this.leafMesh.count = instanceIndex
     this.leafMesh.instanceMatrix.needsUpdate = true
+    this.leafBurnRimAttr.needsUpdate = true
     if (this.leafMesh.instanceColor) {
       this.leafMesh.instanceColor.needsUpdate = true
     }
@@ -723,10 +751,10 @@ export class LeafPileBandEffect {
       if (glyphHash(identity + 5, slot.row, k ^ 0x55) > remainingCoverage * seasonStyle.presence) continue
 
       const leavesInClump = Math.min(
-        8,
+        14,
         Math.max(
-          3,
-          seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 4 + hashYaw * 3 + organicNoise * 3),
+          5,
+          seasonStyle.leavesPerClump + Math.floor((coverage - 0.25) * 5 + hashYaw * 4 + organicNoise * 4),
         ),
       )
       const spreadScale = seasonStyle.spread * (1.02 + organicNoise * 0.36)
@@ -821,6 +849,12 @@ export class LeafPileBandEffect {
             leafBurnField.front,
           ),
         )
+        const leafBurnRim = THREE.MathUtils.clamp(
+          leafBurnField.burn * 0.9 + leafBurnField.front * 0.45,
+          0,
+          1,
+        )
+        this.leafBurnRimAttr.setX(instanceIndex, leafBurnRim)
         instanceIndex++
       }
     }

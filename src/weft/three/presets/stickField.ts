@@ -12,7 +12,11 @@ import {
   type StickTokenId,
   type StickTokenMeta,
 } from './stickFieldSource'
-import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
+import {
+  shouldVisitSlotForViewCull,
+  type PresetLayoutViewCull,
+  type PresetLayoutViewCullFrustumContext,
+} from './presetLayoutCull'
 
 export type StickFieldParams = {
   layoutDensity: number
@@ -177,6 +181,7 @@ export class StickFieldEffect {
   private readonly fieldCenterZ: number
   private readonly layoutDriver: SurfaceLayoutDriver<StickTokenId, StickTokenMeta>
   private readonly twigStates = new Map<string, StickTwigState>()
+  private readonly tmpViewCullBox = new THREE.Box3()
   private readonly pendingImpulses: PendingStickImpulse[] = []
   private params: StickFieldParams
   private lastElapsed = 0
@@ -279,13 +284,21 @@ export class StickFieldEffect {
     let instanceIndex = 0
     const visitedKeys = new Set<string>()
 
+    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
+      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
+      : undefined
+
+    if (viewCull?.frustum) {
+      this.group.updateMatrixWorld(true)
+    }
+
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
       shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
         : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(

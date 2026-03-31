@@ -80,12 +80,12 @@ import {
   pushCircleOutOfAabb,
 } from './playgroundCollision'
 import {
-  getQualityGrassLayoutScale,
-  getQualityPixelRatioCap,
-  getQualityRockLayoutScale,
-  getQualityStarLayoutScale,
-  type PlaygroundQuality,
-  PLAYGROUND_QUALITY_DEFAULT,
+  DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
+  DEMO_GRASS_LAYOUT_DENSITY_MAX,
+  PLAYGROUND_GRASS_LAYOUT_SCALE,
+  PLAYGROUND_PIXEL_RATIO_CAP,
+  PLAYGROUND_ROCK_LAYOUT_SCALE,
+  PLAYGROUND_STAR_LAYOUT_SCALE,
 } from './playgroundQuality'
 import {
   createTownIntersectionScene,
@@ -308,10 +308,12 @@ export class PlaygroundRuntime {
   private static readonly INDOOR_CAMERA_DISTANCE_MAX = 3.15
   private static readonly INDOOR_SHOULDER_OFFSET = 0.24
   private static readonly INDOOR_CAMERA_HEIGHT = 1.95
+  private static readonly SCENERY_FIRST_PERSON_CAMERA_HEIGHT = 1.68
   private static readonly ROOF_SNAP_DOWN_DISTANCE = 0.85
   private static readonly WALL_TOP_CLEARANCE = 0.14
   private static readonly INDOOR_FOLLOW_LERP = 14
   private static readonly OUTDOOR_FOV = 32
+  private static readonly SCENERY_FIRST_PERSON_FOV = 68
   private static readonly INDOOR_FOV = 37
   private static readonly CAMERA_OBSTRUCTION_PADDING = 0.22
   private static readonly CAMERA_GROUND_CLEARANCE = 0.22
@@ -340,6 +342,8 @@ export class PlaygroundRuntime {
   private readonly cameraLookTarget = new THREE.Vector3()
   private readonly cameraSafePosition = new THREE.Vector3()
   private readonly collisionSample = new THREE.Vector3()
+  private readonly effectCullWorld = new THREE.Vector3()
+  private readonly effectCullSphere = new THREE.Sphere()
   private readonly ndcCenter = new THREE.Vector2(0, 0)
   private readonly shutterEffect = createShellSurfaceEffect({
     surface: getPreparedShellSurface(),
@@ -369,22 +373,7 @@ export class PlaygroundRuntime {
   private readonly grassEffect: ReturnType<typeof createGrassEffect>
   private readonly vergeBandEffect: ReturnType<typeof createBandFieldEffect>
   private readonly leafPileEffect: ReturnType<typeof createLeafPileBandEffect>
-  private readonly fungusBandEffect = createFungusSeamEffect({
-    surface: getPreparedFungusBandSurface(),
-    seedCursor,
-    initialParams: {
-      ...DEFAULT_FUNGUS_SEAM_PARAMS,
-      layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
-      sizeScale: PLAYGROUND_BAND_SIZE_SCALE * 0.92,
-      bandWidth: PLAYGROUND_FUNGUS_SEAM_WIDTH,
-      edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 1.25,
-    },
-    placementMask: {
-      bounds: FUNGUS_SEAM_ZONE,
-      includeAtXZ: isInsideFungusSeamZone,
-      distanceToBandAtXZ: distanceToFungusSeamAtXZ,
-    },
-  })
+  private readonly fungusBandEffect: ReturnType<typeof createFungusSeamEffect>
   private readonly rockFieldEffect: ReturnType<typeof createRockFieldEffect>
   private readonly shrubFieldEffect: ReturnType<typeof createShrubFieldEffect>
   private readonly treeFieldEffect: ReturnType<typeof createTreeFieldEffect>
@@ -427,6 +416,7 @@ export class PlaygroundRuntime {
   private rafId = 0
   private disposed = false
   private lastElapsed = 0
+  private sceneryPointerLocked = false
   private readonly skybox: THREE.Mesh
   private walkStampDistance = 0
   private pendingShoot = false
@@ -458,7 +448,10 @@ export class PlaygroundRuntime {
     recoveryRate: FACADE_FISH_RECOVERY_RATE,
   }
   private glassSurfaceParams: ShellSurfaceParams = { ...DEFAULT_GLASS_SURFACE_PARAMS }
-  private grassFieldParams: GrassFieldParams = { ...DEFAULT_GRASS_FIELD_PARAMS }
+  private grassFieldParams: GrassFieldParams = {
+    ...DEFAULT_GRASS_FIELD_PARAMS,
+    layoutDensity: DEMO_GRASS_LAYOUT_DENSITY_DEFAULT,
+  }
   private vergeBandParams: BandFieldParams = {
     ...DEFAULT_BAND_FIELD_PARAMS,
     layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY,
@@ -469,8 +462,8 @@ export class PlaygroundRuntime {
   private leafPileParams: LeafPileBandParams = {
     ...DEFAULT_LEAF_PILE_BAND_PARAMS,
     layoutDensity: PLAYGROUND_BAND_LAYOUT_DENSITY * 1.3,
-    sizeScale: PLAYGROUND_BAND_SIZE_SCALE * 1.08,
-    bandWidth: 1.15,
+    sizeScale: PLAYGROUND_BAND_SIZE_SCALE * 1.72,
+    bandWidth: 1.85,
     edgeSoftness: PLAYGROUND_BAND_EDGE_SOFTNESS * 0.9,
     season: 'autumn',
   }
@@ -515,9 +508,8 @@ export class PlaygroundRuntime {
     lookDeltaY: 0,
   }
   private readonly controllerConfig: ThirdPersonControllerConfig = { ...PLAYGROUND_CONTROLLER }
-  private quality: PlaygroundQuality = PLAYGROUND_QUALITY_DEFAULT
-  /** Editor-facing layout densities before quality scaling. */
-  private userGrassLayoutDensity = DEFAULT_GRASS_FIELD_PARAMS.layoutDensity
+  /** Editor-facing layout densities before playground scaling. */
+  private userGrassLayoutDensity = DEMO_GRASS_LAYOUT_DENSITY_DEFAULT
   private userBandLayoutDensity = PLAYGROUND_BAND_LAYOUT_DENSITY
   private userStarLayoutDensity = DEFAULT_STAR_SKY_PARAMS.layoutDensity
   private userRockLayoutDensity = DEFAULT_ROCK_FIELD_PARAMS.layoutDensity
@@ -701,22 +693,36 @@ export class PlaygroundRuntime {
   }
   private static readonly PERF_WINDOW_FRAMES = 45
   private static readonly PERF_LONG_WINDOW_MS = 30_000
-  /** World XZ radius: layout skips distant slots in scenery (CPU). */
-  private static readonly SCENERY_VIEW_CULL_RADIUS = 104
-  /** Third-person slack so slot-based clutter does not pop while still on screen. */
-  private static readonly SCENERY_VIEW_CULL_PADDING = 24
-  /** Extra radius for the eye offset between camera and player in third-person. */
-  private static readonly SCENERY_VIEW_CULL_CAMERA_SLACK = 14
-  /** Bias the cull center slightly toward where the player is aiming. */
-  private static readonly SCENERY_VIEW_CULL_AIM_LEAD = 18
-  private readonly sceneryViewCullBundle: PresetLayoutViewCull
+  /** Grass uses a tighter disc than sparse props because it also gets a frustum pass. */
+  private static readonly SCENERY_GRASS_VIEW_CULL_RADIUS = 78
+  private static readonly PLAYGROUND_GRASS_VIEW_CULL_RADIUS = 52
+  private static readonly GRASS_VIEW_CULL_PADDING = 18
+  /**
+   * Third-person: blade updates use a disc-only pass (no frustum on cells — avoids flicker).
+   * Shift the disc center forward along view so we do not spend CPU on grass behind the camera.
+   */
+  private static readonly PLAYGROUND_GRASS_CULL_FORWARD_BIAS_MAX = 22
+  /** Intact town facades can idle when they are both distant and offscreen. */
+  private static readonly PLAYGROUND_FACADE_IDLE_VISIBLE_DISTANCE = 30
+  /** Neon walls are large; keep a little more idle range so they still feel alive nearby. */
+  private static readonly PLAYGROUND_NEON_IDLE_VISIBLE_DISTANCE = 34
+  /** Window and lamp glass are small enough to freeze sooner when intact and offscreen. */
+  private static readonly PLAYGROUND_GLASS_IDLE_VISIBLE_DISTANCE = 24
+  /** Camera-centered disc + frustum for grass in both demos. */
+  private readonly grassViewCullBundle: PresetLayoutViewCull
+  private readonly sceneryProjScreenMatrix = new THREE.Matrix4()
+  private readonly sceneryFrustum = new THREE.Frustum()
 
   constructor(host: HTMLElement, options?: PlaygroundRuntimeOptions) {
     this.sceneryMode = options?.scenery === true
-    this.sceneryViewCullBundle = {
+    this.canvas.style.cursor = this.sceneryMode ? 'none' : ''
+    this.controllerConfig.firstPerson = this.sceneryMode
+    this.grassViewCullBundle = {
       cameraWorld: new THREE.Vector3(),
-      radius: PlaygroundRuntime.SCENERY_VIEW_CULL_RADIUS,
-      padding: PlaygroundRuntime.SCENERY_VIEW_CULL_PADDING,
+      radius: this.sceneryMode
+        ? PlaygroundRuntime.SCENERY_GRASS_VIEW_CULL_RADIUS
+        : PlaygroundRuntime.PLAYGROUND_GRASS_VIEW_CULL_RADIUS,
+      padding: PlaygroundRuntime.GRASS_VIEW_CULL_PADDING,
     }
     this.movementBounds = this.sceneryMode ? SCENERY_BOUNDS : PLAYGROUND_BOUNDS
     this.spawnConfig = this.sceneryMode ? SCENERY_SPAWN : PLAYGROUND_SPAWN
@@ -724,7 +730,7 @@ export class PlaygroundRuntime {
     this.grassEffect = createGrassEffect({
       surface: buildGrassStateSurface(DEFAULT_GRASS_FIELD_PARAMS.state),
       seedCursor,
-      initialParams: DEFAULT_GRASS_FIELD_PARAMS,
+      initialParams: this.grassFieldParams,
       terrainRelief: this.sceneryMode ? this.sceneryTerrainRelief : null,
       placementMask: this.sceneryMode
         ? {
@@ -745,7 +751,8 @@ export class PlaygroundRuntime {
         burnRadius: 0.52,
         burnSpreadSpeed: 0.15,
         burnMaxRadius: 5.6,
-        burnRecoveryRate: 0.0036,
+        /** Matches slow laser burns; avoids fast decay if a burn omits per-shot `recoveryRate`. */
+        burnRecoveryRate: 0.00014,
       }
       this.grassEffect.setParams(this.grassFieldParams)
       this.userBandLayoutDensity = 0.66
@@ -759,9 +766,9 @@ export class PlaygroundRuntime {
       this.leafPileParams = {
         ...DEFAULT_LEAF_PILE_BAND_PARAMS,
         ...SCENERY_LEAF_PILE_BURN_PARAMS,
-        layoutDensity: this.userBandLayoutDensity * 0.52,
-        sizeScale: 0.82,
-        bandWidth: 1.7,
+        layoutDensity: this.userBandLayoutDensity * 0.92,
+        sizeScale: 1.38,
+        bandWidth: 2.45,
         edgeSoftness: 1.8,
         season: this.resolvedSceneryFoliageSeason(),
       }
@@ -785,6 +792,8 @@ export class PlaygroundRuntime {
         sizeScale: 1.7,
         heightScale: 1.85,
         crownScale: 1.45,
+        trunkBurnSpreadSpeed: 0,
+        trunkBurnRecoveryRate: 0,
       }
       this.userLogLayoutDensity = 0.26
       this.logFieldParams = {
@@ -807,6 +816,9 @@ export class PlaygroundRuntime {
         layoutDensity: this.userNeedleLayoutDensity,
         sizeScale: 1.3,
       }
+    } else {
+      this.grassFieldParams = { ...this.grassFieldParams, burnRecoveryRate: 0.00015 }
+      this.grassEffect.setParams(this.grassFieldParams)
     }
     this.vergeBandEffect = createBandFieldEffect({
       surface: getPreparedBandSurface(),
@@ -841,6 +853,22 @@ export class PlaygroundRuntime {
               isCrossRoadAsphalt(x, z) &&
               isInsideIntersectionLeafPile(x, z),
             distanceToBandAtXZ: distanceToIntersectionLeafPileAtXZ,
+          },
+    })
+    this.fungusBandEffect = createFungusSeamEffect({
+      surface: getPreparedFungusBandSurface(),
+      seedCursor,
+      initialParams: this.fungusBandParams,
+      placementMask: this.sceneryMode
+        ? {
+            bounds: SCENERY_BOUNDS,
+            includeAtXZ: () => false,
+            distanceToBandAtXZ: () => 1e9,
+          }
+        : {
+            bounds: FUNGUS_SEAM_ZONE,
+            includeAtXZ: isInsideFungusSeamZone,
+            distanceToBandAtXZ: distanceToFungusSeamAtXZ,
           },
     })
     this.rockFieldEffect = createRockFieldEffect({
@@ -1056,17 +1084,21 @@ export class PlaygroundRuntime {
     this.scene.add(this.grassEffect.group)
     this.scene.add(this.vergeBandEffect.group)
     this.scene.add(this.leafPileEffect.group)
+    if (!this.sceneryMode) {
+      this.fungusBandEffect.group.renderOrder = 2
+      this.scene.add(this.fungusBandEffect.group)
+    }
     this.scene.add(this.rockFieldEffect.group)
     this.scene.add(this.shrubFieldEffect.group)
     this.scene.add(this.treeFieldEffect.group)
     this.scene.add(this.logFieldEffect.group)
     this.scene.add(this.stickFieldEffect.group)
     this.scene.add(this.needleLitterEffect.group)
+    this.needleLitterEffect.group.visible = false
     this.scene.add(this.starSkyEffect.group)
     this.scene.add(this.collisionDebugGroup)
     this.scene.add(this.terrainAuthoringDebugGroup)
     if (!this.sceneryMode) {
-      this.scene.add(this.fungusBandEffect.group)
       this.scene.add(this.shutterEffect.group)
       this.scene.add(this.ivyEffect.group)
       for (const effect of this.neonSignEffects) {
@@ -1076,6 +1108,7 @@ export class PlaygroundRuntime {
 
     this.scene.add(this.controller.player.group)
     this.camera.add(this.controller.player.reticle)
+    this.controller.player.setVisualVisible(!this.sceneryMode)
     this.controller.player.setReticleVisible(true)
 
     const makeLaserMat = (hex: number, opacity: number): THREE.MeshBasicMaterial =>
@@ -1128,6 +1161,7 @@ export class PlaygroundRuntime {
     this.canvas.addEventListener('lostpointercapture', this.handleLostPointerCapture)
     this.canvas.addEventListener('wheel', this.handleWheel, { passive: false })
     this.canvas.addEventListener('contextmenu', this.handleContextMenu)
+    document.addEventListener('pointerlockchange', this.handlePointerLockChange)
     window.addEventListener('keydown', this.handleKeyDown)
     window.addEventListener('keyup', this.handleKeyUp)
     window.addEventListener('blur', this.handleWindowBlur)
@@ -1154,10 +1188,14 @@ export class PlaygroundRuntime {
   setGrassFieldParams(params: Partial<GrassFieldParams>): void {
     this.grassFieldParams = { ...this.grassFieldParams, ...params }
     if (params.layoutDensity !== undefined) {
-      this.userGrassLayoutDensity = params.layoutDensity
+      this.userGrassLayoutDensity = THREE.MathUtils.clamp(
+        params.layoutDensity,
+        0,
+        DEMO_GRASS_LAYOUT_DENSITY_MAX,
+      )
     }
     this.grassFieldParams.layoutDensity =
-      this.userGrassLayoutDensity * getQualityGrassLayoutScale(this.quality)
+      this.userGrassLayoutDensity * PLAYGROUND_GRASS_LAYOUT_SCALE
     if (params.state !== undefined) {
       this.grassEffect.setSurface(buildGrassStateSurface(this.grassFieldParams.state))
       this.syncSceneryFoliageStateFromGrass()
@@ -1227,25 +1265,27 @@ export class PlaygroundRuntime {
     if (params.fungusBandWidth !== undefined) {
       this.fungusBandParams.bandWidth = params.fungusBandWidth
     }
-    const scaledDensity = this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
+    const scaledDensity = this.userBandLayoutDensity * PLAYGROUND_GRASS_LAYOUT_SCALE
     this.vergeBandParams.layoutDensity = scaledDensity
-    this.leafPileParams.layoutDensity = scaledDensity * 0.52
-    this.fungusBandParams.layoutDensity = scaledDensity
+    this.leafPileParams.layoutDensity = scaledDensity * 0.92
+    this.fungusBandParams.layoutDensity = scaledDensity * (this.sceneryMode ? 1.05 : 1)
     this.vergeBandEffect.setParams(this.vergeBandParams)
     this.leafPileEffect.setParams(this.leafPileParams)
-    this.fungusBandEffect.setParams(this.fungusBandParams)
+    if (!this.sceneryMode) {
+      this.fungusBandEffect.setParams(this.fungusBandParams)
+      if (params.showFungusBand !== undefined) {
+        this.fungusBandEffect.group.visible = params.showFungusBand
+      }
+      this.fungusBandDirty = true
+    }
     if (params.showVergeBand !== undefined) {
       this.vergeBandEffect.group.visible = params.showVergeBand
     }
     if (params.showLeafPiles !== undefined) {
       this.leafPileEffect.group.visible = params.showLeafPiles
     }
-    if (params.showFungusBand !== undefined) {
-      this.fungusBandEffect.group.visible = params.showFungusBand
-    }
     this.vergeBandDirty = true
     this.leafPileDirty = true
-    this.fungusBandDirty = true
   }
 
   setRockFieldParams(params: Partial<RockFieldParams> & { showRocks?: boolean }): void {
@@ -1254,7 +1294,7 @@ export class PlaygroundRuntime {
       this.userRockLayoutDensity = params.layoutDensity
     }
     this.rockFieldParams.layoutDensity =
-      this.userRockLayoutDensity * getQualityRockLayoutScale(this.quality)
+      this.userRockLayoutDensity * PLAYGROUND_ROCK_LAYOUT_SCALE
     this.rockFieldEffect.setParams(this.rockFieldParams)
     if (params.showRocks !== undefined) {
       this.rockFieldEffect.group.visible = params.showRocks
@@ -1268,7 +1308,7 @@ export class PlaygroundRuntime {
       this.userShrubLayoutDensity = params.layoutDensity
     }
     this.shrubFieldParams.layoutDensity =
-      this.userShrubLayoutDensity * getQualityRockLayoutScale(this.quality)
+      this.userShrubLayoutDensity * PLAYGROUND_ROCK_LAYOUT_SCALE
     this.shrubFieldEffect.setParams(this.shrubFieldParams)
     if (params.showShrubs !== undefined) {
       this.shrubFieldEffect.group.visible = params.showShrubs
@@ -1282,7 +1322,7 @@ export class PlaygroundRuntime {
       this.userTreeLayoutDensity = params.layoutDensity
     }
     this.treeFieldParams.layoutDensity =
-      this.userTreeLayoutDensity * getQualityRockLayoutScale(this.quality)
+      this.userTreeLayoutDensity * PLAYGROUND_ROCK_LAYOUT_SCALE
     this.treeFieldEffect.setParams(this.treeFieldParams)
     if (params.showTrees !== undefined) {
       this.treeFieldEffect.group.visible = params.showTrees
@@ -1296,7 +1336,7 @@ export class PlaygroundRuntime {
       this.userLogLayoutDensity = params.layoutDensity
     }
     this.logFieldParams.layoutDensity =
-      this.userLogLayoutDensity * getQualityRockLayoutScale(this.quality)
+      this.userLogLayoutDensity * PLAYGROUND_ROCK_LAYOUT_SCALE
     this.logFieldEffect.setParams(this.logFieldParams)
     if (params.showLogs !== undefined) {
       this.logFieldEffect.group.visible = params.showLogs
@@ -1310,7 +1350,7 @@ export class PlaygroundRuntime {
       this.userStickLayoutDensity = params.layoutDensity
     }
     this.stickFieldParams.layoutDensity =
-      this.userStickLayoutDensity * getQualityRockLayoutScale(this.quality)
+      this.userStickLayoutDensity * PLAYGROUND_ROCK_LAYOUT_SCALE
     this.stickFieldEffect.setParams(this.stickFieldParams)
     if (params.showSticks !== undefined) {
       this.stickFieldEffect.group.visible = params.showSticks
@@ -1326,7 +1366,7 @@ export class PlaygroundRuntime {
       this.userNeedleLayoutDensity = params.layoutDensity
     }
     this.needleLitterParams.layoutDensity =
-      this.userNeedleLayoutDensity * getQualityGrassLayoutScale(this.quality)
+      this.userNeedleLayoutDensity * PLAYGROUND_GRASS_LAYOUT_SCALE
     this.needleLitterEffect.setParams(this.needleLitterParams)
     if (params.showNeedles !== undefined) {
       this.needleLitterEffect.group.visible = params.showNeedles
@@ -1390,7 +1430,7 @@ export class PlaygroundRuntime {
       this.userStarLayoutDensity = params.layoutDensity
     }
     this.starSkyParams.layoutDensity =
-      this.userStarLayoutDensity * getQualityStarLayoutScale(this.quality)
+      this.userStarLayoutDensity * PLAYGROUND_STAR_LAYOUT_SCALE
     this.starSkyEffect.setParams(this.starSkyParams)
   }
 
@@ -1407,60 +1447,6 @@ export class PlaygroundRuntime {
     if (this.terrainAuthoringDebugGroup.visible) {
       this.updateTerrainAuthoringDebugOverlay()
     }
-  }
-
-  /** Low/Medium/High: DPR cap + scaled grass/star/rock layout density (editor values preserved). */
-  setQuality(quality: PlaygroundQuality): void {
-    this.quality = quality
-    this.grassFieldParams.layoutDensity =
-      this.userGrassLayoutDensity * getQualityGrassLayoutScale(this.quality)
-    this.grassEffect.setParams(this.grassFieldParams)
-    this.vergeBandParams.layoutDensity =
-      this.userBandLayoutDensity * getQualityGrassLayoutScale(this.quality)
-    this.leafPileParams.layoutDensity = this.vergeBandParams.layoutDensity * 0.52
-    this.vergeBandEffect.setParams(this.vergeBandParams)
-    this.leafPileEffect.setParams(this.leafPileParams)
-    if (!this.sceneryMode) {
-      this.fungusBandParams.layoutDensity = this.vergeBandParams.layoutDensity
-      this.fungusBandEffect.setParams(this.fungusBandParams)
-    }
-    this.starSkyParams.layoutDensity =
-      this.userStarLayoutDensity * getQualityStarLayoutScale(this.quality)
-    this.starSkyEffect.setParams(this.starSkyParams)
-    this.vergeBandDirty = true
-    this.leafPileDirty = true
-    this.rockFieldParams.layoutDensity =
-      this.userRockLayoutDensity * getQualityRockLayoutScale(this.quality)
-    this.rockFieldEffect.setParams(this.rockFieldParams)
-    this.rockFieldDirty = true
-    this.shrubFieldParams.layoutDensity =
-      this.userShrubLayoutDensity * getQualityRockLayoutScale(this.quality)
-    this.shrubFieldEffect.setParams(this.shrubFieldParams)
-    this.shrubFieldDirty = true
-    this.treeFieldParams.layoutDensity =
-      this.userTreeLayoutDensity * getQualityRockLayoutScale(this.quality)
-    this.treeFieldEffect.setParams(this.treeFieldParams)
-    this.treeFieldDirty = true
-    this.logFieldParams.layoutDensity =
-      this.userLogLayoutDensity * getQualityRockLayoutScale(this.quality)
-    this.logFieldEffect.setParams(this.logFieldParams)
-    this.logFieldDirty = true
-    this.stickFieldParams.layoutDensity =
-      this.userStickLayoutDensity * getQualityRockLayoutScale(this.quality)
-    this.stickFieldEffect.setParams(this.stickFieldParams)
-    this.stickFieldDirty = true
-    this.needleLitterParams.layoutDensity =
-      this.userNeedleLayoutDensity * getQualityGrassLayoutScale(this.quality)
-    this.needleLitterEffect.setParams(this.needleLitterParams)
-    this.needleLitterDirty = true
-    if (!this.sceneryMode) {
-      this.fungusBandDirty = true
-    }
-    this.resize()
-  }
-
-  getQuality(): PlaygroundQuality {
-    return this.quality
   }
 
   clearFishWounds(): void {
@@ -1554,9 +1540,11 @@ export class PlaygroundRuntime {
     this.canvas.removeEventListener('lostpointercapture', this.handleLostPointerCapture)
     this.canvas.removeEventListener('wheel', this.handleWheel)
     this.canvas.removeEventListener('contextmenu', this.handleContextMenu)
+    document.removeEventListener('pointerlockchange', this.handlePointerLockChange)
     window.removeEventListener('keydown', this.handleKeyDown)
     window.removeEventListener('keyup', this.handleKeyUp)
     window.removeEventListener('blur', this.handleWindowBlur)
+    this.releaseSceneryPointerLock()
     this.scene.remove(this.townGroup)
     this.scene.remove(this.grassEffect.group)
     this.scene.remove(this.vergeBandEffect.group)
@@ -1630,7 +1618,7 @@ export class PlaygroundRuntime {
 
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
-    const cap = getQualityPixelRatioCap(this.quality)
+    const cap = PLAYGROUND_PIXEL_RATIO_CAP
     const pixelRatio = Math.min(window.devicePixelRatio || 1, cap)
     this.renderer.setPixelRatio(pixelRatio)
     this.renderer.setSize(width, height, false)
@@ -1649,7 +1637,15 @@ export class PlaygroundRuntime {
     this.walkStampDistance = 0
     this.pendingJump = false
     this.controller.setSpawn(spawn, this.spawnConfig.yaw, this.spawnConfig.yaw, this.spawnConfig.pitch)
-    this.controllerConfig.cameraDistance = this.zoomDistance
+    if (this.sceneryMode) {
+      this.controllerConfig.firstPerson = true
+      this.controllerConfig.cameraDistance = 0
+      this.controllerConfig.shoulderOffset = 0
+      this.controllerConfig.cameraHeight = PlaygroundRuntime.SCENERY_FIRST_PERSON_CAMERA_HEIGHT
+    } else {
+      this.controllerConfig.firstPerson = false
+      this.controllerConfig.cameraDistance = this.zoomDistance
+    }
     this.activeFrame = this.controller.update(
       this.camera,
       this.syncFrameInput(),
@@ -1671,10 +1667,10 @@ export class PlaygroundRuntime {
         glass.update(elapsed)
       }
     }
-    const viewCullBoot = this.getSceneryViewCullForFrame()
-    this.grassEffect.update(elapsed, viewCullBoot)
+    this.fillGrassViewCullBundle()
+    this.grassEffect.update(elapsed, this.grassViewCullBundle)
     this.vergeBandEffect.update(this.getGroundHeightAtWorld)
-    this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld, viewCullBoot)
+    this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
     if (!this.sceneryMode) {
       this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
     }
@@ -1687,33 +1683,42 @@ export class PlaygroundRuntime {
     this.frameInput.moveLeft = this.inputState.moveLeft
     this.frameInput.moveRight = this.inputState.moveRight
     this.frameInput.sprint = this.inputState.sprint
-    this.frameInput.lookActive = this.inputState.lookActive
+    this.frameInput.lookActive = this.sceneryMode ? this.sceneryPointerLocked : this.inputState.lookActive
     this.frameInput.lookDeltaX = this.inputState.lookDeltaX
     this.frameInput.lookDeltaY = this.inputState.lookDeltaY
     this.frameInput.jump = this.pendingJump
     return this.frameInput
   }
 
-  private getSceneryViewCullForFrame(): PresetLayoutViewCull | undefined {
-    if (!this.sceneryMode) return undefined
-    const cull = this.sceneryViewCullBundle
-    const frame = this.activeFrame
-    const playerPos = frame?.playerPosition ?? this.controller.player.group.position
-    cull.cameraWorld.copy(playerPos)
-    if (frame) {
-      const aimLead = Math.min(
-        PlaygroundRuntime.SCENERY_VIEW_CULL_AIM_LEAD,
-        this.controllerConfig.reticleDistance * 0.35,
-      )
-      cull.cameraWorld.addScaledVector(frame.aimDirection, aimLead)
+  /** Camera-centered disc + frustum for grass in both demos. */
+  private fillGrassViewCullBundle(): void {
+    const grassCull = this.grassViewCullBundle
+    grassCull.cameraWorld.copy(this.camera.position)
+    if (!this.sceneryMode && this.activeFrame) {
+      const frame = this.activeFrame
+      const ax = frame.aimDirection.x
+      const az = frame.aimDirection.z
+      const hLen = Math.hypot(ax, az)
+      if (hLen > 1e-5) {
+        const px = frame.playerPosition.x
+        const pz = frame.playerPosition.z
+        const camToPlayerXZ = Math.hypot(px - this.camera.position.x, pz - this.camera.position.z)
+        const bias = Math.min(
+          PlaygroundRuntime.PLAYGROUND_GRASS_CULL_FORWARD_BIAS_MAX,
+          camToPlayerXZ * 0.7 + 3.5,
+        )
+        grassCull.cameraWorld.x += (ax / hLen) * bias
+        grassCull.cameraWorld.z += (az / hLen) * bias
+      }
     }
-    const cameraSlack = Math.min(
-      PlaygroundRuntime.SCENERY_VIEW_CULL_CAMERA_SLACK,
-      this.camera.position.distanceTo(playerPos),
+    grassCull.radius = this.grassViewCullRadius()
+    grassCull.padding = this.grassViewCullPadding()
+    this.sceneryProjScreenMatrix.multiplyMatrices(
+      this.camera.projectionMatrix,
+      this.camera.matrixWorldInverse,
     )
-    cull.radius = PlaygroundRuntime.SCENERY_VIEW_CULL_RADIUS + cameraSlack
-    cull.padding = PlaygroundRuntime.SCENERY_VIEW_CULL_PADDING + cameraSlack * 0.5
-    return cull
+    this.sceneryFrustum.setFromProjectionMatrix(this.sceneryProjScreenMatrix)
+    grassCull.frustum = this.sceneryFrustum
   }
 
   private getGroundHeightAtWorld = (x: number, z: number): number => {
@@ -1747,33 +1752,13 @@ export class PlaygroundRuntime {
   private rawEffectCadence(
     kind: 'grass' | 'leaf' | 'band' | 'stick' | 'log' | 'needle' | 'tree' | 'fish' | 'neon' | 'sky' | 'glass',
   ): number {
-    switch (this.quality) {
-      case 'low':
-        if (kind === 'grass') return 3
-        if (kind === 'leaf' || kind === 'band') return 3
-        if (kind === 'stick' || kind === 'log') return 3
-        if (kind === 'needle' || kind === 'tree') return 4
-        if (kind === 'sky') return 3
-        if (kind === 'glass') return 3
-        return 2
-      case 'medium':
-        if (kind === 'grass') return 2
-        if (kind === 'leaf' || kind === 'band') return 3
-        if (kind === 'stick' || kind === 'log') return 3
-        if (kind === 'needle' || kind === 'tree') return 3
-        if (kind === 'sky') return 3
-        if (kind === 'glass') return 3
-        return 2
-      case 'high':
-      default:
-        if (kind === 'grass') return 2
-        if (kind === 'leaf' || kind === 'band') return 3
-        if (kind === 'stick' || kind === 'log') return 3
-        if (kind === 'needle' || kind === 'tree') return 3
-        if (kind === 'sky') return 2
-        if (kind === 'glass') return 2
-        return 1
-    }
+    if (kind === 'grass') return 3
+    if (kind === 'leaf' || kind === 'band') return 3
+    if (kind === 'stick' || kind === 'log') return 3
+    if (kind === 'needle' || kind === 'tree') return 4
+    if (kind === 'sky') return 4
+    if (kind === 'glass') return 4
+    return 3
   }
 
   /**
@@ -1815,18 +1800,29 @@ export class PlaygroundRuntime {
   private idleCadenceFor(
     kind: 'grass' | 'leaf' | 'band' | 'stick' | 'log' | 'needle' | 'tree' | 'fish' | 'neon' | 'sky' | 'glass',
   ): number {
-    let n = this.rawEffectCadence(kind)
-    if (this.quality === 'high') {
-      if (kind === 'sky') n = Math.max(n, 3)
-      else if (kind === 'needle' || kind === 'tree') n = Math.max(n, 5)
-      else if (kind === 'leaf' || kind === 'band' || kind === 'stick' || kind === 'log') n = Math.max(n, 4)
-      else n = Math.max(n, 3)
-    }
-    return this.applySceneryOpenFieldCadenceFloor(n, kind)
+    return this.applySceneryOpenFieldCadenceFloor(this.rawEffectCadence(kind), kind)
   }
 
   private shouldRunCadencedUpdate(interval: number, offset: number): boolean {
     return interval <= 1 || this.frameTick % interval === offset % interval
+  }
+
+  private grassViewCullRadius(): number {
+    return this.sceneryMode ? 64 : 42
+  }
+
+  private grassViewCullPadding(): number {
+    return 10
+  }
+
+  private shouldUpdateIdleTownEffect(object: THREE.Object3D, maxVisibleDistance: number, boundsRadius: number): boolean {
+    object.getWorldPosition(this.effectCullWorld)
+    if (this.effectCullWorld.distanceTo(this.camera.position) <= maxVisibleDistance) {
+      return true
+    }
+    this.effectCullSphere.center.copy(this.effectCullWorld)
+    this.effectCullSphere.radius = boundsRadius
+    return this.sceneryFrustum.intersectsSphere(this.effectCullSphere)
   }
 
   private pushPerfWindowSample(sample: PerfWindowSample): void {
@@ -2348,12 +2344,22 @@ export class PlaygroundRuntime {
     if (this.disposed || event.button !== 0) return
     const t = event.target
     if (!(t instanceof Node) || !this.host.contains(t)) return
+    if (this.sceneryMode && !this.sceneryPointerLocked) {
+      this.requestSceneryPointerLock()
+      return
+    }
     this.pendingShoot = true
     this.canvas.focus()
   }
 
   private handlePointerDown = (event: PointerEvent): void => {
     this.canvas.focus()
+    if (this.sceneryMode) {
+      if (!this.sceneryPointerLocked) {
+        this.requestSceneryPointerLock()
+      }
+      return
+    }
     if (event.button === 2) {
       this.inputState.lookActive = true
       this.canvas.setPointerCapture(event.pointerId)
@@ -2361,6 +2367,12 @@ export class PlaygroundRuntime {
   }
 
   private handlePointerMove = (event: PointerEvent): void => {
+    if (this.sceneryMode) {
+      if (!this.sceneryPointerLocked) return
+      this.inputState.lookDeltaX += event.movementX
+      this.inputState.lookDeltaY += event.movementY
+      return
+    }
     if ((event.buttons & 2) === 0 && this.inputState.lookActive) {
       this.releaseLookCapture(event.pointerId)
       return
@@ -2386,6 +2398,9 @@ export class PlaygroundRuntime {
 
   private handleWheel = (event: WheelEvent): void => {
     event.preventDefault()
+    if (this.sceneryMode) {
+      return
+    }
     this.zoomDistance = THREE.MathUtils.clamp(this.zoomDistance + event.deltaY * 0.01, PLAYGROUND_ZOOM.min, PLAYGROUND_ZOOM.max)
   }
 
@@ -2393,7 +2408,19 @@ export class PlaygroundRuntime {
     event.preventDefault()
   }
 
+  private handlePointerLockChange = (): void => {
+    this.sceneryPointerLocked = document.pointerLockElement === this.canvas
+    if (!this.sceneryPointerLocked) {
+      this.inputState.lookDeltaX = 0
+      this.inputState.lookDeltaY = 0
+    }
+  }
+
   private handleKeyDown = (event: KeyboardEvent): void => {
+    if (this.sceneryMode && event.code === 'Escape') {
+      this.releaseSceneryPointerLock()
+      return
+    }
     if (event.code === 'KeyW') this.inputState.moveForward = true
     if (event.code === 'KeyS') this.inputState.moveBackward = true
     if (event.code === 'KeyA') this.inputState.moveLeft = true
@@ -2427,6 +2454,24 @@ export class PlaygroundRuntime {
     this.inputState.lookDeltaY = 0
     this.pendingShoot = false
     this.pendingJump = false
+  }
+
+  private requestSceneryPointerLock(): void {
+    if (!this.sceneryMode || this.sceneryPointerLocked) return
+    this.canvas.focus()
+    const request = this.canvas.requestPointerLock()
+    if (request instanceof Promise) {
+      void request.catch(() => {})
+    }
+  }
+
+  private releaseSceneryPointerLock(): void {
+    if (document.pointerLockElement === this.canvas) {
+      document.exitPointerLock()
+    }
+    this.sceneryPointerLocked = false
+    this.inputState.lookDeltaX = 0
+    this.inputState.lookDeltaY = 0
   }
 
   private releaseLookCapture(pointerId: number): void {
@@ -2542,7 +2587,7 @@ export class PlaygroundRuntime {
           maxRadiusScale: 0.92,
           strength: 0.72,
           mergeRadius: 0.5,
-          recoveryRate: 0.00055,
+          recoveryRate: 0,
         }
       : {
           radiusScale: 0.95,
@@ -2562,17 +2607,17 @@ export class PlaygroundRuntime {
       ? {
           radiusScale: 0.78,
           maxRadiusScale: 0.95,
-          strength: 0.68,
+          strength: 0.72,
           mergeRadius: 0.58,
-          /** Lower than footstep trample `recoveryRate` (0.001) — scorch lingers longer, then regrows. */
-          recoveryRate: 0.00052,
+          /** Lower = slower regrow (`decayRecoveringStrength`); keep well below `burnRecoveryRate` fallback. */
+          recoveryRate: 0.0001,
         }
       : {
           radiusScale: 1.02,
           maxRadiusScale: 1.18,
-          strength: 0.88,
+          strength: 0.92,
           mergeRadius: 0.62,
-          recoveryRate: 0.00064,
+          recoveryRate: 0.00013,
         }
     this.grassEffect.addBurnFromWorldPoint(point, opts)
   }
@@ -2619,6 +2664,7 @@ export class PlaygroundRuntime {
   }
 
   private stampFungusBurn(point: THREE.Vector3): void {
+    if (this.sceneryMode) return
     if (!isInsideFungusSeamZone(point.x, point.z)) return
     const seamDistance = Math.abs(distanceToFungusSeamAtXZ(point.x, point.z))
     const burnReach = this.fungusBandParams.bandWidth * 0.7 + 0.45
@@ -2940,7 +2986,7 @@ export class PlaygroundRuntime {
       }
     }
 
-    const sceneryViewCull = this.getSceneryViewCullForFrame()
+    this.fillGrassViewCullBundle()
     const tEffects0 = now()
     const tPlayer0 = now()
     this.controller.player.update(delta, this.getPlayerAnimationState(this.activeFrame))
@@ -2969,17 +3015,30 @@ export class PlaygroundRuntime {
     let ranNeon = false
 
     if (!this.sceneryMode) {
-      const fishCadence =
-        this.shutterEffect.hasWounds() || this.ivyEffect.hasWounds()
-          ? this.cadenceFor('fish')
-          : this.idleCadenceFor('fish')
-      if (this.shouldRunCadencedUpdate(fishCadence, 0)) {
+      const shutterHasWounds = this.shutterEffect.hasWounds()
+      const ivyHasWounds = this.ivyEffect.hasWounds()
+      const fishCadence = shutterHasWounds || ivyHasWounds ? this.cadenceFor('fish') : this.idleCadenceFor('fish')
+      const shouldUpdateShutter =
+        shutterHasWounds ||
+        this.shouldUpdateIdleTownEffect(
+          this.shutterEffect.group,
+          PlaygroundRuntime.PLAYGROUND_FACADE_IDLE_VISIBLE_DISTANCE,
+          Math.max(SHUTTER_WALL_LAYOUT.wallWidth, SHUTTER_WALL_LAYOUT.wallHeight) * 0.6,
+        )
+      const shouldUpdateIvy =
+        ivyHasWounds ||
+        this.shouldUpdateIdleTownEffect(
+          this.ivyEffect.group,
+          PlaygroundRuntime.PLAYGROUND_FACADE_IDLE_VISIBLE_DISTANCE,
+          Math.max(IVY_WALL_LAYOUT.wallWidth, IVY_WALL_LAYOUT.wallHeight) * 0.6,
+        )
+      if (shouldUpdateShutter && this.shouldRunCadencedUpdate(fishCadence, 0)) {
         const tShutter0 = now()
         this.shutterEffect.update(elapsed)
         shutterCpuMs = now() - tShutter0
         ranShutter = true
       }
-      if (this.shouldRunCadencedUpdate(fishCadence, 1)) {
+      if (shouldUpdateIvy && this.shouldRunCadencedUpdate(fishCadence, 1)) {
         const tIvy0 = now()
         this.ivyEffect.update(elapsed)
         ivyCpuMs = now() - tIvy0
@@ -2989,7 +3048,14 @@ export class PlaygroundRuntime {
       const glassIdleCadence = this.idleCadenceFor('glass')
       for (let i = 0; i < this.lampEffects.length; i++) {
         const lamp = this.lampEffects[i]!
-        if (lamp.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
+        const shouldUpdateLamp =
+          lamp.needsActiveRefresh() ||
+          this.shouldUpdateIdleTownEffect(
+            lamp.group,
+            PlaygroundRuntime.PLAYGROUND_GLASS_IDLE_VISIBLE_DISTANCE,
+            1.1,
+          )
+        if (shouldUpdateLamp && this.shouldRunCadencedUpdate(glassIdleCadence, i)) {
           lamp.update(elapsed)
           ranGlass = true
         }
@@ -3000,7 +3066,14 @@ export class PlaygroundRuntime {
       for (let i = 0; i < this.windowGlassEffects.length; i++) {
         const glass = this.windowGlassEffects[i]!
         const idleOffset = glassIdleOffsetBase + i
-        if (glass.needsActiveRefresh() || this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
+        const shouldUpdateGlass =
+          glass.needsActiveRefresh() ||
+          this.shouldUpdateIdleTownEffect(
+            glass.group,
+            PlaygroundRuntime.PLAYGROUND_GLASS_IDLE_VISIBLE_DISTANCE,
+            1.25,
+          )
+        if (shouldUpdateGlass && this.shouldRunCadencedUpdate(glassIdleCadence, idleOffset)) {
           glass.update(elapsed)
           ranGlass = true
         }
@@ -3021,7 +3094,14 @@ export class PlaygroundRuntime {
           const tNeon0 = now()
           for (let i = 0; i < this.neonSignEffects.length; i++) {
             const effect = this.neonSignEffects[i]!
-            if (effect.hasWounds() || this.shouldRunCadencedUpdate(neonCadence, i)) {
+            const shouldUpdateNeon =
+              effect.hasWounds() ||
+              this.shouldUpdateIdleTownEffect(
+                effect.group,
+                PlaygroundRuntime.PLAYGROUND_NEON_IDLE_VISIBLE_DISTANCE,
+                Math.max(NEON_BARRIERS[i]!.wallWidth, NEON_BARRIERS[i]!.wallHeight) * 0.6,
+              )
+            if (shouldUpdateNeon && this.shouldRunCadencedUpdate(neonCadence, i)) {
               effect.update(elapsed)
               ranNeon = true
             }
@@ -3044,23 +3124,24 @@ export class PlaygroundRuntime {
     const leafCadence = leafHasDisturbances ? this.cadenceFor('leaf') : this.idleCadenceFor('leaf')
     if ((leafHasBurns || leafHasDisturbances || this.leafPileDirty) && this.shouldRunCadencedUpdate(leafCadence, 0)) {
       const tLeaf0 = now()
-      this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld, sceneryViewCull)
+      this.leafPileEffect.update(elapsed, this.getGroundHeightAtWorld)
       leafCpuMs = now() - tLeaf0
       this.leafPileDirty = this.leafPileEffect.hasBurns() || this.leafPileEffect.hasDisturbances()
       ranBand = true
     }
-    const fungusBandHasBurns = this.fungusBandEffect.hasBurns()
-    const fungusBandCadence = fungusBandHasBurns ? this.cadenceFor('band') : this.idleCadenceFor('band')
-    if (
-      !this.sceneryMode &&
-      (fungusBandHasBurns || this.fungusBandDirty) &&
-      this.shouldRunCadencedUpdate(fungusBandCadence, 2)
-    ) {
-      const tFungus0 = now()
-      this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
-      fungusCpuMs = now() - tFungus0
-      this.fungusBandDirty = this.fungusBandEffect.hasBurns()
-      ranBand = true
+    if (!this.sceneryMode) {
+      const fungusBandHasBurns = this.fungusBandEffect.hasBurns()
+      const fungusBandCadence = fungusBandHasBurns ? this.cadenceFor('band') : this.idleCadenceFor('band')
+      if (
+        (fungusBandHasBurns || this.fungusBandDirty) &&
+        this.shouldRunCadencedUpdate(fungusBandCadence, 2)
+      ) {
+        const tFungus0 = now()
+        this.fungusBandEffect.update(elapsed, this.getGroundHeightAtWorld)
+        fungusCpuMs = now() - tFungus0
+        this.fungusBandDirty = this.fungusBandEffect.hasBurns()
+        ranBand = true
+      }
     }
     bandCpuMs = vergeCpuMs + leafCpuMs + fungusCpuMs
     const tRock0 = now()
@@ -3080,13 +3161,13 @@ export class PlaygroundRuntime {
       this.treeFieldDirty ||
       (treeHasBurns && this.shouldRunCadencedUpdate(treeCadence, treeHasBurns ? 0 : 2))
     ) {
-      this.treeFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
-      this.treeFieldDirty = treeHasBurns
+      this.treeFieldEffect.update(elapsed, this.getGroundHeightAtWorld, this.treeFieldDirty)
+      this.treeFieldDirty = false
     }
     const tLog0 = now()
     const logHasMotion = this.logFieldEffect.hasMotion()
     if ((logHasMotion || this.logFieldDirty) && this.shouldRunCadencedUpdate(this.cadenceFor('log'), 3)) {
-      this.logFieldEffect.update(elapsed, this.getGroundHeightAtWorld, sceneryViewCull)
+      this.logFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
       this.logFieldDirty = this.logFieldEffect.hasMotion()
       ranLog = true
     }
@@ -3094,7 +3175,7 @@ export class PlaygroundRuntime {
     const tStick0 = now()
     const stickHasMotion = this.stickFieldEffect.hasMotion()
     if ((stickHasMotion || this.stickFieldDirty) && this.shouldRunCadencedUpdate(this.cadenceFor('stick'), 1)) {
-      this.stickFieldEffect.update(elapsed, this.getGroundHeightAtWorld, sceneryViewCull)
+      this.stickFieldEffect.update(elapsed, this.getGroundHeightAtWorld)
       this.stickFieldDirty = this.stickFieldEffect.hasMotion()
       ranStick = true
     }
@@ -3103,7 +3184,7 @@ export class PlaygroundRuntime {
     const needleHasBurns = this.needleLitterEffect.hasBurns()
     const needleCadence = needleHasBurns ? this.cadenceFor('needle') : this.idleCadenceFor('needle')
     if ((needleHasBurns || this.needleLitterDirty) && this.shouldRunCadencedUpdate(needleCadence, 0)) {
-      this.needleLitterEffect.update(elapsed, this.getGroundHeightAtWorld, sceneryViewCull)
+      this.needleLitterEffect.update(elapsed, this.getGroundHeightAtWorld)
       this.needleLitterDirty = this.needleLitterEffect.hasBurns()
       ranNeedles = true
     }
@@ -3118,7 +3199,7 @@ export class PlaygroundRuntime {
       : this.idleCadenceFor('grass')
     if (this.shouldRunCadencedUpdate(grassCadence, 1)) {
       const tGrass0 = now()
-      this.grassEffect.update(elapsed, sceneryViewCull)
+      this.grassEffect.update(elapsed, this.grassViewCullBundle)
       grassCpuMs = now() - tGrass0
       ranGrass = true
     }
@@ -3253,17 +3334,19 @@ export class PlaygroundRuntime {
   private updateCameraProfile(delta: number): void {
     if (this.sceneryMode) {
       this.indoorCameraBlend = 0
-      this.controllerConfig.cameraDistance = this.zoomDistance
-      this.controllerConfig.shoulderOffset = PLAYGROUND_CONTROLLER.shoulderOffset
-      this.controllerConfig.cameraHeight = PLAYGROUND_CONTROLLER.cameraHeight
+      this.controllerConfig.firstPerson = true
+      this.controllerConfig.cameraDistance = 0
+      this.controllerConfig.shoulderOffset = 0
+      this.controllerConfig.cameraHeight = PlaygroundRuntime.SCENERY_FIRST_PERSON_CAMERA_HEIGHT
       this.controllerConfig.cameraFollowLerp = PLAYGROUND_CONTROLLER.cameraFollowLerp
-      const targetFov = PlaygroundRuntime.OUTDOOR_FOV
+      const targetFov = PlaygroundRuntime.SCENERY_FIRST_PERSON_FOV
       if (Math.abs(this.camera.fov - targetFov) > 0.01) {
         this.camera.fov = targetFov
         this.camera.updateProjectionMatrix()
       }
       return
     }
+    this.controllerConfig.firstPerson = false
     const playerPos = this.activeFrame?.playerPosition ?? this.controller.player.group.position
     const isIndoor = isInsideBuildingInterior(playerPos.x, playerPos.z)
     if (delta <= 0) {

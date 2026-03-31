@@ -24,6 +24,7 @@ export type ThirdPersonControllerConfig = {
   shoulderOffset: number
   reticleDistance: number
   cameraFollowLerp: number
+  firstPerson?: boolean
 }
 
 export type ThirdPersonControllerInput = {
@@ -165,6 +166,10 @@ export class PlayerActor {
 
   setReticleVisible(visible: boolean): void {
     this.reticle.visible = visible
+  }
+
+  setVisualVisible(visible: boolean): void {
+    this.visualRoot.visible = visible
   }
 
   dispose(): void {
@@ -379,6 +384,7 @@ export class ThirdPersonController {
     delta: number,
     resolveHorizontalMove?: ResolveHorizontalMove,
   ): ThirdPersonControllerFrame {
+    const isFirstPerson = config.firstPerson === true
     if (input.lookActive) {
       this.cameraYaw += input.lookDeltaX * config.lookYawSpeed
       this.cameraPitch = THREE.MathUtils.clamp(
@@ -465,6 +471,7 @@ export class ThirdPersonController {
     }
 
     this.player.setPose(this.position, this.yaw)
+    this.player.setVisualVisible(!isFirstPerson)
 
     const pitchCos = Math.cos(this.cameraPitch)
     this.frame.aimDirection.set(
@@ -475,13 +482,17 @@ export class ThirdPersonController {
     this.frame.aimDirection.normalize()
 
     this.frame.aimOrigin.copy(this.position)
-    this.frame.aimOrigin.y += config.cameraHeight * 0.84
+    this.frame.aimOrigin.y += isFirstPerson ? config.cameraHeight : config.cameraHeight * 0.84
 
-    tmpShoulder.set(Math.cos(this.cameraYaw), 0, Math.sin(this.cameraYaw)).multiplyScalar(config.shoulderOffset)
-    tmpDesiredCamera.copy(this.position)
-    tmpDesiredCamera.y += config.cameraHeight
-    tmpDesiredCamera.add(tmpShoulder)
-    tmpDesiredCamera.addScaledVector(this.frame.aimDirection, -config.cameraDistance)
+    if (isFirstPerson) {
+      tmpDesiredCamera.copy(this.frame.aimOrigin)
+    } else {
+      tmpShoulder.set(Math.cos(this.cameraYaw), 0, Math.sin(this.cameraYaw)).multiplyScalar(config.shoulderOffset)
+      tmpDesiredCamera.copy(this.position)
+      tmpDesiredCamera.y += config.cameraHeight
+      tmpDesiredCamera.add(tmpShoulder)
+      tmpDesiredCamera.addScaledVector(this.frame.aimDirection, -config.cameraDistance)
+    }
     tmpCameraGroundProbe.copy(tmpDesiredCamera)
     tmpDesiredCamera.y = Math.max(
       tmpDesiredCamera.y,
@@ -498,9 +509,11 @@ export class ThirdPersonController {
       camera.position.y,
       groundHeightAt(camera.position.x, camera.position.z) + CAMERA_GROUND_CLEARANCE,
     )
-    tmpLookTarget.copy(this.position)
-    tmpLookTarget.y += config.cameraHeight * 0.86
-    tmpLookTarget.addScaledVector(this.frame.aimDirection, config.reticleDistance * 0.42)
+    tmpLookTarget.copy(camera.position)
+    tmpLookTarget.addScaledVector(
+      this.frame.aimDirection,
+      isFirstPerson ? config.reticleDistance : config.reticleDistance * 0.42,
+    )
     camera.lookAt(tmpLookTarget)
 
     this.frame.movedDistance = movedDistance

@@ -27,7 +27,7 @@ Why it fits:
 
 ### Mesh-Cling Patch
 
-Good for moss, barnacles, scorch bloom, corruption, frost, and shell growth on arbitrary props or architecture.
+Good for moss, barnacles, heat bloom, corruption, frost, and shell growth on arbitrary props or architecture.
 
 Why it fits:
 

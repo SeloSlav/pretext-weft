@@ -13,7 +13,11 @@ import {
   type LogTokenMeta,
 } from './logFieldSource'
 import { createBarkGrainTexture, warmBarkColor } from './barkShared'
-import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
+import {
+  shouldVisitSlotForViewCull,
+  type PresetLayoutViewCull,
+  type PresetLayoutViewCullFrustumContext,
+} from './presetLayoutCull'
 
 export type LogFieldParams = {
   layoutDensity: number
@@ -81,8 +85,8 @@ const tmpBaseQuat = new THREE.Quaternion()
 const tmpSpinQuat = new THREE.Quaternion()
 const worldUp = new THREE.Vector3(0, 1, 0)
 const tmpLocalPoint = new THREE.Vector3()
+const tmpLogColor = new THREE.Color()
 
-const tmpColor = new THREE.Color()
 const dummy = new THREE.Object3D()
 
 type LogMotionState = {
@@ -143,10 +147,6 @@ const logOrganicWorldField = createWorldField(977, {
   contrast: 1.08,
 })
 
-function logColor(identity: number, noise: number, meta: LogTokenMeta): THREE.Color {
-  return warmBarkColor(identity, noise, meta.warmth, tmpColor)
-}
-
 /** Keep in sync with `makeLogGeometry` radial args; hull refinement and support use this. */
 const LOG_CYLINDER_LOCAL_RADIUS_MAX = 0.58
 const LOG_CYLINDER_HALF_HEIGHT = 0.5
@@ -180,6 +180,7 @@ export class LogFieldEffect {
   private readonly fieldCenterZ: number
   private layoutDriver: SurfaceLayoutDriver<LogTokenId, LogTokenMeta>
   private readonly motionStates = new Map<string, LogMotionState>()
+  private readonly tmpViewCullBox = new THREE.Box3()
   private readonly pendingImpulses: PendingLogImpulse[] = []
   private params: LogFieldParams
   private lastElapsed = 0
@@ -266,13 +267,21 @@ export class LogFieldEffect {
     let instanceIndex = 0
     const visitedKeys = new Set<string>()
 
+    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
+      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
+      : undefined
+
+    if (viewCull?.frustum) {
+      this.group.updateMatrixWorld(true)
+    }
+
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
       shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
         : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(
@@ -294,7 +303,6 @@ export class LogFieldEffect {
       }
     }
     this.pendingImpulses.length = 0
-
     this.logMesh.count = instanceIndex
     this.logMesh.instanceMatrix.needsUpdate = true
     if (this.logMesh.instanceColor) {
@@ -653,7 +661,8 @@ export class LogFieldEffect {
       dummy.scale.set(radius, length, depthScale)
       dummy.updateMatrix()
       this.logMesh.setMatrixAt(instanceIndex, dummy.matrix)
-      this.logMesh.setColorAt(instanceIndex, logColor(identity, noise, meta))
+      warmBarkColor(identity, noise, meta.warmth, tmpLogColor)
+      this.logMesh.setColorAt(instanceIndex, tmpLogColor)
       instanceIndex++
     }
 

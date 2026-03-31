@@ -39,14 +39,14 @@ export default function App() {
             className={`site-nav__link${page === 'editor' ? ' site-nav__link--active' : ''}`}
             onClick={() => setPage('editor')}
           >
-            Playground
+            Third person
           </button>
           <button
             type="button"
             className={`site-nav__link${page === 'scenery' ? ' site-nav__link--active' : ''}`}
             onClick={() => setPage('scenery')}
           >
-            Scenery
+            First person
           </button>
         </nav>
 
@@ -56,7 +56,7 @@ export default function App() {
             className="btn btn--primary site-nav__cta"
             onClick={() => setPage('editor')}
           >
-            Enter playground
+            Enter third person demo
           </button>
         </div>
       </header>

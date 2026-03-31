@@ -13,7 +13,11 @@ import {
   type NeedleLitterTokenId,
   type NeedleLitterTokenMeta,
 } from './needleLitterFieldSource'
-import { shouldVisitSlotForViewCull, type PresetLayoutViewCull } from './presetLayoutCull'
+import {
+  shouldVisitSlotForViewCull,
+  type PresetLayoutViewCull,
+  type PresetLayoutViewCullFrustumContext,
+} from './presetLayoutCull'
 
 export type NeedleLitterFieldParams = {
   layoutDensity: number
@@ -153,6 +157,7 @@ export class NeedleLitterFieldEffect {
   private readonly fieldCenterZ: number
   private readonly layoutDriver: SurfaceLayoutDriver<NeedleLitterTokenId, NeedleLitterTokenMeta>
   private readonly burns: NeedleBurn[] = []
+  private readonly tmpViewCullBox = new THREE.Box3()
   private params: NeedleLitterFieldParams
   private lastElapsed = 0
 
@@ -302,13 +307,21 @@ export class NeedleLitterFieldEffect {
     const backZ = this.fieldDepth * 0.48
     let instanceIndex = 0
 
+    const frustumCtx: PresetLayoutViewCullFrustumContext | undefined = viewCull
+      ? { group: this.group, tmpBox: this.tmpViewCullBox, rowThickness: rowStep * 0.55 }
+      : undefined
+
+    if (viewCull?.frustum) {
+      this.group.updateMatrixWorld(true)
+    }
+
     this.layoutDriver.forEachLaidOutLine({
       spanMin: -this.fieldWidth * 0.5,
       spanMax: this.fieldWidth * 0.5,
       lineCoordAtRow: (row) => backZ - row * rowStep,
       getMaxWidth: (slot) => this.getSlotMaxWidth(slot),
       shouldVisitSlot: viewCull
-        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull)
+        ? (slot) => shouldVisitSlotForViewCull(slot, this.fieldCenterX, this.fieldCenterZ, viewCull, frustumCtx)
         : undefined,
       onLine: ({ slot, resolvedGlyphs, tokenLineKey }) => {
         instanceIndex = this.projectLine(slot, resolvedGlyphs, tokenLineKey, rowStep, getGroundHeight, instanceIndex)
